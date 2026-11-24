@@ -919,3 +919,15 @@ func TestTextIndentInherits(t *testing.T) {
 		t.Fatalf("inherited text-indent shifted the line by %d, want 20000", got)
 	}
 }
+
+func TestPreformattedTextDoesNotWrap(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="white-space:pre;width:20pt;margin:0">A B C D E F</p>`)
+	baselines := map[int32]bool{}
+	for _, op := range textOps(doc) {
+		baselines[op.Y] = true
+	}
+	if len(baselines) != 1 {
+		t.Fatalf("preformatted text produced %d baselines, want one line", len(baselines))
+	}
+}

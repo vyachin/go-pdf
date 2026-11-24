@@ -238,7 +238,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				l.diags.Errorf("text/glyph", diag.Position{}, "", "%v", err)
 				continue
 			}
-			if len(cur.Items) > 0 && x+run.Width > width {
+			// Preformatted text wraps only on explicit line feeds; it may
+			// overflow the content box instead.
+			if len(cur.Items) > 0 && x+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
 				flush(false)
 				firstLine = false
 			}
