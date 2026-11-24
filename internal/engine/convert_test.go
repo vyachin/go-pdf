@@ -1542,3 +1542,36 @@ func TestDecomposedCyrillicComposes(t *testing.T) {
 		t.Fatalf("text layer = %q (%d runes), want %q", text, len([]rune(text)), want)
 	}
 }
+
+// TestStyleMediaAttributeIsHonored guards RV2-14: the media attribute of a
+// <style> element was ignored, so a screen-only stylesheet was applied to print
+// and could hide content that the document shows on paper.
+func TestStyleMediaAttributeIsHonored(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"screen sheet is ignored", `<style media="screen">p { display: none }</style><p>VISIBLE</p>`, "VISIBLE"},
+		{"print sheet applies", `<style media="print">p { display: none }</style><p>VISIBLE</p>`, ""},
+		{"no media applies", `<style>p { display: none }</style><p>VISIBLE</p>`, ""},
+		{"media list applies when it names print", `<style media="screen, print">p { display: none }</style><p>VISIBLE</p>`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Convert(context.Background(), []byte(tc.src), Options{
+				FallbackFont: testFontPath(t), File: "media.html",
+			})
+			if err != nil {
+				t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+			}
+			text, err := pdfdebug.Text(res.PDF)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if text != tc.want {
+				t.Fatalf("text = %q, want %q", text, tc.want)
+			}
+		})
+	}
+}

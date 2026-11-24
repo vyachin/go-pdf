@@ -94,7 +94,7 @@
   **Воспроизведение:** `go run ./testdata/probe/css-html-7/main.go`: `<div style="width:100mm;height:10mm;margin:0 auto;background-color:#ff0000">A</div>` → `Validate: err=nil, diags=[]`, красный прямоугольник в PNG x=0..377 при ширине страницы 793 px; ожидается центрирование (208..585) либо ошибка профиля.
   **Исправление / приёмка:** либо центрировать блок при `auto`, либо отклонять `auto` для margin/padding/text-indent/line-height с `css/unsupported-value`. Приёмка: тест валидации и/или геометрии (левая граница = (страница − 100 мм)/2).
 
-- [ ] **RV2-14 · P2: учитывать атрибут `media` у `<style>`.**
+- [x] **RV2-14 · P2: учитывать атрибут `media` у `<style>`.**
 
   **Код:** [internal/profile/styles.go:129](/Users/vyachin/Projects/go-pdf/internal/profile/styles.go:129): media обрабатывается только у `<link>`, у `<style>` атрибут игнорируется.
   **Воспроизведение:** `go run ./testdata/probe/css-html-4/main.go`: `<style media="screen">p{display:none}</style><p>VISIBLE</p>` → текст пуст, то есть экранная таблица применена к печати. `<style media="print">` ведёт себя так же, как без media.

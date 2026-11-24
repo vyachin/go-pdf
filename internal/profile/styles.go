@@ -61,6 +61,9 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 		if n.Type == html.ElementNode {
 			switch n.Tag {
 			case "style":
+				if !mediaAppliesToPrint(n) {
+					return
+				}
 				base := n.Start
 				if len(n.Children) > 0 && n.Children[0].Type == html.TextNode {
 					base = n.Children[0].Start
@@ -126,6 +129,21 @@ func asLinkError(err error, target **linkError) bool {
 	return errors.As(err, target)
 }
 
+// mediaAppliesToPrint reports whether a style or link element applies to
+// print. A missing attribute, "print" and "all" apply; a list applies when any
+// of its entries does; anything else belongs to another medium and is skipped
+// without an error, the same way a browser skips it for print.
+func mediaAppliesToPrint(n *html.Node) bool {
+	media, _ := n.Attr("media")
+	for _, part := range strings.Split(media, ",") {
+		switch strings.ToLower(strings.TrimSpace(part)) {
+		case "", "print", "all":
+			return true
+		}
+	}
+	return false
+}
+
 // loadStylesheet resolves one link element. A non stylesheet rel, or a media
 // query that does not apply to print, returns nil without an error.
 func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Root) (*css.Stylesheet, error) {
@@ -133,10 +151,7 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 	if !strings.EqualFold(strings.TrimSpace(rel), "stylesheet") {
 		return nil, nil
 	}
-	media, _ := n.Attr("media")
-	switch strings.ToLower(strings.TrimSpace(media)) {
-	case "", "print", "all":
-	default:
+	if !mediaAppliesToPrint(n) {
 		return nil, nil
 	}
 	href, _ := n.Attr("href")
