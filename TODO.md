@@ -168,7 +168,7 @@
   **Воспроизведение:** `<p style="width:35pt">ab<span>cd</span>ef</p>` разрывает единственное слово `abcdef`: ab и ef получают baselines **67832** и **82232 mp**. Каждый текстовый узел превращается в отдельный wordPiece, а перед каждым таким piece разрешён wrap.
   **Исправление / приёмка:** хранить разрешённые точки разрыва отдельно от границ style/text run. Inline-граница без пробела или дефиса не должна добавлять новую точку переноса; при смене начертания сохранить несколько glyph runs в одном слове.
 
-- [ ] **REV-26 · P2: не вычитать `text-indent` дважды при выравнивании.**
+- [x] **REV-26 · P2: не вычитать `text-indent` дважды при выравнивании.**
 
   **Код:** [internal/layout/lines.go:202](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:202), `ensureIndent`; [internal/layout/paint.go:77](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:77), `paintLineAt`.
   **Воспроизведение:** при `width:200pt;text-align:right` добавление `text-indent:20pt` сдвигает AAA **на 20000 mp влево**, хотя правая граница должна остаться общей. Natural уже включает indent, затем painter повторно уменьшает доступную ширину.

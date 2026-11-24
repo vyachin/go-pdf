@@ -197,7 +197,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	canWrap := false
 	firstLine := true
 	ensureIndent := func() {
-		if firstLine && len(lines) == 0 && indent > 0 {
+		if firstLine && len(lines) == 0 && indent != 0 {
 			cur.Indent = indent
 			x = indent
 		}

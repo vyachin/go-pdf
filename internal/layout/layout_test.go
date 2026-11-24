@@ -725,3 +725,45 @@ func TestInlineBorderIsNotALineBreak(t *testing.T) {
 		t.Fatal("a space no longer creates a break opportunity")
 	}
 }
+
+func TestTextIndentDoesNotShiftAlignment(t *testing.T) {
+	h := newHarness(t)
+	rightEdge := func(doc *Document) int32 {
+		var edge int32 = -1
+		for _, op := range doc.Pages[0].Ops {
+			if op.Kind == TextOpKind && op.Text != nil && len(op.Text.Run.Glyphs) > 0 {
+				edge = op.Text.X + op.Text.Run.Width
+			}
+		}
+		return edge
+	}
+	rightPlain := h.run(`<p style="width:200pt;text-align:right;margin:0">AAA</p>`)
+	rightIndented := h.run(`<p style="width:200pt;text-align:right;margin:0;text-indent:20pt">AAA</p>`)
+	if rightEdge(rightPlain) != rightEdge(rightIndented) {
+		t.Fatalf("text-indent moved the right edge from %d to %d", rightEdge(rightPlain), rightEdge(rightIndented))
+	}
+
+	center := func(doc *Document) int32 {
+		var c int32
+		for _, op := range doc.Pages[0].Ops {
+			if op.Kind == TextOpKind && op.Text != nil {
+				c = op.Text.X + op.Text.Run.Width/2
+			}
+		}
+		return c
+	}
+	plain := h.run(`<p style="width:200pt;text-align:center;margin:0">AAA</p>`)
+	indented := h.run(`<p style="width:200pt;text-align:center;margin:0;text-indent:20pt">AAA</p>`)
+	// Centring uses the space left after the indent, so the centre follows by
+	// half of the indent; the indent itself is not counted twice.
+	if got, want := center(indented)-center(plain), int32(10000); got != want {
+		t.Fatalf("text-indent moved the centre by %d, want %d", got, want)
+	}
+
+	// A negative indent hangs the first line to the left but keeps the right
+	// edge of a right-aligned block.
+	negative := h.run(`<p style="width:200pt;text-align:right;margin:0;text-indent:-20pt">AAA</p>`)
+	if rightEdge(negative) != rightEdge(rightPlain) {
+		t.Fatalf("negative indent moved the right edge to %d, want %d", rightEdge(negative), rightEdge(rightPlain))
+	}
+}

@@ -82,8 +82,10 @@ func insertOps(dst []Op, at int, ops []Op) []Op {
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
 	st := b.Style
 	x += line.Indent
-	avail := width - line.Indent
-	extra := avail - line.Natural
+	// Natural already contains the indent, so the free space is measured from
+	// the full content width. Subtracting the indent again shifted every
+	// right-aligned and centred line that had a text-indent.
+	extra := width - line.Natural
 	if extra < 0 {
 		extra = 0
 	}
