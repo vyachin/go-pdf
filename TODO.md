@@ -130,7 +130,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-6/main.go`: `<a href="#fig">Figure page </a><p><img id="fig" src="fig.png" style="width:20pt;height:20pt"></p>` → `anchors=map[]`, текст `"Figure page 0"`, `warning[pagination/unknown-target]`; блочная картинка якорь регистрирует.
   **Исправление / приёмка:** учитывать `id` в imagePiece как в текстовой ветке. Приёмка: `anchors["fig"].Page==1`, текст `"Figure page 1"`, нет unknown-target; проверить `<img id>` внутри `span` и рядом с текстом.
 
-- [ ] **RV2-20 · P2: проверять переполнение при сложении длин геометрии.**
+- [x] **RV2-20 · P2: проверять переполнение при сложении длин геометрии.**
 
   **Код:** суммы margin/размеров в `internal/layout` приводятся к `int32` без проверки; пример — `placeBlock`/`measure` в [internal/layout/paginate.go](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go).
   **Воспроизведение:** `go run ./testdata/probe/layout-8/main.go`: два блока `margin-top:2000000pt` → Y второго run = **−294931757 mp**, диагностик нет.

@@ -1423,3 +1423,44 @@ func TestInlineImageAnchorIsRegistered(t *testing.T) {
 		t.Fatalf("the image anchor points at page %d, want 1", anchor.Page)
 	}
 }
+
+// TestHugeMarginsDoNotWrapTheCursor guards RV2-20: two margins at the maximum
+// accepted length overflowed the int32 cursor, so the following paragraph was
+// painted at a negative Y with no diagnostic.
+func TestHugeMarginsDoNotWrapTheCursor(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	doc, diags := h.runRaw(`<style>
+		@page { size: 200pt 200pt; margin: 10pt }
+		p { margin: 0 }
+		div { margin: 0 0 2000000pt 0 }
+	</style><p>TOP</p><div></div><div></div><p>AFTER</p>`, size, margin)
+	if len(diags.Lines()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags.Lines())
+	}
+	var afterPage int
+	var afterY int32
+	for _, page := range doc.Pages {
+		for _, op := range page.Ops {
+			if op.Kind != TextOpKind || op.Text == nil {
+				continue
+			}
+			if op.Text.Y < 0 {
+				t.Fatalf("a run was placed at Y=%d", op.Text.Y)
+			}
+			for _, g := range op.Text.Run.Glyphs {
+				if g.Rune == 'A' && op.Text.X == 10000 {
+					afterPage = page.Number
+					afterY = op.Text.Y
+				}
+			}
+		}
+	}
+	if afterPage == 0 {
+		t.Fatal("the paragraph after the huge margins was not placed")
+	}
+	if afterPage == 1 && afterY > 150000 {
+		t.Fatalf("the paragraph after the huge margins was painted below the page at Y=%d", afterY)
+	}
+}

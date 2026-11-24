@@ -178,7 +178,7 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			continue
 		}
 		h := t.rowHeights[t.cursor.row]
-		if f.y+h > f.bottom {
+		if int64(f.y)+int64(h) > int64(f.bottom) {
 			// A new page only helps when the row fits there, and a continuation
 			// page first repeats the header rows. When the row is larger than
 			// that space too, breaking pages can never place it: clip it once
@@ -196,7 +196,7 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			}
 		}
 		l.paintRow(f, t, t.cursor.row)
-		f.y += h
+		f.y = satAdd(f.y, h)
 		t.cursor.row++
 	}
 	return true
@@ -209,7 +209,7 @@ func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
 		return false
 	}
 	for i := 0; i < t.headerCount; i++ {
-		f.y += l.paintRow(f, t, i)
+		f.y = satAdd(f.y, l.paintRow(f, t, i))
 		f.empty = false
 	}
 	return true

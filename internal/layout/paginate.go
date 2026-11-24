@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"math"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/css"
@@ -221,11 +222,11 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 			}
 			f.pending = 0
 			if !f.empty {
-				f.y += mt
+				f.y = satAdd(f.y, mt)
 			}
 		}
 		if st.BreakInside == css.BreakAvoid && !f.empty {
-			if h := l.measure(b, width); f.y+h > f.bottom {
+			if h := l.measure(b, width); int64(f.y)+int64(h) > int64(f.bottom) {
 				f.newPage()
 			}
 		}
@@ -234,7 +235,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 			// Only a page that already painted something can be advanced; on an
 			// empty page the orphans rule would loop between pages forever.
 			if len(f.page.Ops) > 0 {
-				startY := f.y + b.borderTop() + b.padTop()
+				startY := satAdd(f.y, b.borderTop()+b.padTop())
 				avail := f.bottom - b.padBottom() - b.borderBottom()
 				n := countFitting(b.lines, 0, startY, avail)
 				if n < len(b.lines) && n < st.Orphans {
@@ -249,7 +250,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		b.fragStartPage = f.pageNum
 		b.fragOpStart = len(f.page.Ops)
 		l.registerAnchor(b, f.pageNum, f.y)
-		f.y += b.borderTop() + b.padTop()
+		f.y = satAdd(f.y, b.borderTop()+b.padTop())
 		b.contentTopY = f.y
 		if b.Kind == ListItem && b.cursor.child == 0 && b.cursor.line == 0 {
 			b.listMarkerY = f.y
@@ -336,7 +337,7 @@ func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 			}
 		} else if c.Style.BreakInside == css.BreakAvoid {
 			h := l.measure(c, width)
-			if f.y+h > f.bottom && h <= f.contentHeight() {
+			if int64(f.y)+int64(h) > int64(f.bottom) && h <= f.contentHeight() {
 				f.newPage()
 			}
 		}
@@ -346,7 +347,7 @@ func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 
 func (l *layouter) afterBlock(f *flow, b *Box) {
 	// Bottom padding and border are part of the flow after a completed block.
-	f.y += b.padBottom() + b.borderBottom()
+	f.y = satAdd(f.y, b.padBottom()+b.borderBottom())
 	b.cursor.done = true
 	f.pending = b.Style.Margin[2].Resolve(b.width)
 	if b.Style.BreakAfter == css.BreakPage {
@@ -432,7 +433,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 				l.anchors[id] = Anchor{Page: f.pageNum, Y: f.y}
 			}
 		}
-		f.y += line.Height
+		f.y = satAdd(f.y, line.Height)
 		b.cursor.line++
 	}
 	if b.cursor.line < len(b.lines) {
@@ -444,17 +445,19 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 func countFitting(lines []Line, from int, y, bottom int32) int {
 	n := 0
 	for i := from; i < len(lines); i++ {
-		if y+lines[i].Height > bottom {
+		// Compare in int64: a cursor pushed past the page by a huge margin
+		// would otherwise wrap around and report that the line fits.
+		if int64(y)+int64(lines[i].Height) > int64(bottom) {
 			break
 		}
-		y += lines[i].Height
+		y = satAdd(y, lines[i].Height)
 		n++
 	}
 	return n
 }
 
 func (l *layouter) checkPageBreak(f *flow, needed int32) bool {
-	if f.y+needed <= f.bottom {
+	if int64(f.y)+int64(needed) <= int64(f.bottom) {
 		return false
 	}
 	if f.empty {
@@ -512,7 +515,7 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 	if st.Height.Kind != css.MP || st.Height.Value <= 0 {
 		return
 	}
-	target := b.contentTopY + st.Height.Value
+	target := satAdd(b.contentTopY, st.Height.Value)
 	if target > f.bottom-b.padBottom()-b.borderBottom() {
 		l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "content is taller than the page and is clipped")
 		return
@@ -539,4 +542,18 @@ func nodePath(b *Box) string {
 		return b.Node.Path()
 	}
 	return ""
+}
+
+// satAdd adds two geometry values, saturating at the int32 range. Margins and
+// offsets come from CSS lengths up to the documented maximum, so the sum of two
+// of them would otherwise wrap around and place content above the page.
+func satAdd(a, b int32) int32 {
+	sum := int64(a) + int64(b)
+	if sum > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if sum < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(sum)
 }
