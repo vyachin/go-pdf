@@ -664,3 +664,40 @@ func TestNestedTableStartClosesOuterTable(t *testing.T) {
 		t.Fatalf("table cells = %q, want [A B]", cells)
 	}
 }
+
+// TestHeadingStartClosesCurrentHeading guards RV2-30: a heading start tag left
+// the previous heading open, so "<h1>Head<h2>Sub" nested the second heading in
+// the first instead of closing it.
+func TestHeadingStartClosesCurrentHeading(t *testing.T) {
+	doc, err := Parse([]byte(`<h1>Head<h2>Sub</h3>`), "headings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := findElement(doc.Root, "body")
+	if body == nil {
+		t.Fatal("no body")
+	}
+	var tags []string
+	for _, c := range body.Children {
+		if c.Type == ElementNode {
+			tags = append(tags, c.Tag)
+		}
+	}
+	if len(tags) != 2 || tags[0] != "h1" || tags[1] != "h2" {
+		t.Fatalf("body children = %v, want [h1 h2] as siblings:\n%s", tags, Dump(doc.Root))
+	}
+	if h1 := findElement(body, "h1"); h1 == nil || findElement(h1, "h2") != nil {
+		t.Fatalf("the second heading is nested inside the first:\n%s", Dump(doc.Root))
+	}
+
+	// A heading inside an element is not closed by a sibling heading of the
+	// outer heading: only the current node matters.
+	doc, err = Parse([]byte(`<h1><div>text<h2>Sub</h2></div></h1>`), "headings2.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h1 := findElement(doc.Root, "h1")
+	if h1 == nil || findElement(h1, "h2") == nil {
+		t.Fatalf("the nested heading was closed too early:\n%s", Dump(doc.Root))
+	}
+}

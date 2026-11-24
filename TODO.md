@@ -192,7 +192,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-7/main.go`: `<tr style="break-before:page">` → 1 страница вместо 2, диагностик нет.
   **Исправление / приёмка:** либо реализовать разрыв перед строкой, либо отклонять свойство на `tr` с диагностикой.
 
-- [ ] **RV2-30 · P3: закрывать `h1`–`h6` при старте следующего заголовка.**
+- [x] **RV2-30 · P3: закрывать `h1`–`h6` при старте следующего заголовка.**
 
   **Код:** [internal/html/parse.go](/Users/vyachin/Projects/go-pdf/internal/html/parse.go), `insertElement`: нет неявного закрытия для заголовков.
   **Воспроизведение:** `go run ./testdata/probe/css-html-6/main.go`: `<h1>Head<h2>Sub` даёт `h2` ребёнком `h1` (путь `body > h1 > h2`).

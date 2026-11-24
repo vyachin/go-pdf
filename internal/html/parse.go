@@ -285,11 +285,25 @@ func (p *parser) start(t Token) {
 	p.insertElement(t)
 }
 
+func isHeading(tag string) bool {
+	switch tag {
+	case "h1", "h2", "h3", "h4", "h5", "h6":
+		return true
+	}
+	return false
+}
+
 func (p *parser) implicitClose(name string) {
 	if closesParagraph[name] {
 		p.closeOpen("p")
 	}
 	switch name {
+	case "h1", "h2", "h3", "h4", "h5", "h6":
+		// A heading start tag closes the heading that is the current node, so
+		// "<h1>a<h2>b" produces siblings, not a heading inside a heading.
+		if isHeading(p.current().Tag) {
+			p.stack = p.stack[:len(p.stack)-1]
+		}
 	case "li":
 		p.closeOpenIn("li", "ol", "ul")
 	case "dt", "dd":
