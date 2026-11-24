@@ -40,6 +40,8 @@ Only the findings that are still open are listed below. A successful existing te
   **Reproduction:** `<table><tr><td style="vertical-align:bottom">BOTTOM</td><td>A<br>B<br>C</td></tr></table>` places `BOTTOM` on the first baseline, 28800 mp above `C`. `VerticalAlign` is parsed but the cell always paints at its top inset.
   **Fix / acceptance:** offset cell content using measured inner content height and available row height for top/middle/bottom alignment. Check unequal cell heights, padding and spans. If a value is intentionally unsupported, reject it instead of accepting it silently.
 
+  **Diagnosis so far:** the inline declaration does reach the computed style (`vertical-align:bottom` yields `VABottom`), so the cascade is not at fault; the offset must be lost in the static cell path, where content height and row height are measured by different helpers.
+
 ### CSS values and generated content
 
 - [x] **CSS-07 · P2: apply specificity and importance to `a::after` content.**
