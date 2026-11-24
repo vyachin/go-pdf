@@ -244,13 +244,33 @@ func TestCorpus(t *testing.T) {
 	}
 }
 
+// pdfcpuPath finds the independent validator. CI sets PDF_REQUIRE_VALIDATOR=1
+// and installs pdfcpu, so a missing binary fails the build there; locally the
+// check is reported as skipped instead.
+func pdfcpuPath(t *testing.T) string {
+	t.Helper()
+	if bin := os.Getenv("PDFCPU"); bin != "" {
+		return bin
+	}
+	if bin, err := exec.LookPath("pdfcpu"); err == nil {
+		return bin
+	}
+	// Strict mode means "discoverable through PATH or PDFCPU"; the local
+	// fallback below is a convenience that must not mask a missing tool in CI.
+	if os.Getenv("PDF_REQUIRE_VALIDATOR") == "1" {
+		t.Fatal("pdfcpu is required (PDF_REQUIRE_VALIDATOR=1) but was not found in PATH")
+	}
+	if st, err := os.Stat("/tmp/gobin/pdfcpu"); err == nil && !st.IsDir() {
+		return "/tmp/gobin/pdfcpu"
+	}
+	t.Log("pdfcpu not available, skipping independent validation")
+	return ""
+}
+
 func validatePDF(t *testing.T, data []byte) {
 	t.Helper()
-	bin := os.Getenv("PDFCPU")
+	bin := pdfcpuPath(t)
 	if bin == "" {
-		bin = "/tmp/gobin/pdfcpu"
-	}
-	if _, err := os.Stat(bin); err != nil {
 		return
 	}
 	path := filepath.Join(t.TempDir(), "case.pdf")
