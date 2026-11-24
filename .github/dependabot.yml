@@ -1,0 +1,47 @@
+# Dependency updates for the CI inputs a bot can reason about.
+#
+# Only action references are automated. The runner image and its poppler, the
+# pdfcpu version, the golangci-lint version and the go directive are decided by
+# a person: see the "Deliberate pins stay manual" requirement in
+# openspec/specs/code-quality/spec.md.
+#
+# Dependabot reads this file from the default branch only.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Keep a fresh release away from the first CI run that would execute it.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    open-pull-requests-limit: 3
+    # Routine bumps travel together; a major gets its own pull request so the
+    # release notes are read instead of the diff alone.
+    groups:
+      actions-minor:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      actions-major:
+        patterns: ["*"]
+        update-types: ["major"]
+    commit-message:
+      prefix: ci
+    labels:
+      - dependencies
+
+  # Dormant while the module has no requirements, so that the first one is
+  # watched without another configuration change.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+    labels:
+      - dependencies
