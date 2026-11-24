@@ -655,3 +655,26 @@ func TestRowStyleHeightAndBackground(t *testing.T) {
 		t.Fatalf("AFTER baseline %d overlaps the row that ends at %d", afterY, bg.Rect.Y+60000)
 	}
 }
+
+func TestRowspanIsClampedToRemainingRows(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr><td rowspan="2">X<br>Y<br>Z</td><td>Q</td></tr></table><p style="margin:0">AFTER</p>`)
+	var cY, afterY int32 = -1, -1
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil || len(op.Text.Run.Glyphs) == 0 {
+			continue
+		}
+		switch op.Text.Run.Glyphs[0].Rune {
+		case 'Z':
+			cY = op.Text.Y
+		case 'A':
+			afterY = op.Text.Y
+		}
+	}
+	if cY < 0 || afterY < 0 {
+		t.Fatalf("missing baselines: C=%d AFTER=%d", cY, afterY)
+	}
+	if afterY <= cY {
+		t.Fatalf("AFTER baseline %d does not follow the cell content that ends at %d", afterY, cY)
+	}
+}

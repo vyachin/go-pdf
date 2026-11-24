@@ -107,14 +107,16 @@ func (l *layouter) measureTable(t *Box, width int32) int32 {
 		t.columns = l.computeColumns(t, width)
 	}
 	var h int32
-	for _, row := range t.Rows {
-		h += l.rowHeight(row, t)
+	for i, row := range t.Rows {
+		h += l.rowHeight(row, t, i)
 	}
 	return h
 }
 
-// rowHeight returns the height of a row.
-func (l *layouter) rowHeight(row *Row, t *Box) int32 {
+// rowHeight returns the height of the row at index. A rowspan is clamped to the
+// rows that actually follow, so a cell spanning past the table does not halve
+// the height of the only row it occupies.
+func (l *layouter) rowHeight(row *Row, t *Box, index int) int32 {
 	var h int32
 	for _, cell := range row.Cells {
 		span := normSpan(cell.ColSpan)
@@ -125,7 +127,11 @@ func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 		cell.width = w
 		cell.x = t.x
 		cellH := l.measure(cell, w)
-		if rowspan := normSpan(cell.RowSpan); rowspan > 1 {
+		rowspan := normSpan(cell.RowSpan)
+		if remaining := len(t.Rows) - index; rowspan > remaining {
+			rowspan = remaining
+		}
+		if rowspan > 1 {
 			cellH = cellH / int32(rowspan)
 		}
 		if cellH > h {
@@ -146,7 +152,7 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		t.columns = l.computeColumns(t, width)
 		t.rowHeights = make([]int32, len(t.Rows))
 		for i, row := range t.Rows {
-			t.rowHeights[i] = l.rowHeight(row, t)
+			t.rowHeights[i] = l.rowHeight(row, t, i)
 		}
 		t.built = true
 		for _, row := range t.Rows {
@@ -326,7 +332,7 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	t.rowHeights = make([]int32, len(t.Rows))
 	var rows int32
 	for i, row := range t.Rows {
-		t.rowHeights[i] = l.rowHeight(row, t)
+		t.rowHeights[i] = l.rowHeight(row, t, i)
 		rows += t.rowHeights[i]
 	}
 	t.built = true
