@@ -251,7 +251,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			_ = firstLine
 		}
 	}
-	flush(true)
+	// A block without inline content must not produce a line; explicit breaks
+	// already flushed their own.
+	flush(false)
 
 	for i := range lines {
 		fitMetrics(&lines[i])

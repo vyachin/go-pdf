@@ -218,6 +218,8 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	switch {
 	case b.Kind == Table:
 		if l.placeTable(f, b, cw) {
+			l.applyFixedHeight(f, b)
+			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
 			return true
@@ -226,6 +228,8 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		return false
 	case b.Kind == Image:
 		if l.placeImageBlock(f, b, cw) {
+			l.applyFixedHeight(f, b)
+			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
 			return true
@@ -234,6 +238,8 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		return false
 	case l.isTextBlock(b):
 		if l.placeText(f, b, cw) {
+			l.applyFixedHeight(f, b)
+			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
 			return true
@@ -250,6 +256,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 			}
 			b.cursor.child++
 		}
+		l.applyFixedHeight(f, b)
 		l.finishFragment(f, b, true)
 		l.afterBlock(f, b)
 		return true
@@ -273,7 +280,6 @@ func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 }
 
 func (l *layouter) afterBlock(f *flow, b *Box) {
-	l.applyFixedHeight(f, b)
 	// Bottom padding and border are part of the flow after a completed block.
 	f.y += b.padBottom() + b.borderBottom()
 	b.cursor.done = true

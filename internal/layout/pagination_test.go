@@ -815,3 +815,42 @@ func TestHorizontalMarginsShiftBlocks(t *testing.T) {
 		t.Fatalf("percentage margin did not shift text: %d vs %d", percent, base)
 	}
 }
+
+func TestFixedHeightExtendsDecorations(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<div style="height:40pt;background-color:#ff0000"></div><p>A</p>`)
+	found := false
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind == FillOpKind && op.Color == (css.Color{R: 255, Set: true}) {
+			if op.Rect.H != 40000 {
+				t.Fatalf("the background is %d mp high, want 40000", op.Rect.H)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no background was painted")
+	}
+}
+
+func TestEmptyBlockTakesNoSpace(t *testing.T) {
+	h := newHarness(t)
+	yOf := func(doc *Document) int32 {
+		for _, op := range textOps(doc) {
+			for _, g := range op.Run.Glyphs {
+				if g.Rune == 'A' {
+					return op.Y
+				}
+			}
+		}
+		return -1
+	}
+	plain := yOf(h.run(`<p>A</p>`))
+	withEmpty := yOf(h.run(`<div></div><p>A</p>`))
+	if plain < 0 || withEmpty < 0 {
+		t.Fatal("text is missing")
+	}
+	if withEmpty != plain {
+		t.Fatalf("an empty block moved the text by %d mp", withEmpty-plain)
+	}
+}
