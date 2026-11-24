@@ -26,7 +26,7 @@
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-2/main.go` (PNG 2×2 с alpha в `<div style="background-color:blue">`), затем `HOME=$PWD/.cache/home /tmp/gobin/pdfcpu validate -m strict .cache/cli/alpha.pdf`. Маска — `7 0 obj << /Length 4 >> stream … endstream`, без `/Width`. pdfcpu: `xObject Image stream dict … required entry=Width missing`; relaxed-режим проходит, поэтому существующий тест молчит.
   **Исправление / приёмка:** маска обязана иметь `/Type /XObject /Subtype /Image /Width /Height /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`. Приёмка: strict pdfcpu на alpha-PNG; отдельная проверка словаря маски; opaque PNG без `/SMask`.
 
-- [ ] **RV2-04 · P1: ограничить разворачивание composite-глифов до аллокации.**
+- [x] **RV2-04 · P1: ограничить разворачивание composite-глифов до аллокации.**
 
   **Код:** [internal/font/glyph.go:20](/Users/vyachin/Projects/go-pdf/internal/font/glyph.go:20), `glyphPath` рекурсивно разворачивает каждый компонент с пределом только `depth > 8`.
   **Воспроизведение:** `go run ./testdata/probe/font-text-23/main.go`: синтетический TTF **820 байт**, каждая composite-глифа содержит 16 компонентов. chain=5 → 65 536 контуров и +38 МБ; chain=6 → **1 048 576 контуров и +787,8 МБ** за 220 мс. При 16 компонентах и пределе 8 возможно 16⁸ ≈ 4,3·10⁹ контуров. Путь вызова — debug `-render-png` ([internal/backend/raster/raster.go:169](/Users/vyachin/Projects/go-pdf/internal/backend/raster/raster.go:169)) и `FuzzParse`.

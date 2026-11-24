@@ -107,7 +107,10 @@ func TestGlyphPath(t *testing.T) {
 	if !ok {
 		t.Skip("test font has no О")
 	}
-	contours := f.GlyphPath(gid)
+	contours, err := f.GlyphPath(gid)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(contours) != 2 {
 		t.Fatalf("О has %d contours, want 2 (outer and inner ring)", len(contours))
 	}
@@ -116,7 +119,11 @@ func TestGlyphPath(t *testing.T) {
 	}
 	// A composite glyph, if present, must resolve through its components.
 	if gid, ok := f.GlyphIndex('Ё'); ok {
-		if len(f.GlyphPath(gid)) == 0 {
+		contours, err := f.GlyphPath(gid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(contours) == 0 {
 			t.Fatalf("Ё resolved to %d but has no outline", gid)
 		}
 	}
@@ -139,7 +146,15 @@ func TestSubset(t *testing.T) {
 	if sub.NumGlyphs() != f.NumGlyphs() {
 		t.Fatalf("subset has %d glyphs, want %d (numbering must be preserved)", sub.NumGlyphs(), f.NumGlyphs())
 	}
-	if got, want := len(sub.GlyphPath(gidO)), len(f.GlyphPath(gidO)); got != want {
+	subPath, err := sub.GlyphPath(gidO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullPath, err := f.GlyphPath(gidO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(subPath), len(fullPath); got != want {
 		t.Fatalf("subset glyph О has %d contours, want %d", got, want)
 	}
 	if len(data) >= len(f.data) {
@@ -150,7 +165,11 @@ func TestSubset(t *testing.T) {
 	if unused == gidO {
 		unused = 2
 	}
-	if len(sub.GlyphPath(unused)) != 0 {
+	unusedPath, err := sub.GlyphPath(unused)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unusedPath) != 0 {
 		t.Fatalf("glyph %d should be empty in the subset", unused)
 	}
 }
@@ -234,7 +253,7 @@ func FuzzParse(f *testing.F) {
 		// Exercise the parsed font through the full pipeline. A corrupt optional
 		// table must not panic here.
 		if gid, ok := fnt.GlyphIndex('A'); ok {
-			_ = fnt.GlyphPath(gid)
+			_, _ = fnt.GlyphPath(gid)
 			_, _ = fnt.Subset(map[uint16]bool{gid: true})
 		}
 	})

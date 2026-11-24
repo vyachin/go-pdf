@@ -94,7 +94,11 @@ func TestGlyphRingIsHollow(t *testing.T) {
 	scale := float64(img.Rect.Dx()) / float64(page.Size.Width)
 	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
 	unit := float64(face.Size) / float64(f.UnitsPerEm())
-	for _, c := range f.GlyphPath(gid) {
+	contours, err := f.GlyphPath(gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range contours {
 		for _, p := range c {
 			x := (20000 + float64(p.X)*unit) * scale
 			y := (250000 - float64(p.Y)*unit) * scale

@@ -101,7 +101,9 @@ func Render(page *layout.Page, opts Options) (*image.RGBA, error) {
 			col := toColor(op.Color)
 			fillRect(img, op.Rect, scaleX, scaleY, col)
 		case layout.TextOpKind:
-			drawText(img, op.Text, scaleX, scaleY)
+			if err := drawText(img, op.Text, scaleX, scaleY); err != nil {
+				return nil, err
+			}
 		case layout.ImageOpKind:
 			drawImage(img, op, scaleX, scaleY)
 		}
@@ -152,9 +154,9 @@ func fillRect(img *image.RGBA, rect layout.Rect, sx, sy float64, col color.RGBA)
 	}
 }
 
-func drawText(img *image.RGBA, t *layout.TextOp, sx, sy float64) {
+func drawText(img *image.RGBA, t *layout.TextOp, sx, sy float64) error {
 	if t == nil || t.Face == nil {
-		return
+		return nil
 	}
 	f := t.Face.Font
 	unitToMP := float64(t.Face.Size) / float64(f.UnitsPerEm())
@@ -166,7 +168,10 @@ func drawText(img *image.RGBA, t *layout.TextOp, sx, sy float64) {
 	}
 	x := float64(t.X)
 	for _, g := range t.Run.Glyphs {
-		contours := f.GlyphPath(g.GID)
+		contours, err := f.GlyphPath(g.GID)
+		if err != nil {
+			return err
+		}
 		polys := make([][]point, 0, len(contours))
 		for _, c := range contours {
 			poly := flattenContour(c)
@@ -183,6 +188,7 @@ func drawText(img *image.RGBA, t *layout.TextOp, sx, sy float64) {
 		fillPolygons(img, polys, col)
 		x += float64(g.Advance)
 	}
+	return nil
 }
 
 func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {

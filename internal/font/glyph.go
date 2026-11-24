@@ -1,6 +1,9 @@
 package font
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // Point is a point of a glyph outline in font units, y pointing up.
 type Point struct {
@@ -12,24 +15,73 @@ type Point struct {
 // control points, exactly as stored in the glyf table.
 type Contour []Point
 
-// GlyphPath returns the outlines of a glyph in font units.
-func (f *Font) GlyphPath(gid uint16) []Contour {
-	return f.glyphPath(gid, 0)
+// Limits on the expanded outline of one glyph. A composite glyph may reference
+// other composites, so a font of a few hundred bytes can describe an
+// exponential number of contours; the caps keep the expansion bounded.
+const (
+	maxCompositeDepth   = 8
+	maxExpandedContours = 1 << 14
+	maxExpandedPoints   = 1 << 20
+)
+
+// ErrGlyphTooComplex reports a composite glyph whose expanded outline exceeds
+// the limits above.
+var ErrGlyphTooComplex = fmt.Errorf("font: composite glyph expands beyond %d contours", maxExpandedContours)
+
+// GlyphPath returns the outlines of a glyph in font units. A composite glyph is
+// expanded recursively, and the expansion is bounded: a deeply nested font is
+// rejected with ErrGlyphTooComplex instead of allocating without limit.
+func (f *Font) GlyphPath(gid uint16) ([]Contour, error) {
+	e := &expander{cache: map[uint16][]Contour{}}
+	return f.glyphPath(gid, 0, e)
 }
 
-func (f *Font) glyphPath(gid uint16, depth int) []Contour {
-	if depth > 8 {
-		return nil
+// expander memoizes the outline of every glyph reached while expanding one
+// top-level glyph. Several components often reference the same child, so
+// caching turns repeated expansion into a bounded number of copies.
+type expander struct {
+	cache    map[uint16][]Contour
+	contours int
+	points   int
+}
+
+func (e *expander) take(contours []Contour) error {
+	e.contours += len(contours)
+	for _, c := range contours {
+		e.points += len(c)
+	}
+	if e.contours > maxExpandedContours || e.points > maxExpandedPoints {
+		return ErrGlyphTooComplex
+	}
+	return nil
+}
+
+func (f *Font) glyphPath(gid uint16, depth int, e *expander) ([]Contour, error) {
+	if depth > maxCompositeDepth {
+		return nil, nil
+	}
+	if cached, ok := e.cache[gid]; ok {
+		return cached, e.take(cached)
 	}
 	data := f.glyphData(gid)
 	if len(data) < 10 {
-		return nil
+		return nil, nil
 	}
 	numContours := int16(binary.BigEndian.Uint16(data[0:2]))
 	if numContours >= 0 {
-		return f.simpleGlyph(data, int(numContours))
+		contours := f.simpleGlyph(data, int(numContours))
+		if err := e.take(contours); err != nil {
+			return nil, err
+		}
+		e.cache[gid] = contours
+		return contours, nil
 	}
-	return f.compositeGlyph(data, depth)
+	contours, err := f.compositeGlyph(data, depth, e)
+	if err != nil {
+		return nil, err
+	}
+	e.cache[gid] = contours
+	return contours, nil
 }
 
 func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
@@ -144,12 +196,12 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 	return contours
 }
 
-func (f *Font) compositeGlyph(data []byte, depth int) []Contour {
+func (f *Font) compositeGlyph(data []byte, depth int, e *expander) ([]Contour, error) {
 	pos := 10
 	var out []Contour
 	for {
 		if pos+4 > len(data) {
-			return out
+			return out, nil
 		}
 		flags := binary.BigEndian.Uint16(data[pos : pos+2])
 		component := binary.BigEndian.Uint16(data[pos+2 : pos+4])
@@ -157,14 +209,14 @@ func (f *Font) compositeGlyph(data []byte, depth int) []Contour {
 		var dx, dy float32
 		if flags&0x0001 != 0 {
 			if pos+4 > len(data) {
-				return out
+				return out, nil
 			}
 			dx = float32(int16(binary.BigEndian.Uint16(data[pos : pos+2])))
 			dy = float32(int16(binary.BigEndian.Uint16(data[pos+2 : pos+4])))
 			pos += 4
 		} else {
 			if pos+2 > len(data) {
-				return out
+				return out, nil
 			}
 			dx = float32(int8(data[pos]))
 			dy = float32(int8(data[pos+1]))
@@ -174,21 +226,21 @@ func (f *Font) compositeGlyph(data []byte, depth int) []Contour {
 		switch {
 		case flags&0x0008 != 0:
 			if pos+2 > len(data) {
-				return out
+				return out, nil
 			}
 			s := f2dot14(data[pos : pos+2])
 			pos += 2
 			a, d = s, s
 		case flags&0x0040 != 0:
 			if pos+4 > len(data) {
-				return out
+				return out, nil
 			}
 			a = f2dot14(data[pos : pos+2])
 			d = f2dot14(data[pos+2 : pos+4])
 			pos += 4
 		case flags&0x0080 != 0:
 			if pos+8 > len(data) {
-				return out
+				return out, nil
 			}
 			a = f2dot14(data[pos : pos+2])
 			b = f2dot14(data[pos+2 : pos+4])
@@ -196,7 +248,11 @@ func (f *Font) compositeGlyph(data []byte, depth int) []Contour {
 			d = f2dot14(data[pos+6 : pos+8])
 			pos += 8
 		}
-		for _, contour := range f.glyphPath(component, depth+1) {
+		child, err := f.glyphPath(component, depth+1, e)
+		if err != nil {
+			return nil, err
+		}
+		for _, contour := range child {
 			transformed := make(Contour, len(contour))
 			for i, p := range contour {
 				transformed[i] = Point{
@@ -208,7 +264,7 @@ func (f *Font) compositeGlyph(data []byte, depth int) []Contour {
 			out = append(out, transformed)
 		}
 		if flags&0x0020 == 0 { // MORE_COMPONENTS
-			return out
+			return out, nil
 		}
 	}
 }
