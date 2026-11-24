@@ -46,13 +46,13 @@ var Table = map[string]PropSpec{
 			return nil
 		},
 	},
-	"width":  {Name: "width", Parse: parseSingleLength, Set: setLength(func(s *Style, l Length) { s.Width = l })},
-	"height": {Name: "height", Parse: parseSingleLength, Set: setLength(func(s *Style, l Length) { s.Height = l })},
+	"width":  {Name: "width", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Width = l })},
+	"height": {Name: "height", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Height = l })},
 	"margin": {Name: "margin", Parse: parseBoxShorthand, Set: func(s *Style, v Value, _ int32) error {
 		s.Margin = v.Box
 		return nil
 	}},
-	"padding": {Name: "padding", Parse: parseBoxShorthand, Set: func(s *Style, v Value, _ int32) error {
+	"padding": {Name: "padding", Parse: parsePaddingShorthand, Set: func(s *Style, v Value, _ int32) error {
 		s.Padding = v.Box
 		return nil
 	}},
@@ -353,6 +353,36 @@ func parseSingleLength(toks []Token) (Value, error) {
 	return Value{Kind: "length", Length: l}, nil
 }
 
+// parseNonNegativeLength parses width or height: auto or a non-negative length.
+func parseNonNegativeLength(toks []Token) (Value, error) {
+	v, err := parseSingleLength(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	if v.Length.Kind != Auto && v.Length.Value < 0 {
+		return Value{}, fmt.Errorf("a box dimension must not be negative")
+	}
+	return v, nil
+}
+
+// parsePaddingShorthand parses padding: one to four non-negative lengths. The
+// generic box parser accepts negatives for margins, which padding does not.
+func parsePaddingShorthand(toks []Token) (Value, error) {
+	v, err := parseBoxShorthand(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	for _, l := range v.Box {
+		if l.Kind == Auto {
+			return Value{}, fmt.Errorf("padding must not be auto")
+		}
+		if l.Value < 0 {
+			return Value{}, fmt.Errorf("padding must not be negative")
+		}
+	}
+	return v, nil
+}
+
 func parseBoxShorthand(toks []Token) (Value, error) {
 	f := filterWhitespace(toks)
 	if len(f) < 1 || len(f) > 4 {
@@ -422,6 +452,9 @@ func parseBorderShorthand(toks []Token) (Value, error) {
 			if l.Kind == Percent || l.Kind == Auto {
 				return Value{}, fmt.Errorf("border width must be a length, not a percentage or auto")
 			}
+			if l.Value < 0 {
+				return Value{}, fmt.Errorf("border width must not be negative")
+			}
 			// Keep the unit: an em width must be resolved against the
 			// element font size, not treated as absolute millipoints.
 			side.WidthLen = l
@@ -475,6 +508,9 @@ func parseInteger(toks []Token) (Value, error) {
 	}
 	if f[0].Bad || !finiteInRange(f[0].Num) {
 		return Value{}, fmt.Errorf("number %q is out of range", f[0].Text)
+	}
+	if f[0].Num != math.Trunc(f[0].Num) {
+		return Value{}, fmt.Errorf("%q is not an integer", f[0].Text)
 	}
 	return Value{Kind: "number", Number: int(f[0].Num)}, nil
 }

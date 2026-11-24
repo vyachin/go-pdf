@@ -71,3 +71,36 @@ func TestPropertiesRejectOutOfRangeNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestPropertyGrammarIsChecked(t *testing.T) {
+	invalid := []struct{ property, value string }{
+		{"orphans", "1.5"},
+		{"widows", "2.5"},
+		{"padding", "-10pt"},
+		{"padding", "auto"},
+		{"padding", "1pt -2pt"},
+		{"border", "-2pt solid red"},
+		{"width", "-5pt"},
+		{"height", "-1em"},
+	}
+	for _, tc := range invalid {
+		st := DefaultStyle()
+		if err := ApplyDecl(st, tc.property, Tokenize([]byte(tc.value)), 12000); err == nil {
+			t.Errorf("%s: %s was accepted", tc.property, tc.value)
+		}
+	}
+	valid := []struct{ property, value string }{
+		{"margin", "-10pt"},
+		{"text-indent", "-10pt"},
+		{"width", "auto"},
+		{"padding", "0"},
+		{"orphans", "2"},
+		{"border", "1pt solid red"},
+	}
+	for _, tc := range valid {
+		st := DefaultStyle()
+		if err := ApplyDecl(st, tc.property, Tokenize([]byte(tc.value)), 12000); err != nil {
+			t.Errorf("%s: %s failed: %v", tc.property, tc.value, err)
+		}
+	}
+}
