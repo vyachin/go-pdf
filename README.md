@@ -1,35 +1,53 @@
 # go-pdf
 
-Конвертер HTML → PDF на чистом Go для печатных бизнес-документов: счетов, актов, договоров и отчётов.
+An HTML → PDF converter written in pure Go for printed business documents:
+invoices, acts, contracts and reports.
 
-Один статический бинарник. Без cgo. Без Chromium, WeasyPrint и дочерних процессов. Рантайм-зависимости — только стандартная библиотека.
+One static binary. No cgo. No Chromium, WeasyPrint or child processes. The only
+runtime dependency is the standard library.
 
 ```bash
-pdfgen convert invoice.html -o invoice.pdf
+pdfgen convert -o invoice.pdf invoice.html
 pdfgen validate invoice.html
 ```
 
-## Зачем свой движок
+Flags come before the input path: the standard Go flag parser stops at the
+first positional argument.
 
-Готовые пути не подходили: Chromium и WeasyPrint — это внешние процессы и тяжёлый рантайм, а pure-Go порт WeasyPrint (alpha, один сопровождающий) слишком рискован для документов, которые должны воспроизводиться годами.
+## Why a custom engine
 
-Взамен ширины поддержки CSS движок даёт три вещи, недостижимые в готовых движках:
+Off-the-shelf options did not fit: Chromium and WeasyPrint are external
+processes with a heavy runtime, and the pure-Go port of WeasyPrint (alpha, one
+maintainer) is too risky for documents that must reproduce for years.
 
-- **Детерминизм.** Одинаковый вход → байт-идентичный PDF. `/CreationDate` фиксирован, `/ID` — хэш содержимого.
-- **Пагинацию как первичную сущность.** `break-*`, `orphans`/`widows`, повтор `thead`, `@page` с колонтитулами и счётчиками — не надстройка, а часть раскладки.
-- **Проверяемый профиль.** Неизвестное свойство — ошибка с координатой в шаблоне, а не молчаливый игнор.
+Instead of CSS breadth, the engine offers three things those engines cannot:
 
-## Возможности
+- **Determinism.** Same input → byte-identical PDF. `/CreationDate` is fixed and
+  `/ID` is a content hash.
+- **Pagination as a first-class concept.** `break-*`, `orphans`/`widows`,
+  repeated `thead`, `@page` with margin boxes and counters are part of layout,
+  not an add-on.
+- **A checkable profile.** An unknown property is an error with a position in the
+  template instead of a silent no-op.
 
-- HTML-токенайзер и дерево с неявными тегами и foster-parenting для таблиц.
-- CSS: каскад, специфичность, наследование, сокращённые свойства, `@page` (включая `landscape`/`portrait`), `@font-face`, `@media print`, margin boxes, локальные `<link rel="stylesheet">`.
-- Раскладка: блоки, инлайн, списки, таблицы с фиксированной раскладкой, `colspan`/`rowspan`, схлопывание границ.
-- Пагинация: `break-before/after/inside`, `orphans`, `widows`, повтор шапки таблицы, переполнение с диагностикой.
-- Шрифты: TrueType, `cmap` 4/12, кернинг из `GPOS`, субсеттинг, `Identity-H` + `ToUnicode` (русский текст копируется и ищется).
-- Изображения: PNG и JPEG (JPEG без пересжатия).
-- Генерируемое содержимое: `a::after` с `target-counter(attr(href), page)` — оглавление с номерами страниц за два прохода раскладки.
-- PDF: метаданные, закладки из `h1`–`h3`, `FlateDecode`, детерминированный вывод, атомарная запись файла.
-- Отладочный растр: `--render-png` и `-print-profile`.
+## Features
+
+- HTML tokenizer and tree with implicit tags and table foster-parenting.
+- CSS: cascade, specificity, inheritance, shorthands, `@page` (including
+  `landscape`/`portrait`), `@font-face`, `@media print`, margin boxes, local
+  `<link rel="stylesheet">`.
+- Layout: blocks, inline, lists, fixed table layout, `colspan`/`rowspan`,
+  collapsed borders.
+- Pagination: `break-before/after/inside`, `orphans`, `widows`, repeated table
+  headers, overflow with diagnostics.
+- Fonts: TrueType, `cmap` 4/12, `GPOS` kerning, subsetting, `Identity-H` +
+  `ToUnicode` (Russian text can be copied and searched).
+- Images: PNG and JPEG (JPEG without recompression).
+- Generated content: `a::after` with `target-counter(attr(href), page)` — a table
+  of contents with page numbers in two layout passes.
+- PDF: metadata, bookmarks from `h1`–`h3`, `FlateDecode`, deterministic output,
+  atomic file writing.
+- Debug raster: `--render-png` and `-print-profile`.
 
 ## CLI
 
@@ -39,125 +57,120 @@ pdfgen validate [flags] <input.html>
 pdfgen help
 ```
 
-| Флаг `convert` | Значение |
+| `convert` flag | Meaning |
 |---|---|
-| `-o` | путь к PDF (по умолчанию `<input>.pdf`) |
-| `-page` | размер по умолчанию: `A4`, `A5`, `Letter`, `210x297mm` |
-| `-margin` | поля по умолчанию: `20mm`, `25mm 20mm` |
-| `-date` | дата создания в RFC 3339 (по умолчанию фиксированная) |
-| `-render-png` | дополнительно отрисовать первую страницу в `<output>.png` |
-| `-strict` | считать предупреждения ошибками (для CI) |
-| `-font-dir` | каталог для относительных путей `@font-face` |
-| `-base-dir` | каталог для относительных путей изображений |
+| `-o` | output PDF path (default `<input>.pdf`) |
+| `-page` | fallback page size: `A4`, `A5`, `Letter`, `210x297mm` |
+| `-margin` | fallback margins: `20mm`, `25mm 20mm` |
+| `-date` | creation date in RFC 3339 (fixed by default) |
+| `-render-png` | also rasterize the first page to `<output>.png` |
+| `-strict` | treat warnings as errors (for CI) |
+| `-font-dir` | directory for relative `@font-face` paths |
+| `-base-dir` | directory for relative image paths |
 
-Коды возврата: `0` — успех, `1` — ошибка валидации или рендеринга, `2` — ошибка использования.
+Exit codes: `0` success, `1` validation or rendering error, `2` usage error.
 
 ```bash
-# Проверить профиль, который понимает движок
+# Show the profile the engine understands
 pdfgen validate -print-profile
 
-# Проверить шаблон без рендеринга (удобно в CI)
-pdfgen validate invoice.html && pdfgen convert invoice.html
+# Validate without rendering (useful in CI)
+pdfgen validate invoice.html && pdfgen convert -o invoice.pdf invoice.html
 
-# Строгий режим: предупреждения (например, про игнорируемый <script>) валят сборку
+# Strict mode: warnings (for example about an ignored <script>) fail the build
 pdfgen validate -strict invoice.html
 ```
 
-## Библиотека
+The CLI is the only public interface of the project. Earlier versions of this
+README showed how to import `internal/engine`; Go forbids that import outside
+the module, so the example has been removed rather than promising an API that
+does not exist.
 
-```go
-import (
-    "context"
-    "os"
+## Profile
 
-    "github.com/vyachin/go-pdf/internal/engine"
-)
+The full list of elements, properties and limits is in [docs/profile.md](docs/profile.md).
+In short: blocks, inline, tables, lists, `@page`, `@font-face`, `counter(page)`,
+`counter(pages)`.
 
-src, _ := os.ReadFile("invoice.html")
-res, err := engine.Convert(context.Background(), src, engine.Options{
-    FallbackFont: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    BaseDir:      ".",
-    PageSize:     "A4",
-    Margin:       "20mm",
-})
-if err != nil {
-    // res.Diagnostics содержит список проблем
-}
-os.WriteFile("invoice.pdf", res.PDF, 0o644)
-```
+Not supported: `flex`, `grid`, `float`, absolute positioning, JS,
+`hyphens: auto`, CFF/OTF, web fonts, `table-layout: auto`.
 
-`engine.Validate` выполняет те же проверки без рендеринга и возвращает `diag.List` с координатами.
+Fonts are documented separately: [docs/fonts.md](docs/fonts.md).
 
-## Профиль
-
-Полный список элементов, свойств и ограничений — в [docs/profile.md](docs/profile.md). Кратко: блоки, инлайн, таблицы, списки, `@page`, `@font-face`, `counter(page)`, `counter(pages)`.
-
-Чего нет: `flex`, `grid`, `float`, абсолютного позиционирования, JS, `hyphens: auto`, CFF/OTF, веб-шрифтов, `table-layout: auto`.
-
-Шрифты — отдельно: [docs/fonts.md](docs/fonts.md).
-
-## Архитектура
+## Architecture
 
 ```
   HTML
    |
    v
- html/      токенайзер + дерево
+ html/      tokenizer + tree
    |
    v
- css/       токенайзер, парсер, селекторы, каскад
+ css/       tokenizer, parser, selectors, cascade
    |
    v
- profile/   белый список, валидация, диагностики
+ profile/   allow-list, validation, diagnostics
    |
    v
- layout/    box tree -> строки -> фрагменты -> страницы
+ layout/    box tree -> lines -> fragments -> pages
    |   \
-   |    text/   шейпинг, переносы, метрики
+   |    text/   shaping, line breaking, metrics
    v
- backend/pdf/     писатель PDF, шрифты, ToUnicode
- backend/raster/  отладочный растр для тестов
+ backend/pdf/     PDF writer, fonts, ToUnicode
+ backend/raster/  debug raster for tests
 ```
 
-Геометрия считается в целочисленных миллипунктах (1/1000 pt), поэтому результаты не зависят от плавающей точки.
+Geometry is integer millipoints (1/1000 pt), so results do not depend on
+floating point.
 
-## Гарантии
+## Guarantees
 
-- Шаблон с ошибкой не даёт PDF: валидация запускается до рендеринга.
-- Отсутствующий глиф — ошибка с указанием символа и позиции, а не пустое место.
-- Два прогона одной и той же команды дают одинаковый файл.
-- Запись результата атомарна: при ошибке прежний файл не повреждается.
+- A broken template produces no PDF: validation runs before rendering.
+- A missing glyph is an error naming the character and its position, not a
+  blank space.
+- Two runs of the same command produce the same file.
+- Writing the result is atomic: on error the previous file stays intact.
 
-## Тестирование
+## Testing
 
 ```bash
 go test ./...
-go test ./internal/engine -run TestCorpus        # корпус документов
-go test ./internal/engine -run TestCorpus -update # пересобрать золотые тексты
+go test ./internal/engine -run TestCorpus         # document corpus
+go test ./internal/engine -run TestCorpus -update # rebuild golden texts
 go test ./internal/engine -bench .
-go test ./internal/mpdfcompat              # корпус mPDF
-go test ./internal/mpdfcompat -update      # пересобрать золотые тексты
+go test ./internal/mpdfcompat              # mPDF corpus
+go test ./internal/mpdfcompat -update      # rebuild golden texts
 ```
 
-- Снапшоты раскладки проверяют геометрию, а не пиксели.
-- Сгенерированные PDF проверяются независимым валидатором `pdfcpu` (если он есть в `PATH`; в тестах путь задаётся через `PDFCPU`).
-- Корпус `testdata/*.html` — счёт, акт и договор с реальной вёрсткой.
-- Корпус mPDF (`internal/mpdfcompat`): 149 документов, извлечённых из тестов mPDF. Проверяет, что документ внутри профиля даёт валидный детерминированный PDF, а документ вне профиля отклоняется с диагностиками, а не с падением. Подробности и карта ограничений — [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
-- Fuzz-тесты покрывают HTML- и CSS-токенайзеры, разбор TrueType и писатель PDF.
-- Визуальные регрессии — через собственный растр-бэкенд и `raster.Diff`.
+- Layout snapshots check geometry, not pixels.
+- Generated PDFs are validated by the independent `pdfcpu` tool when it is
+  available in `PATH` (tests also honour `PDFCPU`); CI requires it through
+  `PDF_REQUIRE_VALIDATOR=1`.
+- The `testdata/*.html` corpus is an invoice, an act and a contract with real
+  layout.
+- The mPDF corpus (`internal/mpdfcompat`) contains 149 documents extracted from
+  the mPDF tests. It checks that a document inside the profile yields a valid
+  deterministic PDF, while a document outside the profile is rejected with
+  diagnostics instead of a crash. Details and the limitation map are in
+  [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
+- Fuzz tests cover the HTML and CSS tokenizers, TrueType parsing and the PDF
+  writer.
+- Visual regressions use the engine's own raster backend and `raster.Diff`.
 
-Для тестов с реальным шрифтом задайте `PDFTEST_FONT=/path/to/font.ttf`; без него тесты, которым нужен шрифт, пропускаются.
+The test suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical
+on every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it.
 
-## Производительность
+## Performance
 
-На Apple M2 Pro: одна страница ≈ 2.5 мс, документ на 50 страниц ≈ 115 мс при 102 МБ суммарных аллокаций.
+On an Apple M2 Pro: one page ≈ 2.5 ms, a 50-page document ≈ 115 ms with about
+102 MB of total allocations.
 
-## Статус
+## Status
 
-| Веха | Содержимое | Состояние |
+| Milestone | Content | State |
 |---|---|---|
-| M0 | русский текст в валидном PDF | готово |
-| M1 | блоки, инлайн, списки | готово |
-| M2 | таблицы, пагинация, повтор шапки | готово |
-| M3 | `@page`, колонтитулы, счётчики | готово |
-| M4 | `target-counter`, оглавление, закладки, метаданные | готово |
+| M0 | Russian text in a valid PDF | done |
+| M1 | blocks, inline, lists | done |
+| M2 | tables, pagination, repeated headers | done |
+| M3 | `@page`, margin boxes, counters | done |
+| M4 | `target-counter`, table of contents, bookmarks, metadata | done |

@@ -15,7 +15,7 @@
   **Код:** [internal/engine/convert.go:21](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:21), [internal/engine/engine.go:62](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go:62); парсеры, layout и загрузчики ресурсов.
   `ctx.Err()` проверяется только на входе. Предусмотреть отмену во время парсинга, обходов, пагинации и записи; ограничить размер HTML/CSS/шрифтов/изображений, глубину DOM, размер таблиц, число страниц и общий объём операций. Лимиты должны возвращать диагностируемую ошибку до опасной аллокации. Для CLI использовать `signal.NotifyContext` из стандартной библиотеки. Проверять отмену после старта работы, а не только уже отменённый context.
 
-- [ ] **DOC-01 · P2: согласовать обещанный библиотечный API с правилами `internal`.**
+- [x] **DOC-01 · P2: согласовать обещанный библиотечный API с правилами `internal`.**
 
   **Код и документация:** [README.md](/Users/vyachin/Projects/go-pdf/README.md), раздел «Библиотека»; [internal/engine/engine.go](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go).
   Пример предлагает внешнему пользователю импортировать `github.com/vyachin/go-pdf/internal/engine`, что Go запрещает за пределами родительского дерева. Выбрать публичный пакет с устойчивым API и публичными типами диагностик, либо явно описать CLI как единственный внешний интерфейс. Критерий: пример из README компилируется в отдельном модуле.
@@ -91,7 +91,7 @@ Only the findings that are still open are listed below. A successful existing te
   **Код:** [.github/workflows/ci.yml](/Users/vyachin/Projects/go-pdf/.github/workflows/ci.yml), [internal/engine/corpus_test.go](/Users/vyachin/Projects/go-pdf/internal/engine/corpus_test.go), [internal/pdfdebug/extract.go](/Users/vyachin/Projects/go-pdf/internal/pdfdebug/extract.go).
   Обязательный `pdfcpu` уже полезен, но проверяет структуру PDF; собственный растр получает операции layout до PDF-сериализации и не доказывает правильность конечного файла. Добавить небольшой фиксированный корпус конечных PDF, растеризацию независимым движком и независимое извлечение текста. Закрепить версии шрифтов/инструментов; включить alpha, CMYK/rejection, несколько шрифтов, Unicode-алиасы и номера страниц. Проверять координаты/области с допуском, сохраняя сравнения текста и графа объектов; растеризаторы нужны только в CI, а не в runtime библиотеки.
 
-- [ ] **DOC-02 · P3: исправить порядок аргументов в первом CLI-примере README.**
+- [x] **DOC-02 · P3: исправить порядок аргументов в первом CLI-примере README.**
 
   **Код:** [README.md:10](/Users/vyachin/Projects/go-pdf/README.md:10), [cmd/pdfgen/main.go:91](/Users/vyachin/Projects/go-pdf/cmd/pdfgen/main.go:91), `flag.FlagSet.Parse`.
   `pdfgen convert invoice.html -o invoice.pdf` из вступления возвращает **код 2** и `exactly one input file is required`: стандартный Go flag прекращает разбор флагов после первого позиционного аргумента. Исправить на `pdfgen convert -o invoice.pdf invoice.html`, согласовать остальные примеры и явно описать порядок. Поддержка флагов после имени файла — отдельное решение API, для исправления документации она не требуется.
