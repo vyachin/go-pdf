@@ -351,7 +351,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
 
 ### Test infrastructure and maintenance
 
-- [ ] **ENG-06 · P2: scope PDF text extraction maps to the active font.**
+- [x] **ENG-06 · P2: scope PDF text extraction maps to the active font.**
 
   **Source:** [internal/pdfdebug/extract.go:140](/Users/vyachin/Projects/go-pdf/internal/pdfdebug/extract.go:140), `buildToUni`, and `textFromStream`.
   **Reproduction:** write two text runs using Arial and Times New Roman with the same GID 30 but their respective characters U+037E and `;`. Extraction returns `;;` instead of `;;` (or duplicates the other character depending on map iteration). Every font's ToUnicode map is merged into one GID map, and `Tf` is ignored. Valid PDFs with multiple fonts therefore produce incorrect or unstable golden text.

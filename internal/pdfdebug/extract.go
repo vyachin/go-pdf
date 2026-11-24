@@ -18,7 +18,8 @@ import (
 // Pages returns the extracted text of every page, in page order.
 func Pages(data []byte) ([]string, error) {
 	objects := splitObjects(data)
-	toUni := buildToUni(objects)
+	toUniByID := buildToUniByID(objects)
+	fontMaps := contentFontMaps(objects, toUniByID)
 	type entry struct {
 		id   int
 		text string
@@ -32,7 +33,7 @@ func Pages(data []byte) ([]string, error) {
 		if !bytes.Contains(stream, []byte("Tj")) && !bytes.Contains(stream, []byte("TJ")) {
 			continue
 		}
-		pages = append(pages, entry{id: id, text: textFromStream(stream, toUni)})
+		pages = append(pages, entry{id: id, text: textFromStream(stream, fontMaps[id])})
 	}
 	// The writer allocates content streams in page order.
 	sortEntries(pages, func(a, b entry) bool { return a.id < b.id })
@@ -137,13 +138,15 @@ func decodedStream(body []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func buildToUni(objects map[int]*pdfObject) map[uint16]rune {
-	toUni := map[uint16]rune{}
-	for _, obj := range objects {
-		if !bytes.Contains(obj.body, []byte("/ToUnicode")) {
+// buildToUniByID maps each font object to its own CID table, so the same code
+// in two different fonts does not resolve to the same character.
+func buildToUniByID(objects map[int]*pdfObject) map[int]map[uint16]rune {
+	out := map[int]map[uint16]rune{}
+	for id, obj := range objects {
+		idx := bytes.Index(obj.body, []byte("/ToUnicode"))
+		if idx < 0 {
 			continue
 		}
-		idx := bytes.Index(obj.body, []byte("/ToUnicode"))
 		ref := parseIntToken(obj.body[idx+len("/ToUnicode"):])
 		target, ok := objects[ref]
 		if !ok {
@@ -153,9 +156,52 @@ func buildToUni(objects map[int]*pdfObject) map[uint16]rune {
 		if err != nil {
 			continue
 		}
-		parseBFChar(stream, toUni)
+		table := map[uint16]rune{}
+		parseBFChar(stream, table)
+		out[id] = table
 	}
-	return toUni
+	return out
+}
+
+// contentFontMaps links each content stream to the font tables of its page,
+// keyed by the resource name used in "Tf" operators.
+func contentFontMaps(objects map[int]*pdfObject, toUniByID map[int]map[uint16]rune) map[int]map[string]map[uint16]rune {
+	out := map[int]map[string]map[uint16]rune{}
+	for _, page := range objects {
+		if !bytes.Contains(page.body, []byte("/Type /Page ")) {
+			continue
+		}
+		contentID := -1
+		if i := bytes.Index(page.body, []byte("/Contents")); i >= 0 {
+			contentID = parseIntToken(page.body[i+len("/Contents"):])
+		}
+		if contentID < 0 {
+			continue
+		}
+		names := map[string]map[uint16]rune{}
+		if i := bytes.Index(page.body, []byte("/Font")); i >= 0 {
+			rest := page.body[i:]
+			if open := bytes.Index(rest, []byte("<<")); open >= 0 {
+				if closeIdx := bytes.Index(rest[open:], []byte(">>")); closeIdx > 0 {
+					fields := bytes.Fields(rest[open+2 : open+closeIdx])
+					for j := 0; j+1 < len(fields); j++ {
+						if fields[j][0] != '/' {
+							continue
+						}
+						id, err := strconv.Atoi(string(fields[j+1]))
+						if err != nil {
+							continue
+						}
+						if table := toUniByID[id]; table != nil {
+							names[string(fields[j][1:])] = table
+						}
+					}
+				}
+			}
+		}
+		out[contentID] = names
+	}
+	return out
 }
 
 func parseBFChar(stream []byte, out map[uint16]rune) {
@@ -203,10 +249,11 @@ func decodeUTF16Hex(s string) []rune {
 
 // textFromStream reads both plain Tj strings and TJ arrays. Adjustments in a
 // TJ array only move glyphs; extraction ignores them.
-func textFromStream(stream []byte, toUni map[uint16]rune) string {
+func textFromStream(stream []byte, fontMaps map[string]map[uint16]rune) string {
 	var out strings.Builder
 	s := string(stream)
 	inArray := false
+	current := map[uint16]rune{}
 	for i := 0; i < len(s); {
 		switch {
 		case s[i] == '[':
@@ -215,6 +262,20 @@ func textFromStream(stream []byte, toUni map[uint16]rune) string {
 		case s[i] == ']':
 			inArray = false
 			i++
+		case s[i] == 'T' && strings.HasPrefix(s[i:], "Tf"):
+			// Switch to the table of the font named by the preceding /Name.
+			if slash := strings.LastIndex(s[:i], "/"); slash >= 0 {
+				name := s[slash+1:]
+				if cut := strings.IndexAny(name, " \n\r\t"); cut >= 0 {
+					name = name[:cut]
+				}
+				if table, ok := fontMaps[name]; ok {
+					current = table
+				} else {
+					current = map[uint16]rune{}
+				}
+			}
+			i += 2
 		case s[i] == '<':
 			end := strings.IndexByte(s[i:], '>')
 			if end < 0 {
@@ -223,7 +284,7 @@ func textFromStream(stream []byte, toUni map[uint16]rune) string {
 			hexStr := s[i+1 : i+end]
 			i += end + 1
 			if inArray {
-				out.WriteString(decodeHexText(hexStr, toUni))
+				out.WriteString(decodeHexText(hexStr, current))
 				continue
 			}
 			j := i
@@ -231,7 +292,7 @@ func textFromStream(stream []byte, toUni map[uint16]rune) string {
 				j++
 			}
 			if strings.HasPrefix(s[j:], "Tj") {
-				out.WriteString(decodeHexText(hexStr, toUni))
+				out.WriteString(decodeHexText(hexStr, current))
 				i = j + 2
 			}
 		default:
