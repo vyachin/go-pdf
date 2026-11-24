@@ -269,13 +269,13 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
 
 ### Layout and pagination
 
-- [ ] **LAY-05 · P2: apply `display:none` to table groups, rows and cells.**
+- [x] **LAY-05 · P2: apply `display:none` to table groups, rows and cells.**
 
   **Source:** [internal/layout/box.go:392](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:392), `buildTable`.
   **Reproduction:** `<table><tr style="display:none"><td>HIDDEN</td></tr><tr><td>VISIBLE</td></tr></table>` renders `HIDDENVISIBLE`. The specialized table builder computes styles but never checks their display value.
   **Fix / acceptance:** skip hidden groups/rows/cells before building occupancy and widths. Verify hidden text is absent, consumes no space, and does not change visible spans or repeated headers.
 
-- [ ] **LAY-06 · P2: do not override author styles on table headers after the cascade.**
+- [x] **LAY-06 · P2: do not override author styles on table headers after the cascade.**
 
   **Source:** [internal/layout/box.go:413](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:413), `buildTable`.
   **Reproduction:** `<style>th{font-weight:400;text-align:left}</style><table><tr><th>H</th></tr></table>` produces a cell with weight 700 and center alignment. Unless an inline style attribute exists, the builder overwrites the computed author values. The UA stylesheet already provides header defaults.
@@ -287,13 +287,13 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   **Reproduction:** `<table><tr><td><p style="margin:0 0 20pt">A</p><p style="margin:0">B</p></td></tr></table>` places the baselines 14400 mp apart instead of at least 34400 mp. Measurement includes margins, but static painting advances only by child content height, so measured and drawn cell geometry disagree.
   **Fix / acceptance:** make cell measurement and painting share the same block-flow rules. Compare coordinates for multiple paragraphs with top/bottom margins and verify the row height encloses the painted content.
 
-- [ ] **LAY-08 · P2: avoid a leading empty page for a break before the first content.**
+- [x] **LAY-08 · P2: avoid a leading empty page for a break before the first content.**
 
   **Source:** [internal/layout/paginate.go:207](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:207), `placeBlock`; [internal/layout/paginate.go:242](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:242), `placeChild`.
   **Reproduction:** `<p style="break-before:page">FIRST</p>` creates two pages, with zero operations on the first. Entering the root sets `flow.empty=false` before any visible content, so the child's forced break generates an unnecessary page.
   **Fix / acceptance:** base emptiness on actual placed content and handle breaks in one consistent location. This input must have one page; a break after actual preceding content must still create the required next page. Include empty wrappers in the regression tests.
 
-- [ ] **LAY-09 · P2: honor `widows` when the fitted count equals the requested minimum.**
+- [x] **LAY-09 · P2: honor `widows` when the fitted count equals the requested minimum.**
 
   **Source:** [internal/layout/paginate.go:289](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:289), `placeText`.
   **Reproduction:** `@page{size:100pt 60pt;margin:10pt} p{margin:0;font-size:10pt;line-height:12pt;orphans:2;widows:3}` with `<p>A<br>B<br>C<br>D<br>E</p>` splits pages as `ABC / DE`. A valid `AB / CDE` split satisfies both constraints. The `fits > st.Widows` guard prevents this correction when `fits == 3`.
@@ -311,7 +311,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   **Reproduction:** set a margin-box literal to a character absent from the selected font, for example U+10FFFF with Arial. `text.Shape` returns a missing-glyph error, but the code continues and conversion succeeds with no diagnostic and no header. Strict mode cannot detect an error that was discarded.
   **Fix / acceptance:** propagate a `text/glyph` diagnostic with the margin-box source context. Missing header/footer text must fail conversion consistently with body text; test normal and strict modes.
 
-- [ ] **LAY-12 · P2: retain an image's aspect ratio when width is a percentage.**
+- [x] **LAY-12 · P2: retain an image's aspect ratio when width is a percentage.**
 
   **Source:** [internal/layout/lines.go:279](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:279), `imageSize`.
   **Reproduction:** an intrinsically 80 pt by 40 pt image in a 200 pt container with `width:50%;height:auto` becomes 100 pt by 40 pt instead of 100 pt by 50 pt. The proportional-height branch only handles an absolute width; the percentage width was already resolved but is excluded by its original kind.
@@ -379,3 +379,177 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
 - Both review snapshots passed `go test -race ./... -skip 'TestReview|TestPerformanceBudget'`; no race was reported. The unrestricted race run failed the elapsed-time budget described in ENG-07. An early run against actively edited working files hit an intermediate syntax error; it was not treated as a stable project defect.
 - The real Arial font was available, and `/tmp/gobin/pdfcpu` existed, so the existing font-dependent tests and their independent PDF validation ran. Structural validation alone does not verify color reproduction, glyph positions or visual completeness.
 - Temporary probes and full machine-readable results are outside the working tree: [initial results](/private/tmp/go-pdf-review-uv291h3c/review-results.jsonl), [latest results](/private/tmp/go-pdf-review-current-dacig99u/review-results.jsonl). The four `review_probe_test.go` files in each snapshot contain the executable reproductions. These temporary paths are local review evidence; the reproductions and acceptance criteria above are the durable handoff.
+
+## Дополнение: полное ревью текущего проекта — 24 ноября 2026 года
+
+Ниже **19 новых ошибок уровня P2** и **три улучшения уровня P3**, без дублирования прежних задач. Все ошибки воспроизведены на отдельном снимке `2bdb8ff`; для проверок текста и геометрии использовался настоящий Arial. Приоритет внутри P2 выше у потери содержимого, ложного успеха валидации и проблем ресурсов. Ссылки на строки соответствуют проверенному снимку; при последующих изменениях ориентироваться также на имя функции.
+
+### Ресурсы и валидация
+
+- [x] **ASSET-01 · P2: привести корень и проверяемый путь к одной абсолютной форме.**
+
+  **Код:** [internal/fsx/fsx.go:29](/Users/vyachin/Projects/go-pdf/internal/fsx/fsx.go:29), `Open`; [internal/fsx/fsx.go:66](/Users/vyachin/Projects/go-pdf/internal/fsx/fsx.go:66), `Root.Read`.
+  **Ошибка:** `EvalSymlinks` сохраняет относительную форму корня, а `Root.Read` может получить абсолютный путь. `filepath.Rel` между этими формами возвращает ошибку, превращаемую в `ErrOutsideRoot`. Это отказ допустимого доступа, а не обход защиты.
+  **Воспроизведение:** положить `a.css` в текущий каталог, передать `Options{BaseDir:"."}` и `<link rel="stylesheet" href="a.css"><p>A</p>`. Загрузчик CSS преобразует путь в абсолютный, после чего конвертация сообщает `css/link-path`, хотя файл находится внутри корня. Отдельно подтверждён отказ `Open(relativeDir).Read(absoluteFileInsideDir)`; та же комбинация возможна для изображения или шрифта с абсолютным путём.
+  **Исправление / готово, когда:** один раз нормализовать корень через `filepath.Abs` и разрешение ссылок; сравнивать пути в одной системе координат, сохранив `os.Root` для самого открытия. Проверить `BaseDir="."`, относительный каталог, абсолютный каталог, допустимые внутренние ссылки и выход наружу.
+
+- [x] **ENG-08 · P2: явно закрывать корень загрузчика изображений после конвертации.**
+
+  **Код:** [internal/engine/images.go:40](/Users/vyachin/Projects/go-pdf/internal/engine/images.go:40), `imageLoader.Load`; [internal/engine/convert.go:58](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:58), создание `imageLoader`.
+  **Ошибка:** загрузчик сохраняет открытый `*fsx.Root`, но не имеет `Close`, и `Convert` его не освобождает. Дескриптор остаётся до сборки мусора; время освобождения не связано с окончанием запроса. Это касается и ошибок после открытия корня.
+  **Воспроизведение:** 20 успешных конвертаций `<img src="i.png">` с заданным `BaseDir` и отключённым на время проверки GC увеличили число дескрипторов `/dev/fd` с **5 до 25**. Проверка не утверждает, что дескрипторы никогда не освобождаются: проблема в зависимости от GC вместо детерминированного закрытия.
+  **Исправление / готово, когда:** добавить закрытие лениво открытого корня и гарантировать его через `defer` на всех путях выхода. Серия конвертаций и серия ошибок загрузки не должны накапливать дескрипторы даже без запуска GC.
+
+- [x] **VAL-01 · P2: согласовать проверки `Validate` и `Convert`.**
+
+  **Код:** [internal/engine/engine.go:61](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go:61), `Validate`; [internal/layout/box.go:382](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:382), проверка spans при построении боксов.
+  **Ошибка:** `Validate` проверяет только DOM и CSS-профиль. `FontDir`, `FallbackFont`, параметры страницы и допустимость `rowspan`/`colspan` в общий этап подготовки не попадают. Комментарий пакета обещает общий pipeline и одинаковые ошибки валидации; флаг CLI `validate -font-dir` фактически не проверяет загрузку шрифта.
+  **Воспроизведение:** `@font-face{font-family:Missing;src:url(missing.ttf)}body{font-family:Missing}` с `<p>A</p>` даёт `Validate: err=nil, diagnostics=[]`, а `Convert` возвращает `font/unavailable`. Аналогично `<td rowspan="4294967296">` проходит `Validate`, но отклоняется при конвертации после исправления SEC-05.
+  **Исправление / готово, когда:** выделить общий этап подготовки, проверяющий конфигурацию, атрибуты и объявленные ресурсы без записи PDF. Оба примера должны отклоняться уже `Validate`; ошибки содержат источник. Если проверка намеренно только синтаксическая, явно сузить контракт, название/документацию и убрать неработающие ожидания от флагов.
+
+- [x] **VAL-02 · P2: сообщать о пропущенных ошибочных декларациях CSS.**
+
+  **Код:** [internal/css/parse.go:367](/Users/vyachin/Projects/go-pdf/internal/css/parse.go:367), `parseBlockContents`; [internal/css/parse.go:184](/Users/vyachin/Projects/go-pdf/internal/css/parse.go:184), `ParseDeclarations`.
+  **Ошибка:** неудачный `parseDeclaration` приводит к пропуску входа без записи `Problem`. У inline-стилей список проблем вообще отбрасывается. Для закрытого проверяемого профиля это означает, что ошибочный шаблон выдаётся за корректный, а оформление теряется без диагностики.
+  **Воспроизведение:** `p{color red}`, `p{width 10pt}` и `p{color:red;broken}` дают `Stylesheet.Problems=[]`; `<p style="color red">A</p>` также проходит профиль. Внутри `@font-face` вложенные неподдерживаемые правила дополнительно отбрасываются парсером.
+  **Исправление / готово, когда:** сохранять синтаксическую диагностику с позицией при восстановлении после ошибки и передавать её из inline-стилей в профиль. Проверить оба источника CSS; молчаливый пропуск нельзя считать успешной строгой валидацией.
+
+### Текстовый слой PDF и отладочный растр
+
+- [x] **PDF-07 · P2: различать Unicode-символы, которым шрифт назначает один GID.**
+
+  **Код:** [internal/pdf/writer.go:171](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:171), сбор `fe.runes`; `fontEntry.toUnicodeCMap` и `CIDToGIDMap`.
+  **Ошибка:** текст кодируется непосредственно GID, а карта `map[uint16]rune` хранит только последний символ для этого GID. Разные исходные буквы могут выглядеть одинаково, но иметь разные коды и значение для поиска. Последующая буква меняет извлекаемый текст всех предыдущих вхождений того же глифа.
+  **Воспроизведение:** Arial назначает латинской `Ə` (U+018F) и кириллической `Ә` (U+04D8) **GID 1316**. `<p>ƏӘ</p>` конвертируется успешно, но извлекается как **`ӘӘ`**. Это один шрифт: дефект отличается от смешивания карт разных шрифтов в ENG-06 и подтверждается самим содержимым ToUnicode.
+  **Исправление / готово, когда:** выделять CID по паре «глиф, исходный Unicode» и строить явную карту CID→GID либо сохранять исходный текст через корректный механизм `ActualText`. Независимое извлечение должно возвращать обе исходные буквы, включая повторения и обратный порядок.
+
+- [x] **RASTER-01 · P2: смешивать полупрозрачные изображения с уже нарисованной страницей.**
+
+  **Код:** [internal/backend/raster/raster.go:171](/Users/vyachin/Projects/go-pdf/internal/backend/raster/raster.go:171), `drawImage`.
+  **Ошибка:** `img.Set` копирует пиксель и его alpha поверх страницы вместо композиции. Белая изначально непрозрачная страница получает прозрачные участки; фон под логотипом заменяется, а результат `--render-png` не соответствует композиции документа. Это отдельный путь от исправленного PDF-05.
+  **Воспроизведение:** PNG из одного пикселя NRGBA `(255,0,0,128)` на белой странице при 72 DPI даёт RGBA **`(128,0,0,128)`** вместо **`(255,127,127,255)`**.
+  **Исправление / готово, когда:** применять alpha-композицию поверх текущего назначения, например `draw.Over` после масштабирования. Проверить прозрачный, непрозрачный и полупрозрачный пиксели на белом и цветном фоне; итоговая страница остаётся непрозрачной.
+
+### Блочная раскладка, списки и изображения
+
+- [x] **LAY-15 · P2: применять левый и правый внешние отступы блоков.**
+
+  **Код:** [internal/layout/paginate.go:126](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:126), `placeBlock`.
+  **Ошибка:** при определении `b.x` и доступной ширины учитываются padding/border и `width`, но не `Margin[1]`/`Margin[3]`. Вертикальные отступы применяются отдельно, а горизонтальные принимаются CSS-профилем и игнорируются.
+  **Воспроизведение:** `<p style="margin:0 0 0 20pt">A</p>` и абзац с `margin:0` начинают текст на одной координате **56693 mp** вместо сдвига на 20000 mp. Аналогично не уменьшается доступная ширина при правом отступе.
+  **Исправление / готово, когда:** вычислять внешние отступы, положение и content width совместно. Проверить абсолютные и процентные отступы, вложенные контейнеры и `margin:auto` для блока фиксированной ширины; неподдерживаемые значения отклонять явно.
+
+- [x] **LAY-16 · P2: учитывать заданную высоту до рисования фона и границ.**
+
+  **Код:** [internal/layout/paint.go:12](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:12), `finishFragment`; [internal/layout/paginate.go:264](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:264), `afterBlock`.
+  **Ошибка:** `finishFragment` рисует декорации по текущему `f.y`, а затем `afterBlock` вызывает `applyFixedHeight` и увеличивает высоту. Поток учитывает расширенную область, но фон и нижняя граница остаются на прежнем месте.
+  **Воспроизведение:** `<div style="height:40pt;background-color:red"></div><p>A</p>` создаёт красный прямоугольник высотой **14400 mp**, хотя задано **40000 mp**. При непустом блоке высота фона также ограничивается содержимым.
+  **Исправление / готово, когда:** определить итоговую геометрию фрагмента до его оформления и продвижения потока. Для пустого и непустого блока проверить фон, нижнюю границу и положение следующего соседа; отдельно проверить фрагментированный блок.
+
+- [x] **LAY-17 · P2: рисовать блочные изображения внутри ячеек таблицы.**
+
+  **Код:** [internal/layout/table.go:316](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:316), `paintStaticBlock`.
+  **Ошибка:** исправление LAY-13 добавило изображение в обычную пагинацию, но статический путь ячеек обрабатывает `Image` с пустыми детьми как текстовый блок. Само изображение не рисуется, ошибки нет.
+  **Воспроизведение:** с корректным PNG `<table><tr><td><img style="display:block;width:10pt;height:10pt" src="i.png"></td></tr></table>` создаёт **0 операций изображения**. Без `display:block` тот же ресурс проходит через inline-путь.
+  **Исправление / готово, когда:** обработать заменяемое изображение также в статическом потоке, включив его размеры в измерение и высоту ячейки. Проверить изображение до/после абзаца внутри ячейки, вложенный контейнер и итоговый PDF, а не только его текст.
+
+- [x] **LAY-18 · P2: создавать ровно одну новую страницу при переносе изображения.**
+
+  **Код:** [internal/layout/paginate.go:286](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:286), `placeImageBlock`; [internal/layout/paginate.go:108](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:108), цикл `paginate`.
+  **Ошибка:** `placeImageBlock` вызывает `newPage`, затем возвращает `false`; внешний цикл вызывает `newPage` повторно. Кроме того, после переноса в расчёте фиксированной высоты может использоваться `contentTopY` старой страницы, создавая ложный overflow.
+  **Воспроизведение:** `@page{size:100pt 100pt;margin:10pt}p{margin:0}`, затем `<p style="height:65pt">A</p><img style="display:block;width:10pt;height:20pt" src="i.png"><p>B</p>`. Получены **три страницы**, с числом операций **1 / 0 / 2**, и предупреждение о переполнении; достаточно двух страниц, изображение помещается на второй.
+  **Исправление / готово, когда:** назначить одно место, управляющее созданием страниц при возврате незавершённого блока, и обновлять геометрию фрагмента при переносе. Пример должен давать две страницы без промежуточной пустой и без ложного overflow.
+
+- [ ] **LAY-19 · P2: реализовать размеры и атомарность `inline-block` либо отклонять его.**
+
+  **Код:** [internal/layout/box.go:307](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:307), `isInlineDisplay`; [internal/layout/box.go:336](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:336), `buildElement`; `collectPieces`.
+  **Ошибка:** `inline-block` строится как обычный `Inline`, затем рекурсивно разворачивается в слова. Его ширина, высота, фон и границы не формируют отдельного бокса; содержимое может переноситься как обычный текст.
+  **Воспроизведение:** `<p><span style="display:inline-block;width:100pt;height:40pt;background-color:red">A</span>B</p>`. `B` начинается всего через **8004 mp** после `A`, вместо продвижения на **100000 mp**; отдельного красного бокса нет.
+  **Исправление / готово, когда:** измерять и размещать inline-block как единый элемент строки со своими размерами и декорациями. Проверить соседний текст, высоту строки и перенос целого бокса. Если эта возможность пока вне профиля, валидатор должен её отклонять.
+
+- [x] **LAY-20 · P2: не создавать строку в блоке без строчного содержимого.**
+
+  **Код:** [internal/layout/lines.go:164](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:164), `flush`; [internal/layout/lines.go:254](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:254), завершающий `flush(true)`.
+  **Ошибка:** пустой список pieces завершается принудительным flush, который создаёт строку высотой `line-height`. Пустые `div`, в том числе используемые для оформления шаблонов, занимают лишнее место и меняют пагинацию.
+  **Воспроизведение:** `<div></div><p>A</p>` ставит базовую линию `A` на **81956 mp**, а `<p>A</p>` — на **67556 mp**: пустой блок добавляет **14400 mp**.
+  **Исправление / готово, когда:** различать отсутствие inline-содержимого и явный принудительный перевод строки. Проверить пустой блок, блок с оформлением/заданной высотой и настоящий `<br>`; не исправлять проблему удалением обязательных пустых строк в `white-space:pre`.
+
+- [x] **LAY-21 · P2: размещать маркеры списка слева от текста, без наложения.**
+
+  **Код:** [internal/layout/paint.go:161](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:161), `paintListMarker`.
+  **Ошибка:** нормальная координата маркера вне content box заменяется на `b.x+500`, когда оказывается левее `b.x`. Между тем `b.x` уже соответствует началу области текста `li`, а отступ списка находится у родительского `ol`/`ul`. Защитная проверка помещает маркер поверх первого слова.
+  **Воспроизведение:** `<ol><li>A</li><li>B</li></ol>`: текст начинается на **79370 mp**, а маркеры `1.` и `2.` — на **79870 mp**, то есть на **0,5 pt правее текста** при той же базовой линии.
+  **Исправление / готово, когда:** позиционировать маркер относительно внешней области элемента списка и резервировать место для его полной ширины. Проверить disc/decimal, двузначные номера, `start` и несколько уровней вложенности; ограничивать по странице, а не по началу текста.
+
+### Пробелы, наследование и генерируемое содержимое CSS
+
+- [ ] **TEXT-01 · P2: схлопывать пробелы на границах inline-элементов.**
+
+  **Код:** [internal/layout/lines.go:198](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:198), обработка `spacePiece`; `text.Split`.
+  **Ошибка:** пробелы схлопываются внутри отдельного текстового узла, но состояние не переносится между узлами. Последовательные `SpaceItem` добавляются в строку и каждый увеличивает её ширину; концевые пробелы также не удаляются перед выравниванием.
+  **Воспроизведение:** `<p>A <span> B</span> C</p>` даёт **`A  B C`** с двумя пробелами после `A`, вместо одного. Это меняет переносы, центрирование и ширину строки.
+  **Исправление / готово, когда:** схлопывать пробелы на уровне всего inline-потока и удалять концевые схлопываемые пробелы перед расчётом строки. Проверить границы нескольких вложенных span, разрывы строк, NBSP и сохранение пробелов при `pre`.
+
+- [x] **CSS-09 · P2: наследовать `text-indent`.**
+
+  **Код:** [internal/css/style.go:63](/Users/vyachin/Projects/go-pdf/internal/css/style.go:63), `NewStyle`.
+  **Ошибка:** свойство отмечено наследуемым в `css.Table` и документации, но отсутствует в ручном копировании наследуемых полей. Исправление CSS-04 применяет отступ, только когда он непосредственно задан соответствующему блоку.
+  **Воспроизведение:** `body{text-indent:20pt}` и `<p>A</p>` дают у `body` **20 pt**, у `p` — **auto/0**. Ожидаемый отступ первой строки абзаца теряется.
+  **Исправление / готово, когда:** наследовать computed `TextIndent`; проверить абсолютный и процентный отступ через несколько предков, локальную отмену через `text-indent:0` и отсутствие отступа у последующих строк.
+
+- [x] **CSS-10 · P2: запретить автоматический перенос при `white-space:pre`.**
+
+  **Код:** [internal/layout/lines.go:241](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:241), перенос слова; `collectPieces`.
+  **Ошибка:** флаг `preserve` сохраняет пробелы, но при переполнении ширины применяется тот же автоматический перенос, что и для normal. В действующей спецификации проекта для `pre` обещана одна строка до явного перевода с обрезкой по краю.
+  **Воспроизведение:** `<p style="white-space:pre;width:20pt;margin:0">A B C D E F</p>` создаёт **четыре базовые линии** вместо одной. Явных переводов строки во входе нет.
+  **Исправление / готово, когда:** различать сохранение пробелов и разрешение автоматического переноса; переносить `pre` только на явных переводах и согласованно обрабатывать горизонтальный overflow. Проверить длинную строку, пробелы, изображение и явный перевод строки.
+
+- [x] **CSS-11 · P2: учитывать `!important` в `@page` и margin boxes.**
+
+  **Код:** [internal/layout/margin.go:27](/Users/vyachin/Projects/go-pdf/internal/layout/margin.go:27), `ParsePageStyle`.
+  **Ошибка:** парсер сохраняет `Declaration.Important`, но параметры страницы и содержимое margin boxes выбираются простым последним присваиванием. Обычная более поздняя декларация перекрывает важную.
+  **Воспроизведение:** `@page{size:A5!important;margin:10pt!important}@page{size:A4;margin:20pt}` даёт **A4 и поля 20 pt**, вместо **A5 и 10 pt**.
+  **Исправление / готово, когда:** разрешать page-декларации по важности и порядку, как требует общий каскад. Проверить `size`, `margin` и `content` в одинаковых margin boxes, включая несколько таблиц стилей и `@media print`.
+
+- [x] **CSS-12 · P2: не принимать генераторы, которые затем молча исчезают.**
+
+  **Код:** [internal/profile/profile.go:118](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go:118), `validateGeneratedContent`; [internal/layout/lines.go:136](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:136), `generatedText`; `contentString` в margin.go.
+  **Ошибка:** один `ParseContent` разрешает счётчики в обоих контекстах, однако раскладка пропускает `counter(page)`/`counter(pages)` в `a::after`, а `target-counter` — в колонтитулах. Документация разрешает эти формы, предупреждения о потере значения нет.
+  **Воспроизведение:** `a::after{content:" page=" counter(page)}` и `<p><a>A</a></p>` успешно дают **`A page=`**, без номера первой страницы и без диагностики.
+  **Исправление / готово, когда:** либо реализовать счётчики в заявленных контекстах с учётом повторных проходов, либо валидацией ограничить допустимые генераторы для каждого контекста и обновить профиль. Поддерживаемое содержимое выводится; неподдерживаемое даёт ошибку до записи PDF.
+
+- [x] **CSS-13 · P2: отличать прозрачный текст от неуказанного цвета.**
+
+  **Код:** [internal/css/value.go:182](/Users/vyachin/Projects/go-pdf/internal/css/value.go:182), `ParseColor`; [internal/pdf/writer.go:421](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:421), вывод цвета текста; `raster.drawText`.
+  **Ошибка:** `transparent` представлен как `Color{Set:false}`, что одновременно означает отсутствие заданного цвета. Оба бэкенда рисуют такой текст чёрным; успешная валидация скрывает неподдержанную семантику.
+  **Воспроизведение:** `<p style="color:transparent">HIDDEN</p>` создаёт обычную текстовую операцию с нулевым RGB и видимый чёрный текст. В отличие от прозрачности фона, прозрачность текста здесь не работает.
+  **Исправление / готово, когда:** разделить отсутствие значения и прозрачность либо отклонять `color:transparent` до добавления поддержки. При реализации определить поведение текстового слоя и сохранить геометрию невидимого текста; проверить наследование и оба бэкенда.
+
+### Предложения по улучшению
+
+- [ ] **ARCH-01 · P3: объединить расчёт геометрии и правила потока для обычных блоков и ячеек.**
+
+  **Код:** [internal/layout/paginate.go](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go), `measure`/`placeBlock`; [internal/layout/table.go](/Users/vyachin/Projects/go-pdf/internal/layout/table.go), `paintStaticBlock`/`paintStaticTable`.
+  Разные реализации уже расходятся по margins (LAY-07), изображениям (LAY-17), ширине и декорациям. Выделить общий расчёт used-размеров и статическую раскладку содержимого; пагинация должна фрагментировать рассчитанные боксы, а рисование — использовать их геометрию. Делать постепенно через сравнение координат одинакового блока внутри и вне ячейки, без полной переписи движка.
+
+- [ ] **ENG-09 · P3: добавить независимое визуальное и текстовое сравнение в CI.**
+
+  **Код:** [.github/workflows/ci.yml](/Users/vyachin/Projects/go-pdf/.github/workflows/ci.yml), [internal/engine/corpus_test.go](/Users/vyachin/Projects/go-pdf/internal/engine/corpus_test.go), [internal/pdfdebug/extract.go](/Users/vyachin/Projects/go-pdf/internal/pdfdebug/extract.go).
+  Обязательный `pdfcpu` уже полезен, но проверяет структуру PDF; собственный растр получает операции layout до PDF-сериализации и не доказывает правильность конечного файла. Добавить небольшой фиксированный корпус конечных PDF, растеризацию независимым движком и независимое извлечение текста. Закрепить версии шрифтов/инструментов; включить alpha, CMYK/rejection, несколько шрифтов, Unicode-алиасы и номера страниц. Проверять координаты/области с допуском, сохраняя сравнения текста и графа объектов; растеризаторы нужны только в CI, а не в runtime библиотеки.
+
+- [ ] **DOC-02 · P3: исправить порядок аргументов в первом CLI-примере README.**
+
+  **Код:** [README.md:10](/Users/vyachin/Projects/go-pdf/README.md:10), [cmd/pdfgen/main.go:91](/Users/vyachin/Projects/go-pdf/cmd/pdfgen/main.go:91), `flag.FlagSet.Parse`.
+  `pdfgen convert invoice.html -o invoice.pdf` из вступления возвращает **код 2** и `exactly one input file is required`: стандартный Go flag прекращает разбор флагов после первого позиционного аргумента. Исправить на `pdfgen convert -o invoice.pdf invoice.html`, согласовать остальные примеры и явно описать порядок. Поддержка флагов после имени файла — отдельное решение API, для исправления документации она не требуется.
+
+### Дополнительные результаты и ограничения проверки
+
+- `go vet ./...` прошёл на исходном и финальном снимках.
+- Первый обычный `go test ./...` на `a8dd72c` упал только на **TestPerformanceBudget**: одна страница заняла **107,32525 мс** при лимите **50 мс**. Это дополняет ENG-07: нестабильность проявилась даже без `-race` при параллельной нагрузке. Функциональные пакеты прошли; падение нельзя скрывать формулировкой «все тесты зелёные».
+- На финальном снимке `2bdb8ff` прошёл полный функциональный прогон с гонками: `go test -race ./... -skip '^TestReview|^TestPerformanceBudget$'`. Гонок не обнаружено. `TestReview` — только временные проверки этого ревью, отсутствующие в рабочем проекте; тест производительности исключён явно по ENG-07.
+- Корпуса `internal/engine` и `internal/mpdfcompat` отдельно прошли с обязательным независимым валидатором: `PDF_REQUIRE_VALIDATOR=1 PDFCPU=/tmp/gobin/pdfcpu go test ./internal/engine ./internal/mpdfcompat -run 'TestConvertProducesValidPDF|TestCorpus' -count=1`. На финальном снимке корпус также прошёл в составе race-прогона с доступным pdfcpu. Наличие этих проходов не опровергает ошибки внешнего вида и текстового слоя выше.
+- `go test ./internal/mpdfcompat -short -count=1` прошёл. `openspec validate --specs` принял все **5** основных спецификаций; предупреждения касались формулировок нормативных требований на русском.
+- Проверки путей, геометрии, alpha, структуры ToUnicode, валидации и отмены запускались в отдельной временной копии. Временные негативные проверки намеренно падают, фиксируя расхождение с ожидаемым поведением; они не добавлены в штатный набор проекта. При исправлении задачи перенести её сценарий в постоянный regression-тест.
+- **ENG-02 повторно подтверждён:** отмена через 1 мс оставляет `ctx.Err()==context.Canceled`, но конвертация возвращает `err=nil` и **230953 байта PDF**. Также `ParseLengthString("1e100pt")` принимает число без ошибки и на проверенной платформе превращает его в `2147483647` mp. Проверять конечность/диапазон до приведения к `int32`, затем контролировать арифметику размеров и лимиты декодирования/растеризации. Опасные OOM-сценарии намеренно не запускались.
+- Исправления прежних HTML-01, HTML-02, PDF-04, PDF-05, PDF-06, FONT-01, FONT-02, FONT-03, CSS-06 и CSS-08 поступили отдельными изменениями в `main` во время этого прохода. Они учтены в финальном снимке и не включены в 19 новых ошибок. Остальные ранее открытые задачи сохраняют свои идентификаторы.
+- Не проводилась проверка соответствия PDF/A, PDF/UA или полного браузерного CSS: проект этого не обещает. Новые ошибки относятся к принятому профилю, заявленному API или собственным гарантиям проекта.
