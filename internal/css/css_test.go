@@ -3,6 +3,7 @@ package css
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vyachin/go-pdf/internal/html"
 )
@@ -520,4 +521,105 @@ func TestUserAgentImportantBeatsAuthorImportant(t *testing.T) {
 	if want := (Color{G: 255, Set: true}); st.Color != want {
 		t.Fatalf("color = %+v, want the author colour", st.Color)
 	}
+}
+
+// TestLongSelectorMatchesLikeTheNaiveMatcher guards RV2-02: the dynamic
+// programming matcher for three or more compounds must return exactly what the
+// recursive matcher returns, for every combinator combination.
+func TestLongSelectorMatchesLikeTheNaiveMatcher(t *testing.T) {
+	doc := mustDoc(t, `<div id="a" class="x"><div class="y"><p class="z"><span><div class="y z"><p id="b">t</p></div></span></p></div></div>`)
+	selectors := []string{
+		"div div div",
+		"div > div > div",
+		"div div p",
+		"div > p span",
+		"#a div .z p",
+		".x .y .z #b",
+		"body div div p span div p",
+		"div > div p > span > div > p",
+		"html body div .y p span .z",
+	}
+	for _, text := range selectors {
+		sel, err := ParseSelector(text)
+		if err != nil {
+			t.Fatalf("ParseSelector(%q): %v", text, err)
+		}
+		walkElements(doc.Root, func(n *html.Node) {
+			want := matchFrom(sel, len(sel.Compounds)-1, n)
+			if got := sel.Match(n); got != want {
+				t.Errorf("selector %q on <%s id=%q class=%q>: Match=%v, naive=%v", text, n.Tag, n.ID(), attrOf(n, "class"), got, want)
+			}
+		})
+	}
+}
+
+func attrOf(n *html.Node, key string) string {
+	v, _ := n.Attr(key)
+	return v
+}
+
+func walkElements(n *html.Node, visit func(*html.Node)) {
+	if n.Type == html.ElementNode {
+		visit(n)
+	}
+	for _, c := range n.Children {
+		walkElements(c, visit)
+	}
+}
+
+// TestDeepDescendantSelectorFinishes guards RV2-02: a 20-compound descendant
+// selector on a deep tree used to take combinatorial time. The naive matcher
+// needs C(depth, compounds) steps, so this test must not hang when the
+// optimisation is removed.
+func TestDeepDescendantSelectorFinishes(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<html><body>")
+	const depth = 200
+	for i := 0; i < depth; i++ {
+		b.WriteString("<div>")
+	}
+	b.WriteString("x")
+	for i := 0; i < depth; i++ {
+		b.WriteString("</div>")
+	}
+	b.WriteString("</body></html>")
+	doc := mustDoc(t, b.String())
+
+	sel, err := ParseSelector("table " + strings.Repeat("div ", 19) + "div")
+	if err != nil {
+		t.Fatalf("ParseSelector: %v", err)
+	}
+	// The first compound never matches, so every ancestor chain is explored.
+	var deepest *html.Node
+	var find func(*html.Node)
+	find = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Tag == "div" && (deepest == nil || depthOf(n) > depthOf(deepest)) {
+			deepest = n
+		}
+		for _, c := range n.Children {
+			find(c)
+		}
+	}
+	find(doc.Root)
+	if deepest == nil {
+		t.Fatal("no div found")
+	}
+	done := make(chan bool, 1)
+	go func() { done <- sel.Match(deepest) }()
+	select {
+	case got := <-done:
+		if got {
+			t.Fatal("selector matched a document without a table")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matching a 20-compound descendant selector on a 200-deep tree did not finish in 5s")
+	}
+}
+
+func depthOf(n *html.Node) int {
+	d := 0
+	for p := n.Parent; p != nil; p = p.Parent {
+		d++
+	}
+	return d
 }

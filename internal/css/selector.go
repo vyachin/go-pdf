@@ -67,7 +67,15 @@ func (s Selector) Match(n *html.Node) bool {
 	if n == nil || n.Type != html.ElementNode || len(s.Compounds) == 0 {
 		return false
 	}
-	return matchFrom(s, len(s.Compounds)-1, n)
+	// One and two compounds are a single ancestor walk. Longer selectors are
+	// matched by dynamic programming over the ancestor chain: the naive
+	// recursive matcher re-walks the same ancestors for every combination of
+	// positions, so a deep tree and a long descendant selector take
+	// combinatorial time even for a document of a few hundred bytes.
+	if len(s.Compounds) <= 2 {
+		return matchFrom(s, len(s.Compounds)-1, n)
+	}
+	return s.matchAncestors(n)
 }
 
 func matchFrom(s Selector, idx int, n *html.Node) bool {
@@ -91,6 +99,57 @@ func matchFrom(s Selector, idx int, n *html.Node) bool {
 		}
 		return false
 	}
+}
+
+// matchChainSize is the ancestor depth matchAncestors handles without
+// allocating. The parser bounds DOM depth, so most documents stay on the stack
+// path; deeper chains fall back to slices.
+const matchChainSize = 64
+
+// matchAncestors matches a selector with three or more compounds in
+// O(compounds × depth): prev[j] reports whether the compounds before the
+// current one match with the previous compound on the j-th ancestor of n,
+// counting n as ancestor 0.
+func (s Selector) matchAncestors(n *html.Node) bool {
+	var chainBuf [matchChainSize]*html.Node
+	chain := chainBuf[:0]
+	for p := n; p != nil; p = parentElement(p) {
+		chain = append(chain, p)
+	}
+	depth := len(chain)
+
+	var prevBuf, curBuf [matchChainSize]bool
+	var suffixBuf [matchChainSize + 1]bool
+	var prev, cur, suffix []bool
+	if depth <= matchChainSize {
+		prev, cur, suffix = prevBuf[:depth], curBuf[:depth], suffixBuf[:depth+1]
+	} else {
+		prev, cur = make([]bool, depth), make([]bool, depth)
+		suffix = make([]bool, depth+1)
+	}
+	for j := 0; j < depth; j++ {
+		prev[j] = s.Compounds[0].Match(chain[j])
+	}
+	for idx := 1; idx < len(s.Compounds); idx++ {
+		child := s.Combinators[idx-1] == Child
+		suffix[depth] = false
+		for j := depth - 1; j >= 0; j-- {
+			suffix[j] = prev[j] || suffix[j+1]
+		}
+		for j := 0; j < depth; j++ {
+			if !s.Compounds[idx].Match(chain[j]) {
+				cur[j] = false
+				continue
+			}
+			if child {
+				cur[j] = j+1 < depth && prev[j+1]
+			} else {
+				cur[j] = suffix[j+1]
+			}
+		}
+		prev, cur = cur, prev
+	}
+	return prev[0]
 }
 
 func parentElement(n *html.Node) *html.Node {
