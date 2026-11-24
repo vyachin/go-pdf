@@ -702,3 +702,24 @@ func TestBodyStylesheetIsNotRendered(t *testing.T) {
 		}
 	}
 }
+
+func TestHiddenTablePartsAreSkipped(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table>
+		<tr style="display:none"><td>HIDDENROW</td></tr>
+		<tr><td style="display:none">HIDDENCELL</td><td>VISIBLE</td></tr>
+	</table>`)
+	text := pageText(doc, 1)
+	if strings.Contains(text, "HIDDENROW") || strings.Contains(text, "HIDDENCELL") {
+		t.Fatalf("hidden table content was rendered: %q", text)
+	}
+	if !strings.Contains(text, "VISIBLE") {
+		t.Fatalf("visible cell is missing: %q", text)
+	}
+	// A hidden row must not consume vertical space.
+	withHidden := h.run(`<table><tr style="display:none"><td>X</td></tr><tr><td>V</td></tr></table>`)
+	without := h.run(`<table><tr><td>V</td></tr></table>`)
+	if len(withHidden.Pages) != len(without.Pages) {
+		t.Fatalf("hidden row changed pagination: %d vs %d pages", len(withHidden.Pages), len(without.Pages))
+	}
+}

@@ -406,18 +406,26 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 	addRows = func(node *html.Node, header bool, parentStyle *css.Style) {
 		for _, c := range node.ElementChildren() {
 			switch c.Tag {
-			case "thead":
-				addRows(c, true, b.cascade.Compute(c, parentStyle))
-			case "tbody", "tfoot":
-				addRows(c, header, b.cascade.Compute(c, parentStyle))
+			case "thead", "tbody", "tfoot":
+				groupStyle := b.cascade.Compute(c, parentStyle)
+				if groupStyle.Display == css.DisplayNone {
+					continue
+				}
+				addRows(c, c.Tag == "thead", groupStyle)
 			case "tr":
 				rowStyle := b.cascade.Compute(c, parentStyle)
+				if rowStyle.Display == css.DisplayNone {
+					continue
+				}
 				row := &Row{Header: header}
 				for _, cellNode := range c.ElementChildren() {
 					if cellNode.Tag != "td" && cellNode.Tag != "th" {
 						continue
 					}
 					cellStyle := b.cascade.Compute(cellNode, rowStyle)
+					if cellStyle.Display == css.DisplayNone {
+						continue
+					}
 					// border-collapse is a property of the table, but cells
 					// need it to decide which edges they own.
 					cellStyle.BorderCollapse = style.BorderCollapse
