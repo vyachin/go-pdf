@@ -794,3 +794,30 @@ func TestInlineAnchorMovesWithItsText(t *testing.T) {
 		t.Fatalf("the anchor stayed on the first line: anchor Y=%d, AAA baseline=%d", anchor.Y, aaaY)
 	}
 }
+
+func TestTrailingBreakDoesNotCreateAnEmptyPage(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="break-after:page">A</p>`)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("a trailing forced break produced %d pages, want 1", len(doc.Pages))
+	}
+	// Between two real blocks the break still happens.
+	doc = h.run(`<p style="break-after:page">A</p><p>B</p>`)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("the forced break between blocks produced %d pages, want 2", len(doc.Pages))
+	}
+	found := false
+	for _, op := range doc.Pages[1].Ops {
+		if op.Kind == TextOpKind && op.Text != nil && len(op.Text.Run.Glyphs) > 0 && op.Text.Run.Glyphs[0].Rune == 'B' {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the second block did not start on a new page")
+	}
+	// An empty block after the break does not create a page either.
+	doc = h.run(`<p style="break-after:page">A</p><p></p>`)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("an empty following block produced %d pages, want 1", len(doc.Pages))
+	}
+}

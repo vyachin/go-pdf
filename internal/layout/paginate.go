@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"strings"
+
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 )
@@ -17,6 +19,9 @@ type flow struct {
 	y       int32
 	pending int32
 	empty   bool
+	// breakPending is a break-after:page that waits for the next visible box,
+	// so a trailing forced break does not create an empty last page.
+	breakPending bool
 }
 
 // newPage starts a new page and reports false when the page limit is reached.
@@ -183,6 +188,12 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	}
 	st := b.Style
 	if !b.started {
+		if f.breakPending && !isRoot {
+			f.breakPending = false
+			if boxHasContent(b) && !f.newPage() {
+				return false
+			}
+		}
 		b.started = true
 		b.startPage = f.pageNum
 		b.usedGeometry(x, width)
@@ -292,6 +303,21 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	}
 }
 
+// boxHasContent reports whether a box can paint anything visible. It keeps a
+// pending forced break from creating a page for an empty block.
+func boxHasContent(b *Box) bool {
+	switch b.Kind {
+	case Image:
+		return b.Image != nil
+	case Table:
+		return len(b.Rows) > 0
+	}
+	if len(b.Children) > 0 {
+		return true
+	}
+	return b.Kind == Text && strings.TrimSpace(b.Text) != ""
+}
+
 func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 	if !f.empty {
 		if c.Style.BreakBefore == css.BreakPage {
@@ -314,7 +340,9 @@ func (l *layouter) afterBlock(f *flow, b *Box) {
 	b.cursor.done = true
 	f.pending = b.Style.Margin[2].Resolve(b.width)
 	if b.Style.BreakAfter == css.BreakPage {
-		f.newPage()
+		// Create the page only when another visible box follows; otherwise a
+		// trailing break would add an empty page and change counter(pages).
+		f.breakPending = true
 	}
 }
 
