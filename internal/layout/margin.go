@@ -135,6 +135,7 @@ func (l *layouter) paintMarginBoxes() {
 			for i, g := range run.Glyphs {
 				glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
 			}
+			l.ops++
 			page.Ops = append(page.Ops, Op{
 				Kind: TextOpKind,
 				Text: &TextOp{

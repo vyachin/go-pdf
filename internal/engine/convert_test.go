@@ -461,3 +461,21 @@ func hasCode(l diag.List, code string) bool {
 	}
 	return false
 }
+
+func TestConvertFailsWithoutPaginationProgress(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<style>
+		@page { size: 100pt 100pt; margin: 10pt }
+		p { font-size: 10pt; line-height: 100pt; margin: 0 }
+	</style><p>IMPORTANT</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "loop.html"})
+	if err == nil {
+		t.Fatal("expected an error when content cannot be placed")
+	}
+	if len(res.PDF) != 0 {
+		t.Fatal("no PDF must be produced")
+	}
+	if !hasCode(res.Diagnostics, "layout/no-progress") {
+		t.Fatalf("diagnostics = %v", res.Diagnostics.Lines())
+	}
+}

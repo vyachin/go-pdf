@@ -2,8 +2,11 @@ package pdf
 
 import (
 	"bytes"
+	"compress/zlib"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,4 +154,125 @@ func FuzzWriter(f *testing.F) {
 		d.AddPage(w, h, ops)
 		_, _ = d.Bytes()
 	})
+}
+
+// pdfObjects splits a PDF into numbered object bodies for structural checks.
+func pdfObjects(t *testing.T, data []byte) map[int]string {
+	t.Helper()
+	out := map[int]string{}
+	rest := data
+	for {
+		idx := bytes.Index(rest, []byte(" obj\n"))
+		if idx < 0 {
+			return out
+		}
+		lineStart := bytes.LastIndexByte(rest[:idx], '\n') + 1
+		fields := strings.Fields(string(rest[lineStart:idx]))
+		rest = rest[idx+len(" obj\n"):]
+		end := bytes.Index(rest, []byte("\nendobj"))
+		if end < 0 || len(fields) == 0 {
+			return out
+		}
+		id, err := strconv.Atoi(fields[0])
+		if err == nil {
+			out[id] = string(rest[:end])
+		}
+		rest = rest[end+len("\nendobj"):]
+	}
+}
+
+// ref extracts "N 0 R" that follows the given key.
+func ref(body, key string) int {
+	i := strings.Index(body, key)
+	if i < 0 {
+		return 0
+	}
+	rest := body[i+len(key):]
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return 0
+	}
+	fields[0] = strings.TrimPrefix(fields[0], "[")
+	id, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+// decodeStream inflates a FlateDecode stream object.
+func decodeStream(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, "stream\n")
+	end := strings.Index(body, "\nendstream")
+	if start < 0 || end < 0 || end < start {
+		return body
+	}
+	raw := []byte(body[start+len("stream\n") : end])
+	zr, err := zlib.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		return string(raw)
+	}
+	defer zr.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(zr); err != nil {
+		return string(raw)
+	}
+	return buf.String()
+}
+
+func TestFontObjectGraph(t *testing.T) {
+	f := loadFont(t)
+	gid, ok := f.GlyphIndex('С')
+	if !ok {
+		t.Skip("test font has no С")
+	}
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 2000, Font: f, Size: 12000, Glyphs: []Glyph{{GID: gid, Rune: 'С'}}},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := pdfObjects(t, data)
+
+	var type0 int
+	for id, body := range objects {
+		if strings.Contains(body, "/Subtype /Type0") {
+			type0 = id
+			break
+		}
+	}
+	if type0 == 0 {
+		t.Fatal("no Type0 font object")
+	}
+	cidID := ref(objects[type0], "/DescendantFonts")
+	if cidID == 0 {
+		t.Fatal("the Type0 font has no /DescendantFonts reference")
+	}
+	cid := objects[cidID]
+	if !strings.Contains(cid, "/Subtype /CIDFontType2") {
+		t.Fatalf("/DescendantFonts points at an object without /CIDFontType2: %s", cid)
+	}
+	descID := ref(cid, "/FontDescriptor")
+	if descID == 0 {
+		t.Fatal("the CID font has no /FontDescriptor reference")
+	}
+	desc := objects[descID]
+	if !strings.Contains(desc, "/Type /FontDescriptor") {
+		t.Fatalf("/FontDescriptor points at: %s", desc)
+	}
+	fileID := ref(desc, "/FontFile2")
+	if fileID == 0 || !strings.Contains(objects[fileID], "stream") {
+		t.Fatalf("/FontFile2 does not reference a stream: %q", objects[fileID])
+	}
+	toUniID := ref(objects[type0], "/ToUnicode")
+	if toUniID == 0 || toUniID == cidID || toUniID == descID || toUniID == fileID {
+		t.Fatalf("/ToUnicode must be a separate object, got %d", toUniID)
+	}
+	if !strings.Contains(decodeStream(t, objects[toUniID]), "begincmap") {
+		t.Fatal("/ToUnicode does not reference a CMap stream")
+	}
 }

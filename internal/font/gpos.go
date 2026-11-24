@@ -217,6 +217,11 @@ func parseClassDef(data []byte, off int) ([]classRange, bool) {
 	format := binary.BigEndian.Uint16(data[off : off+2])
 	switch format {
 	case 1:
+		// The header of a format 1 class definition is six bytes long; the
+		// four-byte check at the top of this function is not enough.
+		if off+6 > len(data) {
+			return nil, false
+		}
 		start := binary.BigEndian.Uint16(data[off+2 : off+4])
 		n := int(binary.BigEndian.Uint16(data[off+4 : off+6]))
 		if off+6+n*2 > len(data) {

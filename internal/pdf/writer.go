@@ -191,7 +191,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 	w := &objectWriter{}
 	// Font objects.
 	for _, fe := range fonts {
-		fe.ids = make([]int, 4)
+		// Type0, CIDFontType2, FontDescriptor, FontFile2 and ToUnicode each
+		// need their own object: reusing one id for two roles breaks the chain.
+		fe.ids = make([]int, 5)
 		for i := range fe.ids {
 			fe.ids[i] = w.add()
 		}
@@ -225,17 +227,18 @@ func (d *Doc) Bytes() ([]byte, error) {
 			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
 		}
 		fe.subset = subset
-		descID, fileID, toUniID := fe.ids[1], fe.ids[2], fe.ids[3]
+		fontID, cidID := fe.ids[0], fe.ids[1]
+		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
 		baseName := sanitizeName(fe.font.Family(), fe.font.Subfamily())
 		widths := fe.widthArray()
 		toUni := fe.toUnicodeCMap()
 
-		w.set(fe.ids[0], []byte(fmt.Sprintf(
+		w.set(fontID, []byte(fmt.Sprintf(
 			"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
-			baseName, descID, toUniID)))
-		w.set(descID, []byte(fmt.Sprintf(
+			baseName, cidID, toUniID)))
+		w.set(cidID, []byte(fmt.Sprintf(
 			"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap /Identity >>",
-			baseName, fileID, widths)))
+			baseName, descID, widths)))
 		upem := float64(fe.font.UnitsPerEm())
 		scale := 1000 / upem
 		bbox := fe.font.BBox()

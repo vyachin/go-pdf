@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/html"
+	"github.com/vyachin/go-pdf/internal/profile"
 )
 
 func pageText(doc *Document, number int) string {
@@ -346,4 +349,68 @@ func truncateText(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+func TestPaginationStopsWithoutProgress(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 100000, Height: 100000} // 100pt square
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	src := `<style>
+		@page { size: 100pt 100pt; margin: 10pt }
+		p { font-size: 10pt; line-height: 100pt; margin: 0 }
+	</style><p>IMPORTANT</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if !hasError(diags, "layout/no-progress") {
+		t.Fatalf("expected layout/no-progress, got %v", diags.Lines())
+	}
+	if len(doc.Pages) > 2 {
+		t.Fatalf("pagination produced %d pages before stopping", len(doc.Pages))
+	}
+	if len(doc.Pages) > 0 && len(doc.Pages[0].Ops) > 0 {
+		t.Fatal("the overflowing line must not be reported as placed")
+	}
+}
+
+func hasError(l diag.List, code string) bool {
+	for _, d := range l {
+		if d.Code == code && d.Severity == diag.Error {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPaginationIterationCapIsAnError(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 283465, Height: 170079}
+	margin := [4]int32{14173, 14173, 14173, 14173}
+	var paragraphs strings.Builder
+	for i := 0; i < 40; i++ {
+		paragraphs.WriteString("<p>Абзац для проверки предела итераций пагинации.</p>")
+	}
+	doc, err := html.Parse([]byte(paragraphs.String()), "cap.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	ctx := h.ctx
+	ctx.Cascade = cascade
+	ctx.PageSize = size
+	ctx.Margin = margin
+	ctx.PageStyle = ParsePageStyle(sheets, size, margin)
+	root, _ := Build(doc, ctx)
+
+	l := &layouter{
+		ctx:           ctx,
+		doc:           &Document{Anchors: map[string]Anchor{}},
+		pageStyle:     ctx.PageStyle,
+		faces:         map[string]*FontFace{},
+		anchors:       map[string]Anchor{},
+		maxIterations: 1,
+	}
+	l.paginate(root)
+	if !hasError(l.doc.Diags, "layout/loop") {
+		t.Fatalf("expected layout/loop, got %v", l.doc.Diags.Lines())
+	}
 }

@@ -12,7 +12,12 @@ type layouter struct {
 	pageStyle PageStyle
 	faces     map[string]*FontFace
 	anchors   map[string]Anchor
-	targets   map[string]int
+	// ops counts every drawing operation emitted so far; pagination uses it to
+	// detect that a page made no progress.
+	ops     int
+	targets map[string]int
+	// maxIterations bounds the page loop; zero means the default.
+	maxIterations int
 }
 
 // Run lays out a validated document and returns its pages.

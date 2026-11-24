@@ -196,6 +196,7 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	cell.x = x
 	cell.width = w
 	if cell.Style.Background.Set {
+		l.ops++
 		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: Rect{X: x, Y: y, W: w, H: h}, Color: cell.Style.Background})
 	}
 	paintSide := func(side int, rect Rect) {
@@ -207,6 +208,7 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		if !color.Set {
 			color = css.Color{Set: true}
 		}
+		l.ops++
 		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: rect, Color: color})
 	}
 	bl, br := visibleWidth(cell.Style.Border[3]), visibleWidth(cell.Style.Border[1])

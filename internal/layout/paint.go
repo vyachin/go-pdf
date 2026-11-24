@@ -54,6 +54,7 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 		paintBorder(2, Rect{X: b.x, Y: bottom - bb, W: b.width, H: bb})
 	}
 	if len(ops) > 0 {
+		l.ops += len(ops)
 		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
 	}
 }
@@ -100,6 +101,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 		switch it.Kind {
 		case ImageItem:
 			if it.Image != nil {
+				l.ops++
 				page.Ops = append(page.Ops, Op{
 					Kind:  ImageOpKind,
 					Rect:  Rect{X: x, Y: y + (line.Height-it.H)/2, W: it.W, H: it.H},
@@ -120,6 +122,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				for i, g := range it.Run.Glyphs {
 					glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
 				}
+				l.ops++
 				page.Ops = append(page.Ops, Op{
 					Kind: TextOpKind,
 					Text: &TextOp{
@@ -162,6 +165,7 @@ func (l *layouter) paintListMarker(f *flow, b *Box) {
 	for i, g := range run.Glyphs {
 		glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
 	}
+	l.ops++
 	f.page.Ops = append(f.page.Ops, Op{
 		Kind: TextOpKind,
 		Text: &TextOp{

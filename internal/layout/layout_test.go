@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/profile"
@@ -125,6 +126,27 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) run(src string) *Document {
 	h.t.Helper()
 	return h.runWithSize(src, h.ctx.PageSize, h.ctx.Margin)
+}
+
+// runRaw returns layout diagnostics instead of failing the test, for cases
+// that are expected to report errors.
+func (h *harness) runRaw(src string, size css.PageSize, margin [4]int32) (*Document, diag.List) {
+	h.t.Helper()
+	doc, err := html.Parse([]byte(src), "test.html")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	diags := profile.Validate(doc, profile.Options{})
+	sheets, sheetDiags := profile.CollectStylesheets(doc, profile.Options{})
+	diags = append(diags, sheetDiags...)
+	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	ps := ParsePageStyle(sheets, size, margin)
+	ctx := h.ctx
+	ctx.Cascade = cascade
+	ctx.PageStyle = ps
+	ctx.PageSize = size
+	ctx.Margin = margin
+	return Run(doc, ctx)
 }
 
 func (h *harness) runWithSize(src string, size css.PageSize, margin [4]int32) *Document {

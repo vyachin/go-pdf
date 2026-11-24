@@ -1,6 +1,7 @@
 package font
 
 import (
+	"encoding/binary"
 	"os"
 	"runtime"
 	"testing"
@@ -166,4 +167,73 @@ func FuzzParse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_, _ = Parse(b)
 	})
+}
+
+func TestParseClassDefShortHeaders(t *testing.T) {
+	cases := [][]byte{
+		{},
+		{0},
+		{0, 1},
+		{0, 1, 0, 0}, // format 1 with a truncated count
+		{0, 2, 0, 1}, // format 2 claiming one range without data
+		{0, 9, 0, 0}, // unknown format
+	}
+	for _, data := range cases {
+		if _, ok := parseClassDef(data, 0); ok {
+			t.Fatalf("parseClassDef(%v) unexpectedly succeeded", data)
+		}
+	}
+	// A complete format 1 definition still parses.
+	ok := []byte{0, 1, 0, 5, 0, 1, 0, 7}
+	ranges, parsed := parseClassDef(ok, 0)
+	if !parsed || len(ranges) != 1 || ranges[0].start != 5 || ranges[0].class != 7 {
+		t.Fatalf("valid class definition = %+v, %v", ranges, parsed)
+	}
+}
+
+func FuzzParseClassDef(f *testing.F) {
+	f.Add([]byte{0, 1, 0, 0})
+	f.Add([]byte{0, 2, 0, 0, 0, 1, 0, 0, 0, 0})
+	f.Add([]byte{0, 1, 0, 5, 0, 1, 0, 7})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = parseClassDef(data, 0)
+	})
+}
+
+// truncateTable shortens one table in the sfnt directory so that parsers see
+// less data than the table claims to have.
+func truncateTable(t *testing.T, data []byte, tag string, length int) []byte {
+	t.Helper()
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if string(data[rec:rec+4]) != tag {
+			continue
+		}
+		out := append([]byte(nil), data...)
+		binary.BigEndian.PutUint32(out[rec+12:rec+16], uint32(length))
+		return out
+	}
+	t.Fatalf("table %q is not present in the test font", tag)
+	return nil
+}
+
+func TestTruncatedGPOSDoesNotPanic(t *testing.T) {
+	f := testFont(t)
+	if f.gpos == nil {
+		t.Skip("the test font has no GPOS table")
+	}
+	src := f.data
+	for _, length := range []int{0, 2, 8, 10, 14, 20, 48} {
+		data := truncateTable(t, src, "GPOS", length)
+		parsed, err := Parse(data)
+		if err != nil {
+			// A short optional table may also make the font unusable; what
+			// matters is that parsing never panics.
+			continue
+		}
+		if parsed.Kerning(0, 0) != 0 && length < 10 {
+			t.Fatalf("truncated GPOS of %d bytes still produced kerning", length)
+		}
+	}
 }

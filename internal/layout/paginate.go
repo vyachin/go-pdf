@@ -81,15 +81,27 @@ func (l *layouter) isTextBlock(b *Box) bool {
 func (l *layouter) paginate(root *Box) *Document {
 	f := &flow{l: l}
 	f.newPage()
+	maxIterations := l.maxIterations
+	if maxIterations <= 0 {
+		maxIterations = 5000
+	}
 	iterations := 0
 	for {
+		opsBefore := l.ops
+		yBefore := f.y
 		done := l.placeBlock(f, root, f.width, true)
 		if done {
 			break
 		}
 		iterations++
-		if iterations > 5000 {
-			l.diags.Warnf("layout/loop", diag.Position{}, "", "pagination did not converge")
+		if l.ops == opsBefore && f.y == yBefore {
+			// Nothing was drawn and the flow did not advance: the content cannot
+			// be placed, so fail instead of emitting empty pages.
+			l.diags.Errorf("layout/no-progress", diag.Position{}, "", "content cannot be placed on a page and pagination cannot advance")
+			break
+		}
+		if iterations > maxIterations {
+			l.diags.Errorf("layout/loop", diag.Position{}, "", "pagination did not converge")
 			break
 		}
 		f.newPage()
