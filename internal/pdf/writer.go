@@ -487,6 +487,12 @@ func imageObject(img *Image) ([]byte, error) {
 			w, h = img.PixelW, img.PixelH
 			components = 3
 		}
+		if components == 4 {
+			// Go can decode CMYK JPEG, but the writer has no colour space or
+			// inversion support for it; embedding the data as RGB would render
+			// wrong colours.
+			return nil, fmt.Errorf("pdf: CMYK JPEG images are not supported")
+		}
 		colorSpace := "/DeviceRGB"
 		if components == 1 {
 			colorSpace = "/DeviceGray"
@@ -501,19 +507,16 @@ func imageObject(img *Image) ([]byte, error) {
 		}
 		bounds := src.Bounds()
 		rgb := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-		draw.Draw(rgb, rgb.Bounds(), src, bounds.Min, draw.Src)
+		// Composite onto white, the page colour, with draw.Over: converting to
+		// RGBA first premultiplies the channels, so flattening the result by
+		// alpha again would darken every translucent pixel.
+		draw.Draw(rgb, rgb.Bounds(), image.White, image.Point{}, draw.Src)
+		draw.Draw(rgb, rgb.Bounds(), src, bounds.Min, draw.Over)
 		raw := make([]byte, 0, bounds.Dx()*bounds.Dy()*3)
 		for y := 0; y < bounds.Dy(); y++ {
 			for x := 0; x < bounds.Dx(); x++ {
 				i := rgb.PixOffset(x, y)
-				r, g, bb, a := rgb.Pix[i], rgb.Pix[i+1], rgb.Pix[i+2], rgb.Pix[i+3]
-				if a != 0xFF {
-					// Flatten against white, the page colour.
-					r = uint8((uint32(r)*uint32(a) + 255*uint32(255-a)) / 255)
-					g = uint8((uint32(g)*uint32(a) + 255*uint32(255-a)) / 255)
-					bb = uint8((uint32(bb)*uint32(a) + 255*uint32(255-a)) / 255)
-				}
-				raw = append(raw, r, g, bb)
+				raw = append(raw, rgb.Pix[i], rgb.Pix[i+1], rgb.Pix[i+2])
 			}
 		}
 		var buf bytes.Buffer

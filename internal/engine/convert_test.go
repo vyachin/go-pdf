@@ -805,3 +805,20 @@ func TestBlockImageIsPainted(t *testing.T) {
 		t.Fatalf("an image-only document must paint its image once, got %d", n)
 	}
 }
+
+func TestCMYKJPEGIsRejected(t *testing.T) {
+	fixture := filepath.Join(runtime.GOROOT(), "src", "image", "testdata", "video-001.cmyk.jpeg")
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cmyk.jpg"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := `<p><img src="cmyk.jpg"></p>`
+	_, err = Convert(context.Background(), []byte(src), Options{BaseDir: dir, File: "cmyk.html"})
+	if err == nil || !strings.Contains(err.Error(), "CMYK") {
+		t.Fatalf("a CMYK JPEG must be rejected explicitly, got %v", err)
+	}
+}
