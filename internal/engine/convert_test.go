@@ -741,3 +741,19 @@ func TestFontBoundary(t *testing.T) {
 		}
 	})
 }
+
+func TestImageLoaderOpensRootOnce(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.png", "b.png", "c.png"} {
+		writeTestPNG(t, filepath.Join(dir, name))
+	}
+	loader := &imageLoader{baseDir: dir}
+	for _, name := range []string{"a.png", "b.png", "c.png"} {
+		if _, err := loader.Load(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if loader.rootOpens != 1 {
+		t.Fatalf("the root was resolved %d times, want 1", loader.rootOpens)
+	}
+}

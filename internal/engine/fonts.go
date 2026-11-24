@@ -10,6 +10,7 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/font"
+	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/profile"
 	"github.com/vyachin/go-pdf/internal/text"
@@ -34,6 +35,15 @@ type fontRegistry struct {
 func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
 	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
 	seen := map[string]bool{}
+	fontDir := opts.FontDir
+	if fontDir == "" {
+		fontDir = opts.BaseDir
+	}
+	fontRoot, fontRootErr := fsx.Open(fontDir)
+	if fontRootErr != nil {
+		return nil, fmt.Errorf("opening the font directory: %w", fontRootErr)
+	}
+	defer fontRoot.Close()
 	for _, rule := range css.RulesForPrint(sheets) {
 		if rule.Kind != css.FontFaceRule {
 			continue
@@ -72,13 +82,9 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 			continue
 		}
 		seen[key] = true
-		root := opts.FontDir
-		if root == "" {
-			root = opts.BaseDir
-		}
-		data, err := profile.ReadWithin(root, path)
+		data, err := fontRoot.Read(path)
 		if err != nil {
-			if errors.Is(err, profile.ErrOutsideRoot) {
+			if errors.Is(err, fsx.ErrOutsideRoot) {
 				return nil, fmt.Errorf("font %q is outside the font directory", src)
 			}
 			return nil, fmt.Errorf("loading font %q: %w", src, err)

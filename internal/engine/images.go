@@ -10,16 +10,19 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/layout"
-	"github.com/vyachin/go-pdf/internal/profile"
 )
 
 // imageLoader resolves <img src> to decoded image data. Decoded images are
 // cached for the conversion so that a repeated source is read and embedded once.
 type imageLoader struct {
-	baseDir string
-	mu      sync.Mutex
-	cache   map[string]*layout.ImageData
+	baseDir   string
+	root      *fsx.Root
+	rootErr   error
+	rootOpens int // resolved roots, used by tests to prove reuse
+	mu        sync.Mutex
+	cache     map[string]*layout.ImageData
 	// loads counts actual decodes, used by tests to prove caching.
 	loads int
 }
@@ -34,7 +37,16 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		l.mu.Unlock()
 		return img, nil
 	}
+	if l.root == nil && l.rootErr == nil {
+		l.rootOpens++
+		l.root, l.rootErr = fsx.Open(l.baseDir)
+	}
+	root := l.root
+	rootErr := l.rootErr
 	l.mu.Unlock()
+	if rootErr != nil {
+		return nil, fmt.Errorf("opening the base directory: %w", rootErr)
+	}
 	lower := strings.ToLower(src)
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return nil, fmt.Errorf("remote images are not supported: %s", src)
@@ -43,9 +55,9 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.baseDir, path)
 	}
-	data, err := profile.ReadWithin(l.baseDir, path)
+	data, err := root.Read(path)
 	if err != nil {
-		if errors.Is(err, profile.ErrOutsideRoot) {
+		if errors.Is(err, fsx.ErrOutsideRoot) {
 			return nil, fmt.Errorf("image %q is outside the base directory", src)
 		}
 		return nil, err
