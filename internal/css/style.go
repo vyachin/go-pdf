@@ -91,6 +91,11 @@ func (s *Style) resolveEm() {
 	for i := range s.Padding {
 		s.Padding[i] = s.Padding[i].ResolveFont(s.FontSize)
 	}
+	for i := range s.Border {
+		if s.Border[i].WidthLen.Kind != Auto {
+			s.Border[i].Width = s.Border[i].WidthLen.ResolveFont(s.FontSize).Value
+		}
+	}
 	s.TextIndent = s.TextIndent.ResolveFont(s.FontSize)
 	if s.LineHeightFactor > 0 {
 		s.LineHeight = Length{Kind: Auto}

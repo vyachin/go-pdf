@@ -185,7 +185,9 @@ var Table = map[string]PropSpec{
 				return Value{}, err
 			}
 			if l.Kind == Percent {
-				l = EmLen(float64(l.Value) / 1000)
+				// Length percentages are stored as 100000 per 100%; an em
+				// factor of the same value uses the same scale.
+				l = EmLen(float64(l.Value) / 100000)
 			}
 			if l.Kind == MP && l.Value <= 0 {
 				return Value{}, fmt.Errorf("line-height must be positive")
@@ -407,7 +409,14 @@ func parseBorderShorthand(toks []Token) (Value, error) {
 			if err != nil {
 				return Value{}, err
 			}
-			side.Width, widthSet = l.Value, true
+			if l.Kind == Percent || l.Kind == Auto {
+				return Value{}, fmt.Errorf("border width must be a length, not a percentage or auto")
+			}
+			// Keep the unit: an em width must be resolved against the
+			// element font size, not treated as absolute millipoints.
+			side.WidthLen = l
+			side.Width = l.Value
+			widthSet = true
 		}
 	}
 	if side.Style == BorderNone {

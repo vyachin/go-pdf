@@ -243,9 +243,12 @@ const (
 
 // BorderSide is one side of a box border.
 type BorderSide struct {
-	Width int32
-	Style BorderStyle
-	Color Color
+	// Width is the computed width in millipoints. WidthLen keeps the declared
+	// unit until Style.resolveEm resolves it against the font size.
+	Width    int32
+	WidthLen Length
+	Style    BorderStyle
+	Color    Color
 }
 
 // IsVisible reports whether the side should be drawn.
