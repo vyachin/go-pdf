@@ -3,6 +3,7 @@ package html
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -441,5 +442,24 @@ func TestParseStopsWhenCancelled(t *testing.T) {
 	_, err := ParseWithOptions([]byte(strings.Repeat("<p>x</p>", 50)), ParseOptions{Budget: budget.New(ctx, 0)})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("parse returned %v, want context.Canceled", err)
+	}
+}
+
+func TestDecodeEntitiesLeavesUnterminatedAmpersands(t *testing.T) {
+	src := strings.Repeat("&", 1<<20)
+	if got := decodeEntities(src); got != src {
+		t.Fatalf("unterminated ampersands changed: %d bytes out, want %d", len(got), len(src))
+	}
+}
+
+func BenchmarkDecodeEntities(b *testing.B) {
+	for _, size := range []int{8192, 32768, 131072} {
+		src := strings.Repeat("&", size)
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			b.SetBytes(int64(size))
+			for i := 0; i < b.N; i++ {
+				decodeEntities(src)
+			}
+		})
 	}
 }

@@ -311,13 +311,21 @@ func decodeEntities(s string) string {
 			i++
 			continue
 		}
-		semi := strings.IndexByte(s[i:], ';')
-		if semi < 0 || semi > 32 {
+		// Only a short window can hold an entity name. Searching the whole
+		// remaining input for every ampersand made an unterminated run
+		// quadratic.
+		const maxEntityLen = 32
+		end := i + 1 + maxEntityLen
+		if end > len(s) {
+			end = len(s)
+		}
+		semi := strings.IndexByte(s[i+1:end], ';')
+		if semi < 0 {
 			b.WriteByte(s[i])
 			i++
 			continue
 		}
-		entity := s[i+1 : i+semi]
+		entity := s[i+1 : i+1+semi]
 		if entity == "" {
 			b.WriteByte(s[i])
 			i++
@@ -333,12 +341,12 @@ func decodeEntities(s string) string {
 			}
 			if err == nil && code > 0 && code <= 0x10FFFF {
 				b.WriteRune(rune(code))
-				i += semi + 1
+				i += semi + 2
 				continue
 			}
 		} else if v, ok := namedEntities[entity]; ok {
 			b.WriteString(v)
-			i += semi + 1
+			i += semi + 2
 			continue
 		}
 		b.WriteByte(s[i])
