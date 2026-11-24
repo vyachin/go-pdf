@@ -323,3 +323,90 @@ func TestHTMLAttributesSurvive(t *testing.T) {
 		t.Fatalf("implicit html borrowed attributes: %+v", doc.HTML().Attrs)
 	}
 }
+
+func findByID(n *Node, id string) *Node {
+	if n.Type == ElementNode {
+		if v, ok := n.Attr("id"); ok && v == id {
+			return n
+		}
+	}
+	for _, c := range n.Children {
+		if found := findByID(c, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func ancestorTag(n *Node, tag string) bool {
+	for p := n.Parent; p != nil; p = p.Parent {
+		if p.Tag == tag {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNestedTableKeepsItsStructure(t *testing.T) {
+	doc, err := Parse([]byte(`<table id="outer"><tr><td><table id="inner"><tr><td>INNER</td></tr></table></td></tr></table>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := findByID(doc.Root, "outer")
+	inner := findByID(doc.Root, "inner")
+	if outer == nil || inner == nil {
+		t.Fatal("tables are missing")
+	}
+	if inner.Parent == nil || inner.Parent.Tag != "td" {
+		t.Fatalf("inner table parent = %v, want td", inner.Parent)
+	}
+	if !ancestorTag(inner, "table") || inner.Parent.Parent == nil {
+		t.Fatal("inner table is not inside the outer table")
+	}
+	if got := len(inner.ElementChildren()); got != 1 || inner.ElementChildren()[0].Tag != "tr" {
+		t.Fatalf("inner table children = %v", inner.ElementChildren())
+	}
+	innerRow := inner.ElementChildren()[0]
+	if !strings.Contains(innerRow.TextContent(), "INNER") {
+		t.Fatalf("inner row text = %q", innerRow.TextContent())
+	}
+	// The outer table must have exactly one row; the inner row is not its.
+	if rows := countTag(outer, "tr"); rows != 2 { // outer row + inner row
+		t.Fatalf("outer table has %d tr nodes, want 2 (one own, one nested)", rows)
+	}
+	if outerRow := outer.ElementChildren()[0]; outerRow.Tag != "tr" || len(outerRow.ElementChildren()) != 1 {
+		t.Fatalf("outer row = %+v", outerRow)
+	}
+}
+
+func countTag(n *Node, tag string) int {
+	count := 0
+	if n.Type == ElementNode && n.Tag == tag {
+		count++
+	}
+	for _, c := range n.Children {
+		count += countTag(c, tag)
+	}
+	return count
+}
+
+func TestNestedListKeepsItsStructure(t *testing.T) {
+	doc, err := Parse([]byte(`<ol><li id="outer">A<ol><li id="inner">B</li></ol>C</li></ol>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer := findByID(doc.Root, "outer")
+	inner := findByID(doc.Root, "inner")
+	if outer == nil || inner == nil {
+		t.Fatal("list items are missing")
+	}
+	if inner.Parent == nil || inner.Parent.Tag != "ol" {
+		t.Fatalf("inner item parent = %v, want ol", inner.Parent)
+	}
+	if inner.Parent.Parent != outer {
+		t.Fatal("the inner list is not inside the outer item")
+	}
+	if text := outer.TextContent(); !strings.Contains(text, "C") {
+		t.Fatalf("text after the nested list left the outer item: %q", text)
+	}
+}

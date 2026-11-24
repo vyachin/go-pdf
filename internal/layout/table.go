@@ -194,9 +194,14 @@ func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
 
 // paintRow draws a row and its cells and returns its height.
 func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
+	return l.paintRowAt(f.page, t, index, f.y)
+}
+
+// paintRowAt draws one row at an explicit page position, which is what a table
+// nested inside a cell needs.
+func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
-	y := f.y
 	startX := t.x + t.borderLeft()
 	for _, cell := range row.Cells {
 		span := normSpan(cell.ColSpan)
@@ -215,7 +220,7 @@ func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 				cellH += t.rowHeights[r]
 			}
 		}
-		l.paintCell(f.page, cell, x, y, w, cellH, index == 0, cell.col == 0)
+		l.paintCell(page, cell, x, y, w, cellH, index == 0, cell.col == 0)
 	}
 	return h
 }
@@ -270,6 +275,38 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner)
 }
 
+// paintStaticTable draws a table nested inside a cell: columns are computed for
+// the available width and rows are painted at explicit positions.
+func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32 {
+	inner := width - t.padLeft() - t.padRight() - t.borderLeft() - t.borderRight()
+	if inner < 0 {
+		inner = 0
+	}
+	// The nested table is measured for this width; a table measured earlier on
+	// a different width must not reuse its columns.
+	l.buildGrid(t)
+	t.columns = l.computeColumns(t, inner)
+	t.rowHeights = make([]int32, len(t.Rows))
+	var rows int32
+	for i, row := range t.Rows {
+		t.rowHeights[i] = l.rowHeight(row, t)
+		rows += t.rowHeights[i]
+	}
+	t.built = true
+	t.x = x
+	height := t.borderTop() + t.padTop() + rows + t.padBottom() + t.borderBottom()
+	if t.Style.Background.Set && height > 0 {
+		l.ops++
+		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: Rect{X: x, Y: y, W: width, H: height}, Color: t.Style.Background})
+	}
+	rowY := y + t.borderTop() + t.padTop()
+	for i := range t.Rows {
+		l.paintRowAt(page, t, i, rowY)
+		rowY += t.rowHeights[i]
+	}
+	return height
+}
+
 // paintStaticBlocks lays out blocks without pagination, used inside table
 // cells. It returns the total height.
 func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width int32) int32 {
@@ -281,6 +318,9 @@ func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width int3
 }
 
 func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32 {
+	if b.Kind == Table {
+		return l.paintStaticTable(page, b, x, y, width)
+	}
 	b.x = x
 	b.width = width
 	if b.width > width {

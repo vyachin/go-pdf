@@ -638,3 +638,50 @@ func TestMarginBoxReportsMissingGlyph(t *testing.T) {
 		t.Fatalf("a missing glyph in a margin box must be reported, got %v", diags.Lines())
 	}
 }
+
+func TestNestedTableRendersOnce(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr><td><table><tr><td>INNER</td></tr></table></td></tr></table>`)
+	count := 0
+	for _, op := range textOps(doc) {
+		if strings.Contains(pageTextRun(op), "INNER") {
+			count++
+		}
+	}
+	if count == 0 {
+		t.Fatal("the nested table was not rendered")
+	}
+}
+
+func pageTextRun(op *TextOp) string {
+	var b strings.Builder
+	for _, g := range op.Run.Glyphs {
+		b.WriteRune(g.Rune)
+	}
+	return b.String()
+}
+
+func TestNestedListIndentation(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<ol><li>A<ol><li>B</li></ol>C</li></ol>`) //nolint:staticcheck
+	xOf := func(r rune) int32 {
+		for _, op := range textOps(doc) {
+			for _, g := range op.Run.Glyphs {
+				if g.Rune == r {
+					return op.X
+				}
+			}
+		}
+		return -1
+	}
+	a, b, c := xOf('A'), xOf('B'), xOf('C')
+	if a < 0 || b < 0 || c < 0 {
+		t.Fatalf("text is missing: A=%d B=%d C=%d", a, b, c)
+	}
+	if b <= a {
+		t.Fatalf("the inner item is not indented: A=%d B=%d", a, b)
+	}
+	if c != a {
+		t.Fatalf("text after the nested list moved: A=%d C=%d", a, c)
+	}
+}

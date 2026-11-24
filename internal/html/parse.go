@@ -241,26 +241,26 @@ func (p *parser) implicitClose(name string) {
 	}
 	switch name {
 	case "li":
-		p.closeOpen("li")
+		p.closeOpenIn("li", "ol", "ul")
 	case "dt", "dd":
-		p.closeOpen("dt")
-		p.closeOpen("dd")
+		p.closeOpenIn("dt", "dl")
+		p.closeOpenIn("dd", "dl")
 	case "td", "th":
-		p.closeOpen("td")
-		p.closeOpen("th")
+		p.closeOpenIn("td", "table")
+		p.closeOpenIn("th", "table")
 	case "tr":
-		p.closeOpen("td")
-		p.closeOpen("th")
-		p.closeOpen("tr")
+		p.closeOpenIn("td", "table")
+		p.closeOpenIn("th", "table")
+		p.closeOpenIn("tr", "table")
 	case "thead", "tbody", "tfoot":
-		p.closeOpen("td")
-		p.closeOpen("th")
-		p.closeOpen("tr")
-		p.closeOpen("thead")
-		p.closeOpen("tbody")
-		p.closeOpen("tfoot")
+		p.closeOpenIn("td", "table")
+		p.closeOpenIn("th", "table")
+		p.closeOpenIn("tr", "table")
+		p.closeOpenIn("thead", "table")
+		p.closeOpenIn("tbody", "table")
+		p.closeOpenIn("tfoot", "table")
 	case "option":
-		p.closeOpen("option")
+		p.closeOpenIn("option", "select")
 	}
 }
 
@@ -293,6 +293,25 @@ func (p *parser) end(t Token) {
 		return
 	}
 	p.closeOpen(t.Name)
+}
+
+// closeOpenIn is closeOpen restricted to the current scope: it stops at the
+// first boundary element instead of closing an element in an enclosing table,
+// list or select.
+func (p *parser) closeOpenIn(tag string, boundaries ...string) bool {
+	for i := len(p.stack) - 1; i >= 0; i-- {
+		current := p.stack[i].Tag
+		for _, boundary := range boundaries {
+			if current == boundary {
+				return false
+			}
+		}
+		if current == tag {
+			p.stack = p.stack[:i]
+			return true
+		}
+	}
+	return false
 }
 
 // closeOpen pops the stack down to and including the nearest element with the
