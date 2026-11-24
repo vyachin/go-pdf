@@ -55,6 +55,9 @@ type parser struct {
 	// maxDepth bounds element nesting; zero means unlimited.
 	maxDepth int
 	budget   *budget.Guard
+	// fosterIndex caches where the next foster-parented node goes for a table,
+	// so inserting N nodes before it does not scan the child list N times.
+	fosterIndex map[*Node]int
 }
 
 // ParseOptions configures one parse.
@@ -417,11 +420,24 @@ func (p *parser) foster(n *Node) {
 	for i := len(p.stack) - 1; i >= 0; i-- {
 		if p.stack[i].Tag == "table" {
 			table := p.stack[i]
-			if table.Parent != nil {
-				table.Parent.InsertBefore(table, n)
+			parent := table.Parent
+			if parent == nil {
+				break
+			}
+			idx, cached := p.fosterIndex[table]
+			if !cached || idx < 0 || idx >= len(parent.Children) || parent.Children[idx] != table {
+				idx = parent.ChildIndex(table)
+			}
+			if idx < 0 {
+				parent.AppendChild(n)
 				return
 			}
-			break
+			parent.InsertAt(idx, n)
+			if p.fosterIndex == nil {
+				p.fosterIndex = map[*Node]int{}
+			}
+			p.fosterIndex[table] = idx + 1
+			return
 		}
 	}
 	p.current().AppendChild(n)

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vyachin/go-pdf/internal/budget"
 )
@@ -583,4 +584,45 @@ func findElement(n *Node, tag string) *Node {
 		}
 	}
 	return nil
+}
+
+// TestFosterParentingIsLinear guards RV2-07: every foster-parented node was
+// inserted by scanning the parent's children from the start, so N nodes inside
+// a table cost O(N²). 100k nodes must parse in the time a linear parser needs.
+func TestFosterParentingIsLinear(t *testing.T) {
+	const n = 200000
+	src := "<table>" + strings.Repeat("<div>A</div>", n) + "</table>"
+	start := time.Now()
+	doc, err := Parse([]byte(src), "foster.html")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("parsing %d foster-parented nodes took %v; the insertion must not be quadratic", n, elapsed)
+	}
+	body := findElement(doc.Root, "body")
+	if body == nil {
+		t.Fatal("no body")
+	}
+	divs := 0
+	tableAt := -1
+	for i, c := range body.Children {
+		switch {
+		case c.Type != ElementNode:
+		case c.Tag == "div":
+			if tableAt >= 0 {
+				t.Fatal("a fostered div appears after the table")
+			}
+			divs++
+		case c.Tag == "table":
+			tableAt = i
+		}
+	}
+	if divs != n {
+		t.Fatalf("body has %d fostered divs, want %d", divs, n)
+	}
+	if tableAt != n {
+		t.Fatalf("the table is at index %d, want %d (all fostered nodes before it)", tableAt, n)
+	}
 }

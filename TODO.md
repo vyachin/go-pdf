@@ -52,7 +52,7 @@
   **Воспроизведение:** `go run ./testdata/probe/css-html-8/main.go`. `<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>` даёт пустой `div` и текстовый узел `SECRET` рядом; PDF text `"SECRETCELL"`, диагностик нет. Аналогично `<b>` выносится из `div`.
   **Исправление / приёмка:** уже foster-parented элемент обязан быть границей для своего содержимого. Приёмка: golden-дерево (текст — ребёнок `div`), в PDF нет `SECRET`; проверить вложенный `<b>`.
 
-- [ ] **RV2-07 · P2: убрать O(n²) во foster parenting.**
+- [x] **RV2-07 · P2: убрать O(n²) во foster parenting.**
 
   **Код:** [internal/html/parse.go:383](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:383), `foster`; [internal/html/node.go:144](/Users/vyachin/Projects/go-pdf/internal/html/node.go:144), `InsertBefore` сканирует детей с начала и сдвигает срез.
   **Воспроизведение:** `go run ./testdata/probe/css-html-2/main.go`, `<table>` + N × `<div>A</div>`: 8 000 (96 КБ) — 48 мс, 32 000 (384 КБ) — 613 мс, 64 000 (768 КБ) — **2,44 с** при 192 003 операций из 20M.

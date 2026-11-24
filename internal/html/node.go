@@ -142,16 +142,34 @@ func (n *Node) AppendChild(c *Node) {
 
 // InsertBefore inserts c immediately before ref, which must be a child of n.
 func (n *Node) InsertBefore(ref, c *Node) {
-	for i, child := range n.Children {
-		if child == ref {
-			c.Parent = n
-			n.Children = append(n.Children, nil)
-			copy(n.Children[i+1:], n.Children[i:])
-			n.Children[i] = c
-			return
-		}
+	if i := n.ChildIndex(ref); i >= 0 {
+		n.InsertAt(i, c)
+		return
 	}
 	n.AppendChild(c)
+}
+
+// ChildIndex returns the position of child among n's children, or -1.
+func (n *Node) ChildIndex(child *Node) int {
+	for i, c := range n.Children {
+		if c == child {
+			return i
+		}
+	}
+	return -1
+}
+
+// InsertAt inserts c at position i, shifting the following children. An index
+// outside the current children appends.
+func (n *Node) InsertAt(i int, c *Node) {
+	if i < 0 || i > len(n.Children) {
+		n.AppendChild(c)
+		return
+	}
+	c.Parent = n
+	n.Children = append(n.Children, nil)
+	copy(n.Children[i+1:], n.Children[i:])
+	n.Children[i] = c
 }
 
 // Path renders a human readable element path such as "body > div.invoice > p"
