@@ -123,14 +123,20 @@ imports nothing but `pdfgen` and the standard library.
 
 ## Compatibility
 
-The package is pre-v1 (`v0.x`). The public API is deliberately small, and it is
-treated as stable: a minor release may add to it but does not rename or remove
-what exists. Diagnostic codes, `Options` fields (additive only) and the
-deterministic output are stable; the reference command, the `internal/`
-packages and the breadth of the CSS profile are not.
+The package is v1.0.0 and follows semantic versioning: within 1.x a release may
+add to the API but does not rename or remove what exists, and a breaking change
+takes a major release. Diagnostic codes, `Options` fields (additive only) and
+the deterministic output are the stable surface; the reference command, the
+`internal/` packages and the breadth of the CSS profile are not part of the
+promise. Every release is recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Contributing
 
 Architecture, the test layers, the golden snapshots, the mPDF corpus, the
 formatting and linting workflow, and the release procedure are in
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licence
+
+BSD Zero Clause License (0BSD): there is no condition to satisfy and no
+attribution is required. See [LICENSE](LICENSE).

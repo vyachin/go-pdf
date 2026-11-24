@@ -1,0 +1,99 @@
+# Changelog
+
+All notable changes to this project are documented in this file. The format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
+project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.0.0] - 2026-11-25
+
+First release. The engine had been used for printed business documents since
+the milestones M0–M4 described below; 1.0.0 fixes the public contract, the
+documentation and the compatibility promise around it.
+
+### Added
+
+- **Library API.** `pdfgen.Convert` renders a document and returns the PDF;
+  `pdfgen.Validate` runs the same pipeline and reports the same diagnostics
+  without producing one. `Options`, `Limits`, `Diagnostic`, `Error` and
+  `Result` are the whole public surface.
+- **HTML and CSS.** A tokenizer and tree with implicit tags and table
+  foster-parenting; a CSS tokenizer, parser, selectors, cascade, specificity,
+  inheritance, shorthands and physical longhands; `@page` including
+  `landscape`/`portrait`, `@font-face`, print media rules and local
+  stylesheets through `<link rel="stylesheet">`.
+- **Layout.** Blocks with collapsing margins, inline runs with baseline
+  alignment, lists, fixed-layout tables with `colspan`/`rowspan` and collapsed
+  borders, images as replaced blocks, and `background-image` with
+  `background-size: cover` and clipping.
+- **Pagination.** `break-before`/`break-after`/`break-inside`, `orphans` and
+  `widows`, repeated `thead`, page counters in margin boxes, and a table of
+  contents built with `target-counter(attr(href), page)` in two layout passes.
+- **Text and fonts.** TrueType loading, `cmap` formats 4 and 12, `GPOS`
+  kerning, line breaking with non-breaking sequences, justification, Unicode
+  composition, font subsetting, and an `Identity-H` font with `ToUnicode`, so
+  Cyrillic text can be copied and searched out of the PDF.
+- **Images.** PNG and JPEG, including JPEG without recompression, `data:` URI
+  sources, flattened PNG alpha, and a diagnostic for a colour space the writer
+  cannot embed.
+- **PDF output.** Valid structure, document metadata, bookmarks from `h1`–`h3`,
+  `FlateDecode`, and deterministic `/ID` and `/CreationDate` so the same input
+  produces a byte-identical file.
+- **Diagnostics.** A stable machine-readable `Code`, a 1-based source
+  position, the element's path, every problem found in one pass, and a
+  deterministic order.
+- **Budgets and cancellation.** `Options.Limits` bounds input size, page count,
+  image pixels, font bytes, nesting depth, table grid area, the debug raster
+  and total work; a document over a limit fails with a `resource/limit`
+  diagnostic instead of exhausting memory. Every expensive stage honours the
+  context.
+- **Browser import.** An opt-in compatibility layer that lowers a
+  browser-oriented template — a single-line flex column, an absolutely
+  positioned cover image, `rem`, `vw`/`vh`, `min()`/`clamp()`, CSS variables,
+  screen-only `@media`, `text-transform`, `box-sizing` — to the profile and
+  reports every approximation as a warning.
+- **Reference command.** `pdfgen [-o out.pdf] input.html`, the shortest
+  complete program that uses the package.
+- **Documentation.** A README for the chooser, package documentation and
+  runnable examples for the caller, the CSS profile, font and browser-import
+  reference, and `CONTRIBUTING.md` for maintainers.
+- **Test infrastructure.** Document snapshots that freeze the parsed model as
+  XML, render snapshots that compare every page as a PNG, a corpus of 149
+  documents extracted from the mPDF tests, fuzz targets for the parsers, the
+  PDF writer and the public entry points, and independent validation of every
+  produced PDF with `pdfcpu` in CI.
+
+### Changed
+
+- The module targets Go 1.26 and has no dependencies, so it has no `go.sum`.
+- Documentation is organised by audience: the README answers "should I use
+  this?", the package documentation answers "how do I call it and what is
+  promised?", and contributor material lives in `CONTRIBUTING.md`.
+- The reference command is now a minimal example of the package rather than a
+  converter with its own flags; the record of that removal is under Removed.
+- Resource limits, cancellation and deterministic output apply to every entry
+  point, so the CLI and an embedding program behave identically.
+
+### Removed
+
+- The `convert` and `validate` subcommands of the reference command, and the
+  flags `-print-profile`, `-render-png`, `-strict`, `-date`, `-page`,
+  `-margin`, `-font-dir` and `-base-dir`. The command is an example and
+  carries no compatibility promise. `Validate` and `Options.Strict` cover the
+  use cases those flags served.
+
+### Fixed
+
+- A truncated PNG is rejected during validation instead of at paint time.
+- `rowspan`-shifted columns count against the table cell limit.
+- A soft hyphen is an invisible break point instead of a visible character.
+- `break-before` and `break-after` are honoured on table rows.
+- Each diagnostic is printed once by the reference command.
+- A cancelled context is reported before a template error.
+- Table rows are placed inside the table padding, `vertical-align` applies to
+  inline runs and images, and a collapsed border paints one line.
+- The `media` attribute of a `<style>` element is honoured.
+- Percentage `line-height` and `em` border widths are computed correctly.
+- PNG alpha is flattened once, and glyph widths are rounded identically in
+  `/W` and `TJ`.
+- Nested tables, hidden table groups, rows and cells, and implicit heading
+  scoping render as the HTML scope defines them.

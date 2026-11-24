@@ -139,7 +139,8 @@ checks as any other change.
 4. Verify consumption from a scratch module:
    `go mod init tmp && go get github.com/vyachin/go-pdf/pdfgen@vX.Y.Z`.
 
-The package is pre-v1: a minor release may add to the API but does not rename or
-remove what exists. Diagnostic codes, `Options` fields (additive only) and the
+The package is v1 and follows semantic versioning: a minor release may add to
+the API but does not rename or remove what exists, and a breaking change takes a
+major release. Diagnostic codes, `Options` fields (additive only) and the
 deterministic output are the stable surface; `cmd/pdfgen` and `internal/` are
 not versioned at all.
