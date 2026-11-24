@@ -3,6 +3,7 @@
 package layout
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -211,6 +212,8 @@ type Anchor struct {
 
 // Context carries the collaborators of layout.
 type Context struct {
+	// Ctx cancels long layouts; nil means no cancellation.
+	Ctx      context.Context
 	Fonts    FontSet
 	Images   ImageLoader
 	PageSize css.PageSize

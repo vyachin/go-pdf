@@ -107,6 +107,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			return Result{Diagnostics: diags}, err
 		}
 		pages, layoutDiags = layout.Run(doc, layout.Context{
+			Ctx:         ctx,
 			Fonts:       registry,
 			Images:      images,
 			PageSize:    pageSize,

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -1044,5 +1045,25 @@ func TestImageAndFontLimits(t *testing.T) {
 	})
 	if err == nil || len(res.PDF) != 0 {
 		t.Fatalf("font limit was not enforced: err=%v", err)
+	}
+}
+
+func TestCancellationStopsLayout(t *testing.T) {
+	fontPath := testFontPath(t)
+	var b strings.Builder
+	for i := 0; i < 2000; i++ {
+		b.WriteString("<p>Строка документа для проверки отмены во время раскладки.</p>")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(time.Millisecond)
+		cancel()
+	}()
+	res, err := Convert(ctx, []byte(b.String()), Options{FallbackFont: fontPath, File: "cancel-layout.html"})
+	if err == nil {
+		t.Fatalf("a cancelled layout must fail, got a %d-byte PDF", len(res.PDF))
+	}
+	if len(res.PDF) != 0 {
+		t.Fatal("no PDF may be written after cancellation")
 	}
 }
