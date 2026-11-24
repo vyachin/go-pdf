@@ -123,6 +123,19 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 		if class1Count*class2Count*recordSize+off+16 > len(data) {
 			return
 		}
+		// A corrupt table can describe ranges covering the whole glyph space;
+		// expanding them into a map is bounded instead.
+		const maxKerningGlyphs = 200000
+		expanded := 0
+		for _, r := range classes1 {
+			if r.end < r.start {
+				return
+			}
+			expanded += int(r.end-r.start) + 1
+		}
+		if expanded > maxKerningGlyphs {
+			return
+		}
 		k.records = make([][]int16, class1Count)
 		k.class1 = map[uint16]uint16{}
 		k.covered = make(map[uint16]bool, len(cover))

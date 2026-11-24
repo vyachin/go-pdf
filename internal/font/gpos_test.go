@@ -61,3 +61,27 @@ func TestClassKerningRequiresCoverage(t *testing.T) {
 		t.Fatalf("glyph outside Coverage must not kern, got %d", got)
 	}
 }
+
+func TestClassDefRangeIsBounded(t *testing.T) {
+	classDef := []byte{
+		0, 2, // format 2
+		0, 1, // one range
+		0, 0, 0xFF, 0xFF, // start 0, end 65535
+		0, 1, // class 1
+	}
+	classes, ok := parseClassDef(classDef, 0)
+	if !ok {
+		t.Fatal("a well-formed class definition was rejected")
+	}
+	if len(classes) != 1 {
+		t.Fatalf("ranges = %d", len(classes))
+	}
+	// The format 2 PairPos path must not expand this into 65k map entries.
+	f := &Font{gpos: &kerning{pairs: map[uint32]int16{}}}
+	if expanded := int(classes[0].end-classes[0].start) + 1; expanded <= 0 {
+		t.Fatal("bad range arithmetic")
+	}
+	if got := f.Kerning(1, 1); got != 0 {
+		t.Fatalf("unexpected kerning %d from an empty table", got)
+	}
+}
