@@ -2,81 +2,105 @@ package text
 
 import "strings"
 
-// compositions maps a base rune plus a combining mark to its precomposed form.
-// The table covers Cyrillic and the common Latin diacritics that appear in
-// business documents; anything else is left untouched and will be reported by
-// shaping if the font has no glyph for it.
-var compositions = map[[2]rune]rune{
-	// Cyrillic
-	{'и', '\u0306'}: 'й',
-	{'И', '\u0306'}: 'Й',
-	{'е', '\u0308'}: 'ё',
-	{'Е', '\u0308'}: 'Ё',
-	{'і', '\u0308'}: 'ї',
-	{'І', '\u0308'}: 'Ї',
-	{'у', '\u0306'}: 'ў',
-	{'У', '\u0306'}: 'Ў',
-	{'г', '\u0301'}: 'ѓ',
-	{'к', '\u0301'}: 'ќ',
-	// Latin lowercase
-	{'a', '\u0300'}: 'à', {'a', '\u0301'}: 'á', {'a', '\u0302'}: 'â',
-	{'a', '\u0303'}: 'ã', {'a', '\u0308'}: 'ä', {'a', '\u030a'}: 'å',
-	{'c', '\u0327'}: 'ç',
-	{'e', '\u0300'}: 'è', {'e', '\u0301'}: 'é', {'e', '\u0302'}: 'ê', {'e', '\u0308'}: 'ë',
-	{'i', '\u0300'}: 'ì', {'i', '\u0301'}: 'í', {'i', '\u0302'}: 'î', {'i', '\u0308'}: 'ï',
-	{'n', '\u0303'}: 'ñ',
-	{'o', '\u0300'}: 'ò', {'o', '\u0301'}: 'ó', {'o', '\u0302'}: 'ô',
-	{'o', '\u0303'}: 'õ', {'o', '\u0308'}: 'ö',
-	{'u', '\u0300'}: 'ù', {'u', '\u0301'}: 'ú', {'u', '\u0302'}: 'û', {'u', '\u0308'}: 'ü',
-	{'y', '\u0301'}: 'ý', {'y', '\u0308'}: 'ÿ',
-	// Latin uppercase
-	{'A', '\u0300'}: 'À', {'A', '\u0301'}: 'Á', {'A', '\u0302'}: 'Â',
-	{'A', '\u0303'}: 'Ã', {'A', '\u0308'}: 'Ä', {'A', '\u030a'}: 'Å',
-	{'C', '\u0327'}: 'Ç',
-	{'E', '\u0300'}: 'È', {'E', '\u0301'}: 'É', {'E', '\u0302'}: 'Ê', {'E', '\u0308'}: 'Ë',
-	{'I', '\u0300'}: 'Ì', {'I', '\u0301'}: 'Í', {'I', '\u0302'}: 'Î', {'I', '\u0308'}: 'Ï',
-	{'N', '\u0303'}: 'Ñ',
-	{'O', '\u0300'}: 'Ò', {'O', '\u0301'}: 'Ó', {'O', '\u0302'}: 'Ô',
-	{'O', '\u0303'}: 'Õ', {'O', '\u0308'}: 'Ö',
-	{'U', '\u0300'}: 'Ù', {'U', '\u0301'}: 'Ú', {'U', '\u0302'}: 'Û', {'U', '\u0308'}: 'Ü',
-	{'Y', '\u0301'}: 'Ý',
-}
+// Hangul composition constants from the Unicode standard, section 3.12.
+const (
+	hangulSBase  = 0xAC00
+	hangulLBase  = 0x1100
+	hangulVBase  = 0x1161
+	hangulTBase  = 0x11A7
+	hangulLCount = 19
+	hangulVCount = 21
+	hangulTCount = 28
+	hangulNCount = hangulVCount * hangulTCount
+	hangulSCount = hangulLCount * hangulNCount
+)
 
-// Normalize composes combining marks so that a decomposed string renders as
-// precomposed glyphs and extracts back as single characters.
+// Normalize applies canonical composition (Unicode NFC, composition only): a
+// base character followed by combining marks becomes the precomposed character
+// where Unicode defines one, so the text renders as one glyph and extracts back
+// as one code point. Marks that cannot be composed are kept, and the caller can
+// report them with HasCombiningMark.
 func Normalize(s string) string {
 	if !hasCombiningMark(s) {
 		return s
 	}
 	runes := []rune(s)
+	// Canonical ordering: inside a sequence of marks, a mark with a lower
+	// combining class must come first.
+	for i := 1; i < len(runes); i++ {
+		c := combiningClass(runes[i])
+		if c == 0 {
+			continue
+		}
+		for j := i; j > 0; j-- {
+			prev := combiningClass(runes[j-1])
+			if prev == 0 || prev <= c {
+				break
+			}
+			runes[j-1], runes[j] = runes[j], runes[j-1]
+		}
+	}
 	out := make([]rune, 0, len(runes))
-	for i := 0; i < len(runes); i++ {
-		if i+1 < len(runes) {
-			if composed, ok := compositions[[2]rune{runes[i], runes[i+1]}]; ok {
-				out = append(out, composed)
-				i++
+	starterPos := -1
+	prevClass := uint8(0)
+	for _, r := range runes {
+		c := combiningClass(r)
+		if starterPos >= 0 && (c == 0 && prevClass == 0 || c != 0 && prevClass < c) {
+			if composed, ok := composePair(out[starterPos], r); ok {
+				out[starterPos] = composed
 				continue
 			}
 		}
-		out = append(out, runes[i])
+		if c == 0 {
+			starterPos = len(out)
+		}
+		prevClass = c
+		out = append(out, r)
 	}
 	return string(out)
 }
 
+// composePair returns the precomposed character for a starter and a following
+// character, or false when Unicode defines no composition for them.
+func composePair(starter, mark rune) (rune, bool) {
+	// Hangul syllables compose algorithmically: L+V -> LV, LV+T -> LVT.
+	if starter >= hangulLBase && starter < hangulLBase+hangulLCount &&
+		mark >= hangulVBase && mark < hangulVBase+hangulVCount {
+		return hangulSBase + ((starter-hangulLBase)*hangulVCount+(mark-hangulVBase))*hangulTCount, true
+	}
+	if starter >= hangulSBase && starter < hangulSBase+hangulSCount &&
+		(starter-hangulSBase)%hangulTCount == 0 &&
+		mark > hangulTBase && mark < hangulTBase+hangulTCount {
+		return starter + (mark - hangulTBase), true
+	}
+	composed, ok := compositionPairs[[2]rune{starter, mark}]
+	return composed, ok
+}
+
+func combiningClass(r rune) uint8 {
+	if r < 0x0300 {
+		return 0
+	}
+	return combiningClasses[r]
+}
+
 func hasCombiningMark(s string) bool {
 	for _, r := range s {
-		if r >= '\u0300' && r <= '\u036F' {
+		if combiningClass(r) != 0 {
+			return true
+		}
+		if r >= hangulLBase && r < hangulLBase+hangulLCount {
 			return true
 		}
 	}
 	return false
 }
 
-// HasCombiningMark reports whether the string contains a combining mark that
-// the normalisation table cannot compose.
+// HasCombiningMark reports whether the string still contains a combining mark
+// after normalization, that is a mark Unicode cannot compose with its base.
 func HasCombiningMark(s string) bool {
 	for _, r := range Normalize(s) {
-		if r >= '\u0300' && r <= '\u036F' {
+		if combiningClass(r) != 0 {
 			return true
 		}
 	}

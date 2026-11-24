@@ -41,17 +41,50 @@ func testFont(t *testing.T) *font.Font {
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
+		// Cyrillic: the bundled font has precomposed forms for all of these.
 		"и\u0306": "й",
 		"е\u0308": "ё",
 		"И\u0306": "Й",
+		"и\u0300": "ѝ",
+		"е\u0300": "ѐ",
+		"у\u0306": "ў",
+		"г\u0301": "ѓ",
+		"к\u0301": "ќ",
+		"Ѝ\u0306": "Ѝ\u0306",
+		// Latin.
 		"a\u0301": "á",
-		"Счёт":    "Счёт",
-		"":        "",
+		"a\u0304": "ā",
+		"a\u0306": "ă",
+		"a\u0328": "ą",
+		// Two marks compose in two steps: a + breve -> ă, ă + acute -> ắ.
+		"a\u0306\u0301": "ắ",
+		// Marks that Unicode cannot compose stay as they are.
+		"о\u0301": "о\u0301",
+		// Hangul jamo compose algorithmically.
+		"\u1100\u1161":       "가",
+		"\u1100\u1161\u11A8": "각",
+		"Счёт":               "Счёт",
+		"":                   "",
 	}
 	for in, want := range cases {
 		if got := Normalize(in); got != want {
 			t.Fatalf("Normalize(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestNormalizeOrdersMarksByCombiningClass guards the canonical ordering step:
+// a mark with a lower combining class must be composed first even when the
+// input lists it second. U+0323 (class 220) comes before U+0301 (class 230).
+func TestNormalizeOrdersMarksByCombiningClass(t *testing.T) {
+	// a + acute + dot below, listed in the wrong order, composes to ạ + acute
+	// and finally to ậ? No: ạ + U+0301 has no precomposed form, so the result is
+	// "ạ" followed by the acute mark, exactly as NFC defines it.
+	if got, want := Normalize("a\u0301\u0323"), "ạ\u0301"; got != want {
+		t.Fatalf("Normalize = %q, want %q", got, want)
+	}
+	if got, want := Normalize("a\u0323\u0301"), Normalize("a\u0301\u0323"); got != want {
+		t.Fatalf("mark order changed the result: %q vs %q", got, want)
 	}
 }
 

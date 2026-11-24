@@ -1524,3 +1524,21 @@ func TestNestedTableContentIsPrinted(t *testing.T) {
 		t.Fatalf("PDF text = %q, want %q (both tables in document order)", text, want)
 	}
 }
+
+// TestDecomposedCyrillicComposes guards RV2-12: the hand-written composition
+// table covered only a few dozen pairs, so "и" + U+0300 stayed two glyphs and
+// two code points in the text layer.
+func TestDecomposedCyrillicComposes(t *testing.T) {
+	src := `<p>и` + "\u0300" + `е` + "\u0300" + `a` + "\u0304" + `</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: testFontPath(t), File: "compose.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ѝѐā"; text != want {
+		t.Fatalf("text layer = %q (%d runes), want %q", text, len([]rune(text)), want)
+	}
+}
