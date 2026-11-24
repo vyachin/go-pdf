@@ -18,6 +18,7 @@ import (
 // cached for the conversion so that a repeated source is read and embedded once.
 type imageLoader struct {
 	baseDir   string
+	maxPixels int
 	root      *fsx.Root
 	rootErr   error
 	rootOpens int // resolved roots, used by tests to prove reuse
@@ -83,6 +84,9 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
+		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
+			return nil, fmt.Errorf("%s: %d pixels exceed the limit of %d", path, cfg.Width*cfg.Height, l.maxPixels)
+		}
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,
 			Height: int32(cfg.Height) * 750,
@@ -95,6 +99,9 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
+			return nil, fmt.Errorf("%s: %d pixels exceed the limit of %d", path, cfg.Width*cfg.Height, l.maxPixels)
 		}
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,

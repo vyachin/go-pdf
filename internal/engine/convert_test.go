@@ -1017,3 +1017,32 @@ func TestResourceLimits(t *testing.T) {
 		t.Fatalf("page limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
 }
+
+func TestImageAndFontLimits(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "i.png"))
+	res, err := Convert(context.Background(), []byte(`<p><img src="i.png"></p>`), Options{
+		FallbackFont: fontPath, BaseDir: dir, File: "img.html",
+		Limits: Limits{MaxImagePixels: 4},
+	})
+	if err == nil || len(res.PDF) != 0 {
+		t.Fatalf("image limit was not enforced: err=%v", err)
+	}
+
+	sheet := `<style>@font-face { font-family: Big; src: url(f.ttf) } body { font-family: Big }</style><p>A</p>`
+	data, readErr := os.ReadFile(fontPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f.ttf"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err = Convert(context.Background(), []byte(sheet), Options{
+		BaseDir: dir, File: "fontlimit.html",
+		Limits: Limits{MaxFontBytes: 10},
+	})
+	if err == nil || len(res.PDF) != 0 {
+		t.Fatalf("font limit was not enforced: err=%v", err)
+	}
+}

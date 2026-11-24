@@ -93,7 +93,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
-	images := &imageLoader{baseDir: opts.BaseDir}
+	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels}
 	defer images.Close()
 
 	// target-counter needs a second pass: the page numbers written into the

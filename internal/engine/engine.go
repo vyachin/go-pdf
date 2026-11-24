@@ -50,6 +50,11 @@ type Limits struct {
 	MaxInputBytes int
 	// MaxPages is the largest number of pages a document may produce.
 	MaxPages int
+	// MaxImagePixels bounds width*height of a decoded image, checked before
+	// the pixels are decoded.
+	MaxImagePixels int
+	// MaxFontBytes bounds the size of a font file.
+	MaxFontBytes int
 }
 
 // resolved fills zero fields with their defaults.
@@ -59,6 +64,12 @@ func (l Limits) resolved() Limits {
 	}
 	if l.MaxPages <= 0 {
 		l.MaxPages = 5000
+	}
+	if l.MaxImagePixels <= 0 {
+		l.MaxImagePixels = 40_000_000
+	}
+	if l.MaxFontBytes <= 0 {
+		l.MaxFontBytes = 16 << 20
 	}
 	return l
 }

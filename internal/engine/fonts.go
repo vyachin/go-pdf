@@ -89,6 +89,9 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 				}
 				return nil, fmt.Errorf("loading font %q: %w", src, err)
 			}
+			if max := opts.Limits.resolved().MaxFontBytes; len(data) > max {
+				return nil, fmt.Errorf("font %q is %d bytes, the limit is %d", src, len(data), max)
+			}
 			f, err = font.Parse(data)
 			if err != nil {
 				return nil, fmt.Errorf("loading font %q: %w", src, err)
