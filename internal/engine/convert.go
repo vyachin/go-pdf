@@ -25,13 +25,12 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	diags := profile.Validate(doc, profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict})
+	profileOpts := profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict}
+	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
+	diags := profile.ValidateSheets(doc, profileOpts, sheets, sheetDiags)
 	if diags.HasErrors() {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
-
-	sheets, sheetDiags := profile.CollectStylesheets(doc, profile.Options{BaseDir: opts.BaseDir})
-	diags = append(diags, sheetDiags...)
 	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
 
 	pageSize, err := ParsePageSize(opts.PageSize)
@@ -103,8 +102,11 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		CreationDate: opts.Date,
 		Outline:      toPDFOutline(pages.Outline),
 	})
+	// One pdf.Image per decoded image, shared across pages, so the writer
+	// embeds a repeated source once.
+	pdfImages := map[*layout.ImageData]*pdf.Image{}
 	for _, p := range pages.Pages {
-		writer.AddPage(p.Size.Width, p.Size.Height, toPDFOps(p.Ops))
+		writer.AddPage(p.Size.Width, p.Size.Height, toPDFOps(p.Ops, pdfImages))
 	}
 	data, err := writer.Bytes()
 	if err != nil {
@@ -245,7 +247,7 @@ func toPDFOutline(entries []layout.OutlineEntry) []pdf.OutlineEntry {
 	return out
 }
 
-func toPDFOps(ops []layout.Op) []pdf.Op {
+func toPDFOps(ops []layout.Op, images map[*layout.ImageData]*pdf.Image) []pdf.Op {
 	out := make([]pdf.Op, 0, len(ops))
 	for _, op := range ops {
 		switch op.Kind {
@@ -279,15 +281,20 @@ func toPDFOps(ops []layout.Op) []pdf.Op {
 				continue
 			}
 			img := op.Image.Image
-			out = append(out, pdf.Op{
-				Kind: pdf.ImageOpKind,
-				Rect: pdf.Rect{X: op.Rect.X, Y: op.Rect.Y, W: op.Rect.W, H: op.Rect.H},
-				Image: &pdf.Image{
+			shared, ok := images[img]
+			if !ok {
+				shared = &pdf.Image{
 					Data:   img.Data,
 					Format: img.Format,
 					PixelW: img.PixelW,
 					PixelH: img.PixelH,
-				},
+				}
+				images[img] = shared
+			}
+			out = append(out, pdf.Op{
+				Kind:  pdf.ImageOpKind,
+				Rect:  pdf.Rect{X: op.Rect.X, Y: op.Rect.Y, W: op.Rect.W, H: op.Rect.H},
+				Image: shared,
 			})
 		}
 	}

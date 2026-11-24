@@ -295,3 +295,31 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+func TestHTMLAttributesSurvive(t *testing.T) {
+	doc, err := Parse([]byte(`<html lang="ru" class="root" style="color: red"><body><p>x</p></body></html>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := doc.HTML()
+	if node == nil {
+		t.Fatal("no html element")
+	}
+	if v, _ := node.Attr("lang"); v != "ru" {
+		t.Fatalf("lang = %q", v)
+	}
+	if !node.HasClass("root") {
+		t.Fatal("class attribute was lost")
+	}
+	if v, _ := node.Attr("style"); v != "color: red" {
+		t.Fatalf("style = %q", v)
+	}
+	// An implicit html element must not borrow attributes from the first tag.
+	doc, err = Parse([]byte(`<p style="color: red">x</p>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.HTML().Attrs) != 0 {
+		t.Fatalf("implicit html borrowed attributes: %+v", doc.HTML().Attrs)
+	}
+}

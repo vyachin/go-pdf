@@ -276,9 +276,18 @@ func (d *Doc) Bytes() ([]byte, error) {
 			fmt.Fprintf(&fontRes, " /%s %d 0 R", fontNames[fi], fe.ids[0])
 			_ = fe
 		}
-		// Iterate the ordered slice, not the name map: map order is random and
-		// would make the document bytes and its /ID vary between runs.
+		// List only the images this page draws, in document order. Iterating the
+		// ordered slice (not the name map) keeps the bytes deterministic.
+		used := map[*Image]bool{}
+		for _, op := range p.ops {
+			if op.Kind == ImageOpKind && op.Image != nil {
+				used[op.Image] = true
+			}
+		}
 		for _, im := range images {
+			if !used[im.image] {
+				continue
+			}
 			fmt.Fprintf(&imageRes, " /%s %d 0 R", imageNames[im.image], im.id)
 		}
 		resources := fmt.Sprintf("/Font <<%s >>", fontRes.String())
@@ -426,8 +435,14 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 }
 
 // advanceAdjustment is the TJ number that turns the nominal glyph width into
-// the advance calculated by layout. A positive number moves the next glyph
-// left, which is how negative kerning is expressed.
+// the advance calculated by layout.
+//
+// A run with kerning between A and V looks like
+//
+//	[<0041> 42 <0056>] TJ
+//
+// where 42 moves V left by 42/1000 of the font size. A positive number always
+// tightens the pair; a negative one loosens it.
 func advanceAdjustment(f *font.Font, size int32, g Glyph) int32 {
 	if f == nil || size <= 0 || g.Advance == 0 || f.UnitsPerEm() == 0 {
 		return 0

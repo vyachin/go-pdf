@@ -423,3 +423,41 @@ func TestNoAdjustmentWhenAdvancesAreNominal(t *testing.T) {
 		}
 	}
 }
+
+func TestPageResourcesListOnlyUsedImages(t *testing.T) {
+	first := testImage(t, color.RGBA{R: 255, A: 255})
+	second := testImage(t, color.RGBA{G: 255, A: 255})
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{Kind: ImageOpKind, Rect: Rect{X: 1000, Y: 1000, W: 2000, H: 2000}, Image: first}})
+	d.AddPage(595276, 841890, []Op{{Kind: ImageOpKind, Rect: Rect{X: 1000, Y: 1000, W: 2000, H: 2000}, Image: second}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages []string
+	for _, body := range pdfObjects(t, data) {
+		if strings.Contains(body, "/Type /Page ") {
+			pages = append(pages, body)
+		}
+	}
+	if len(pages) != 2 {
+		t.Fatalf("got %d page dictionaries, want 2", len(pages))
+	}
+	withFirst, withSecond := 0, 0
+	for _, page := range pages {
+		hasFirst := strings.Contains(page, "/Im1 ")
+		hasSecond := strings.Contains(page, "/Im2 ")
+		if hasFirst && hasSecond {
+			t.Fatalf("a page lists both images: %s", page)
+		}
+		if hasFirst {
+			withFirst++
+		}
+		if hasSecond {
+			withSecond++
+		}
+	}
+	if withFirst != 1 || withSecond != 1 {
+		t.Fatalf("image resources are not per page: first=%d second=%d", withFirst, withSecond)
+	}
+}

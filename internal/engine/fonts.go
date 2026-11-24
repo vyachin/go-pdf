@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,8 +76,15 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 				continue
 			}
 			seen[key] = true
-			data, err := os.ReadFile(path)
+			root := opts.FontDir
+			if root == "" {
+				root = opts.BaseDir
+			}
+			data, err := profile.ReadWithin(root, path)
 			if err != nil {
+				if errors.Is(err, profile.ErrOutsideRoot) {
+					return nil, fmt.Errorf("font %q is outside the font directory", src)
+				}
 				return nil, fmt.Errorf("loading font %q: %w", src, err)
 			}
 			f, err := font.Parse(data)

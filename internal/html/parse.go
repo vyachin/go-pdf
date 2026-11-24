@@ -114,7 +114,13 @@ func (p *parser) ensureHTML(t Token) {
 	if p.html != nil {
 		return
 	}
-	p.html = &Node{Type: ElementNode, Tag: "html", Start: t.Offset, End: t.End}
+	// Only the real <html> tag carries attributes; an implicit html created
+	// from another start tag must not inherit that tag's attributes.
+	var attrs []Attr
+	if t.Name == "html" {
+		attrs = t.Attrs
+	}
+	p.html = &Node{Type: ElementNode, Tag: "html", Attrs: attrs, Start: t.Offset, End: t.End}
 	p.doc.Root.AppendChild(p.html)
 	p.stack = []*Node{p.html}
 }

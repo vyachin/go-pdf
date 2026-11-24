@@ -414,3 +414,83 @@ func TestPaginationIterationCapIsAnError(t *testing.T) {
 		t.Fatalf("expected layout/loop, got %v", l.doc.Diags.Lines())
 	}
 }
+
+func TestTwoHeaderRowsAppearOnceOnFirstPage(t *testing.T) {
+	h := newHarness(t)
+	size, margin := smallPage()
+	var rows strings.Builder
+	for i := 0; i < 14; i++ {
+		rows.WriteString("<tr><td>строка</td><td>данные</td></tr>")
+	}
+	src := `<style>
+		table { width: 90mm; border-collapse: collapse }
+		td, th { padding: 1mm; border: 0.5pt solid #000 }
+	</style>
+	<table>
+	  <thead><tr><th>ПЕРВАЯ</th><th>ШАПКА</th></tr><tr><th>ВТОРАЯ</th><th>ШАПКА</th></tr></thead>
+	  <tbody>` + rows.String() + `</tbody></table>`
+	doc := h.runWithSize(src, size, margin)
+	if len(doc.Pages) < 2 {
+		t.Fatalf("got %d pages, want at least 2", len(doc.Pages))
+	}
+	first := pageText(doc, 1)
+	if strings.Count(first, "ПЕРВАЯ") != 1 || strings.Count(first, "ВТОРАЯ") != 1 {
+		t.Fatalf("the first page must show both header rows once: %q", truncateText(first, 120))
+	}
+	for i := 2; i <= len(doc.Pages); i++ {
+		text := pageText(doc, i)
+		if strings.Count(text, "ПЕРВАЯ") != 1 || strings.Count(text, "ВТОРАЯ") != 1 {
+			t.Fatalf("page %d must repeat both header rows once: %q", i, truncateText(text, 120))
+		}
+	}
+}
+
+func TestRowspanShiftsFollowingCells(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<style>
+		table { width: 80mm; border-collapse: collapse }
+		td { border: 0.5pt solid #000; padding: 1mm }
+	</style>
+	<table>
+	  <tr><td rowspan="2">A</td><td>B</td></tr>
+	  <tr><td>C</td></tr>
+	</table>`)
+	xOf := func(r rune) int32 {
+		for _, op := range textOps(doc) {
+			if len(op.Run.Glyphs) == 1 && op.Run.Glyphs[0].Rune == r {
+				return op.X
+			}
+		}
+		return -1
+	}
+	bx, cx := xOf('B'), xOf('C')
+	if bx < 0 || cx < 0 {
+		t.Fatalf("cells not painted: B=%d C=%d", bx, cx)
+	}
+	if cx != bx {
+		t.Fatalf("C starts at %d, want %d (the column of B)", cx, bx)
+	}
+}
+
+func TestInheritanceThroughHTMLAndRows(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<style>html { font-size: 30pt }</style><p>текст</p>`)
+	ops := textOps(doc)
+	if len(ops) == 0 || ops[0].Face.Size != 30000 {
+		t.Fatalf("html font-size did not reach body text: %+v", ops[0].Face.Size)
+	}
+
+	doc = h.run(`<style>tr { color: #ff0000 }</style>
+		<table><tr><td>ячейка</td></tr></table>`)
+	ops = textOps(doc)
+	want := css.Color{R: 255, Set: true}
+	if len(ops) == 0 || ops[0].Color != want {
+		t.Fatalf("tr colour did not reach the cell: %+v", ops[0].Color)
+	}
+
+	doc = h.run(`<html style="color: #ff0000"><body><p>цвет</p></body></html>`)
+	ops = textOps(doc)
+	if len(ops) == 0 || ops[0].Color != want {
+		t.Fatalf("inline style on html did not inherit: %+v", ops[0].Color)
+	}
+}

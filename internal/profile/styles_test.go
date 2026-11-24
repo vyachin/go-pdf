@@ -139,3 +139,41 @@ func TestLinkedStylesApplyToTheDocument(t *testing.T) {
 		t.Fatalf("font-weight = %d, want 700 from the linked stylesheet", got)
 	}
 }
+
+func TestSymlinkEscapeIsRejected(t *testing.T) {
+	base := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outside.css")
+	if err := os.WriteFile(outsideFile, []byte("p { color: #ff0000 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link.css")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	doc := parseDoc(t, `<link rel="stylesheet" href="link.css"><p>x</p>`)
+	sheets, diags := CollectStylesheets(doc, Options{BaseDir: base})
+	if len(sheets) != 0 {
+		t.Fatal("a stylesheet outside the base directory must not be loaded")
+	}
+	if len(diags) != 1 || diags[0].Code != "css/link-path" {
+		t.Fatalf("diagnostics = %v, want one css/link-path", diags.Lines())
+	}
+}
+
+func TestSymlinkInsideBaseWorks(t *testing.T) {
+	base := t.TempDir()
+	real := writeCSS(t, base, "real.css", "p { color: #ff0000 }")
+	link := filepath.Join(base, "link.css")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	doc := parseDoc(t, `<link rel="stylesheet" href="link.css"><p>x</p>`)
+	sheets, diags := CollectStylesheets(doc, Options{BaseDir: base})
+	if diags.HasErrors() {
+		t.Fatalf("diagnostics: %v", diags.Lines())
+	}
+	if len(sheets) != 1 || len(sheets[0].Rules) != 1 {
+		t.Fatalf("sheets = %d, rules = %d", len(sheets), len(sheets[0].Rules))
+	}
+}

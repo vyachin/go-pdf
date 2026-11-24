@@ -68,6 +68,8 @@ type Box struct {
 	listMarkerY   int32
 	contentTopY   int32
 
+	// col is the grid column of a table cell, assigned by the table layout.
+	col int
 	// Table state.
 	columns     []int32
 	rowHeights  []int32
@@ -228,7 +230,12 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 		return nil, diag.List{{Severity: diag.Error, Code: "html/no-body", Message: "document has no body"}}
 	}
 	b := &builder{cascade: ctx.Cascade, images: ctx.Images, diags: &diag.List{}}
-	bodyStyle := ctx.Cascade.Compute(body, nil)
+	// Styles follow the real chain: html, then body.
+	var htmlStyle *css.Style
+	if htmlNode := doc.HTML(); htmlNode != nil {
+		htmlStyle = ctx.Cascade.Compute(htmlNode, nil)
+	}
+	bodyStyle := ctx.Cascade.Compute(body, htmlStyle)
 	root := &Box{Kind: Block, Node: body, Style: bodyStyle}
 	root.Children = b.buildBlocks(body, bodyStyle)
 	return root, *b.diags
@@ -384,21 +391,22 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 
 func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 	tb := &Box{Kind: Table, Node: n, Style: style}
-	var addRows func(*html.Node, bool)
-	addRows = func(node *html.Node, header bool) {
+	var addRows func(*html.Node, bool, *css.Style)
+	addRows = func(node *html.Node, header bool, parentStyle *css.Style) {
 		for _, c := range node.ElementChildren() {
 			switch c.Tag {
 			case "thead":
-				addRows(c, true)
+				addRows(c, true, b.cascade.Compute(c, parentStyle))
 			case "tbody", "tfoot":
-				addRows(c, header)
+				addRows(c, header, b.cascade.Compute(c, parentStyle))
 			case "tr":
+				rowStyle := b.cascade.Compute(c, parentStyle)
 				row := &Row{Header: header}
 				for _, cellNode := range c.ElementChildren() {
 					if cellNode.Tag != "td" && cellNode.Tag != "th" {
 						continue
 					}
-					cellStyle := b.cascade.Compute(cellNode, style)
+					cellStyle := b.cascade.Compute(cellNode, rowStyle)
 					// border-collapse is a property of the table, but cells
 					// need it to decide which edges they own.
 					cellStyle.BorderCollapse = style.BorderCollapse
@@ -418,7 +426,7 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 			}
 		}
 	}
-	addRows(n, false)
+	addRows(n, false, style)
 	return tb
 }
 

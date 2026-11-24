@@ -7,20 +7,18 @@ import (
 
 // computeColumns implements the fixed table layout: widths come from the first
 // row, the rest of the available width is split evenly between the remaining
-// columns.
+// columns. Cell columns come from the occupancy grid.
 func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 	n := 0
 	for _, row := range t.Rows {
-		c := 0
 		for _, cell := range row.Cells {
 			span := cell.ColSpan
 			if span < 1 {
 				span = 1
 			}
-			c += span
-		}
-		if c > n {
-			n = c
+			if end := cell.col + span; end > n {
+				n = end
+			}
 		}
 	}
 	if n == 0 {
@@ -28,7 +26,6 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 	}
 	widths := make([]int32, n)
 	if len(t.Rows) > 0 {
-		col := 0
 		for _, cell := range t.Rows[0].Cells {
 			span := cell.ColSpan
 			if span < 1 {
@@ -43,11 +40,10 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 			}
 			if w > 0 {
 				per := w / int32(span)
-				for i := 0; i < span && col+i < n; i++ {
-					widths[col+i] = per
+				for i := 0; i < span && cell.col+i < n; i++ {
+					widths[cell.col+i] = per
 				}
 			}
-			col += span
 		}
 	}
 	var used int32
@@ -73,6 +69,38 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 	return widths
 }
 
+// buildGrid assigns every cell the column it occupies, skipping columns taken
+// by cells that continue from earlier rows.
+func (l *layouter) buildGrid(t *Box) {
+	occupied := make([]map[int]bool, len(t.Rows))
+	for i := range occupied {
+		occupied[i] = map[int]bool{}
+	}
+	for r, row := range t.Rows {
+		col := 0
+		for _, cell := range row.Cells {
+			for occupied[r][col] {
+				col++
+			}
+			span := cell.ColSpan
+			if span < 1 {
+				span = 1
+			}
+			rowspan := cell.RowSpan
+			if rowspan < 1 {
+				rowspan = 1
+			}
+			cell.col = col
+			for dr := 0; dr < rowspan && r+dr < len(t.Rows); dr++ {
+				for c := col; c < col+span; c++ {
+					occupied[r+dr][c] = true
+				}
+			}
+			col += span
+		}
+	}
+}
+
 // measureTable returns the content height of a table.
 func (l *layouter) measureTable(t *Box, width int32) int32 {
 	if t.columns == nil {
@@ -88,15 +116,14 @@ func (l *layouter) measureTable(t *Box, width int32) int32 {
 // rowHeight returns the height of a row.
 func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 	var h int32
-	col := 0
 	for _, cell := range row.Cells {
 		span := cell.ColSpan
 		if span < 1 {
 			span = 1
 		}
 		var w int32
-		for i := 0; i < span && col+i < len(t.columns); i++ {
-			w += t.columns[col+i]
+		for i := 0; i < span && cell.col+i < len(t.columns); i++ {
+			w += t.columns[cell.col+i]
 		}
 		cell.width = w
 		cell.x = t.x
@@ -107,7 +134,6 @@ func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 		if cellH > h {
 			h = cellH
 		}
-		col += span
 	}
 	return h
 }
@@ -115,6 +141,7 @@ func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 // placeTable places rows until the page is full.
 func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	if !t.built {
+		l.buildGrid(t)
 		t.columns = l.computeColumns(t, width)
 		t.rowHeights = make([]int32, len(t.Rows))
 		for i, row := range t.Rows {
@@ -128,19 +155,15 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			t.headerCount++
 		}
 	}
-	// Repeat the header on every page that continues the table.
-	if t.headerPage != f.pageNum && t.cursor.row > 0 && t.headerCount > 0 {
-		for i := 0; i < t.headerCount; i++ {
-			f.y += l.paintRow(f, t, i)
-			f.empty = false
-		}
-	}
+	// Repeat the header on every page that continues the table. Only then may
+	// the row loop skip header rows; on the first page they are placed normally.
+	repeated := l.paintRepeatedHeaders(f, t)
 	t.headerPage = f.pageNum
 
 	for t.cursor.row < len(t.Rows) {
 		row := t.Rows[t.cursor.row]
-		if row.Header && t.cursor.row < t.headerCount && t.cursor.row > 0 {
-			// Already painted as page header above.
+		if repeated && row.Header && t.cursor.row < t.headerCount {
+			// Already painted as the repeated header above.
 			t.cursor.row++
 			continue
 		}
@@ -159,21 +182,37 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	return true
 }
 
+// paintRepeatedHeaders paints the header rows when the table continues on a
+// new page and reports whether it did.
+func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
+	if t.headerPage == f.pageNum || t.cursor.row == 0 || t.headerCount == 0 {
+		return false
+	}
+	for i := 0; i < t.headerCount; i++ {
+		f.y += l.paintRow(f, t, i)
+		f.empty = false
+	}
+	return true
+}
+
 // paintRow draws a row and its cells and returns its height.
 func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
-	x := t.x + t.borderLeft()
 	y := f.y
-	col := 0
+	startX := t.x + t.borderLeft()
 	for _, cell := range row.Cells {
 		span := cell.ColSpan
 		if span < 1 {
 			span = 1
 		}
+		x := startX
+		for i := 0; i < cell.col && i < len(t.columns); i++ {
+			x += t.columns[i]
+		}
 		var w int32
-		for i := 0; i < span && col+i < len(t.columns); i++ {
-			w += t.columns[col+i]
+		for i := 0; i < span && cell.col+i < len(t.columns); i++ {
+			w += t.columns[cell.col+i]
 		}
 		cellH := h
 		if cell.RowSpan > 1 {
@@ -182,9 +221,7 @@ func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 				cellH += t.rowHeights[r]
 			}
 		}
-		l.paintCell(f.page, cell, x, y, w, cellH, index == 0, col == 0)
-		x += w
-		col += span
+		l.paintCell(f.page, cell, x, y, w, cellH, index == 0, cell.col == 0)
 	}
 	return h
 }

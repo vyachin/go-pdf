@@ -233,6 +233,16 @@ func (d *Document) FindByID(id string) *Node {
 	return found
 }
 
+// HTML returns the html element, or nil for documents without one.
+func (d *Document) HTML() *Node {
+	for _, c := range d.Root.Children {
+		if c.Type == ElementNode && c.Tag == "html" {
+			return c
+		}
+	}
+	return nil
+}
+
 // Body returns the body element, or nil for documents without one.
 func (d *Document) Body() *Node {
 	for _, c := range d.Root.Children {

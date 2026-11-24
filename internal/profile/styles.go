@@ -1,7 +1,9 @@
 package profile
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,11 +114,64 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options) (*css.Styles
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readConfined(path, opts.BaseDir)
 	if err != nil {
-		return nil, &linkError{code: "css/link-load", msg: fmt.Sprintf("cannot read stylesheet %q: %v", path, err)}
+		return nil, err
 	}
 	return css.ParseSheet(css.SheetOptions{File: path}, data), nil
+}
+
+// ErrOutsideRoot reports a local asset path that leaves its configured root.
+var ErrOutsideRoot = errors.New("path escapes the root directory")
+
+// ReadWithin reads a local asset that must stay inside rootDir. The path and
+// the root are resolved first, so symbolic links that point inside the root
+// keep working; the file is then opened through os.Root, which rejects
+// anything that leaves the root at open time, including a link swapped in
+// after the check. An empty rootDir disables the boundary.
+func ReadWithin(rootDir, path string) ([]byte, error) {
+	if rootDir == "" {
+		return os.ReadFile(path)
+	}
+	baseReal, err := filepath.EvalSymlinks(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving root %q: %w", rootDir, err)
+	}
+	pathReal, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(baseReal, pathReal)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, ErrOutsideRoot
+	}
+	root, err := os.OpenRoot(baseReal)
+	if err != nil {
+		return nil, fmt.Errorf("opening root %q: %w", rootDir, err)
+	}
+	defer root.Close()
+	f, err := root.Open(rel)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, err
+		}
+		return nil, ErrOutsideRoot
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// readConfined reads a stylesheet inside the base directory and maps failures
+// to the diagnostics the profile reports for links.
+func readConfined(path, baseDir string) ([]byte, error) {
+	data, err := ReadWithin(baseDir, path)
+	if err == nil {
+		return data, nil
+	}
+	if errors.Is(err, ErrOutsideRoot) {
+		return nil, &linkError{code: "css/link-path", msg: fmt.Sprintf("stylesheet path %q escapes the base directory", path)}
+	}
+	return nil, &linkError{code: "css/link-load", msg: fmt.Sprintf("cannot read stylesheet %q: %v", path, err)}
 }
 
 // resolveStylesheetPath turns an href into a readable local path. Remote and

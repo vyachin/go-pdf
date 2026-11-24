@@ -583,3 +583,161 @@ func TestDocumentWithImagesIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatedImageIsEmbeddedOnce(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for i := range img.Pix {
+		img.Pix[i] = 180
+	}
+	path := filepath.Join(dir, "logo.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	loader := &imageLoader{baseDir: dir}
+	if _, err := loader.Load("logo.png"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loader.Load("logo.png"); err != nil {
+		t.Fatal(err)
+	}
+	if loader.loads != 1 {
+		t.Fatalf("the image was decoded %d times, want 1", loader.loads)
+	}
+
+	src := `<p><img src="logo.png"> и ещё раз <img src="logo.png"></p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, BaseDir: dir, File: "repeat.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(res.PDF), "/Subtype /Image"); n != 1 {
+		t.Fatalf("the PDF contains %d image objects, want 1", n)
+	}
+}
+
+func TestMissingStylesheetIsReportedOnce(t *testing.T) {
+	dir := t.TempDir()
+	src := `<link rel="stylesheet" href="missing.css"><p>x</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{BaseDir: dir, File: "missing.html"})
+	if err == nil {
+		t.Fatal("expected an error for a missing stylesheet")
+	}
+	n := 0
+	for _, d := range res.Diagnostics {
+		if d.Code == "css/link-load" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("the missing stylesheet was reported %d times, want 1: %v", n, res.Diagnostics.Lines())
+	}
+}
+
+func writeTestPNG(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 5, 5))
+	for i := range img.Pix {
+		img.Pix[i] = 120
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestImageBoundary(t *testing.T) {
+	fontPath := testFontPath(t)
+	base := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outside.png")
+	writeTestPNG(t, outsideFile)
+	insideFile := filepath.Join(base, "inside.png")
+	writeTestPNG(t, insideFile)
+
+	symlinkEscape := filepath.Join(base, "escape.png")
+	symlinkInside := filepath.Join(base, "alias.png")
+	if err := os.Symlink(outsideFile, symlinkEscape); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	if err := os.Symlink(insideFile, symlinkInside); err != nil {
+		t.Fatal(err)
+	}
+
+	convert := func(src string) (Result, error) {
+		return Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, BaseDir: base, File: "img.html"})
+	}
+
+	t.Run("inside", func(t *testing.T) {
+		res, err := convert(`<p><img src="inside.png"></p>`)
+		if err != nil {
+			t.Fatalf("an image inside the base directory must load: %v", err)
+		}
+		if !strings.Contains(string(res.PDF), "/Subtype /Image") {
+			t.Fatal("the image was not embedded")
+		}
+	})
+	t.Run("internal symlink", func(t *testing.T) {
+		if _, err := convert(`<p><img src="alias.png"></p>`); err != nil {
+			t.Fatalf("a symlink inside the base directory must load: %v", err)
+		}
+	})
+	t.Run("absolute outside", func(t *testing.T) {
+		_, err := convert(`<p><img src="` + outsideFile + `"></p>`)
+		if err == nil || !strings.Contains(err.Error(), "outside the base directory") {
+			t.Fatalf("absolute path outside the base directory: err = %v", err)
+		}
+	})
+	t.Run("escaping symlink", func(t *testing.T) {
+		_, err := convert(`<p><img src="escape.png"></p>`)
+		if err == nil || !strings.Contains(err.Error(), "outside the base directory") {
+			t.Fatalf("escaping symlink: err = %v", err)
+		}
+	})
+}
+
+func TestFontBoundary(t *testing.T) {
+	data, err := os.ReadFile(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fontDir := t.TempDir()
+	outside := t.TempDir()
+	insideFont := filepath.Join(fontDir, "local.ttf")
+	if err := os.WriteFile(insideFont, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideFont := filepath.Join(outside, "far.ttf")
+	if err := os.WriteFile(outsideFont, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	convert := func(src string) error {
+		_, err := Convert(context.Background(), []byte(src), Options{FontDir: fontDir, File: "font.html"})
+		return err
+	}
+
+	t.Run("inside the font root", func(t *testing.T) {
+		src := `<style>@font-face { font-family: Local; src: url(local.ttf) } p { font-family: Local }</style><p>x</p>`
+		if err := convert(src); err != nil {
+			t.Fatalf("a font inside the font directory must load: %v", err)
+		}
+	})
+	t.Run("outside the font root", func(t *testing.T) {
+		src := `<style>@font-face { font-family: Far; src: url(` + outsideFont + `) } p { font-family: Far }</style><p>x</p>`
+		err := convert(src)
+		if err == nil || !strings.Contains(err.Error(), "outside the font directory") {
+			t.Fatalf("a font outside the font directory: err = %v", err)
+		}
+	})
+}

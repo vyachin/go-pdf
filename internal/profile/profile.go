@@ -37,10 +37,17 @@ var fontFaceProperties = map[string]bool{
 	"font-family": true, "src": true, "font-weight": true, "font-style": true,
 }
 
-// Validate checks the document and its stylesheets against the profile.
+// Validate collects the document stylesheets and checks them and the document
+// against the profile.
 func Validate(doc *html.Document, opts Options) diag.List {
-	var out diag.List
 	sheets, sheetDiags := CollectStylesheets(doc, opts)
+	return ValidateSheets(doc, opts, sheets, sheetDiags)
+}
+
+// ValidateSheets checks a document against the profile using stylesheets that
+// were already collected, so a conversion reads each stylesheet once.
+func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, sheetDiags diag.List) diag.List {
+	var out diag.List
 	out = append(out, sheetDiags...)
 	for _, sheet := range sheets {
 		validateSheet(doc, sheet, &out)
