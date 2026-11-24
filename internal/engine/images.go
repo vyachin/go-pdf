@@ -91,7 +91,7 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
-			return nil, fmt.Errorf("%s: %d pixels exceed the limit of %d", path, cfg.Width*cfg.Height, l.maxPixels)
+			return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 		}
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,
@@ -112,7 +112,7 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 			return nil, fmt.Errorf("pdf: CMYK JPEG images are not supported")
 		}
 		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
-			return nil, fmt.Errorf("%s: %d pixels exceed the limit of %d", path, cfg.Width*cfg.Height, l.maxPixels)
+			return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 		}
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,

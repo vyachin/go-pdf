@@ -1057,6 +1057,17 @@ func TestImageAndFontLimits(t *testing.T) {
 	if err == nil || len(res.PDF) != 0 {
 		t.Fatalf("image limit was not enforced: err=%v", err)
 	}
+	// The pixel limit is a resource budget like the byte limit, so it reports
+	// resource/limit rather than an image load failure.
+	if !hasCode(res.Diagnostics, "resource/limit") {
+		t.Fatalf("the image pixel limit reported %v, want resource/limit", res.Diagnostics.Lines())
+	}
+	if diags, _ := Validate(context.Background(), []byte(`<p><img src="i.png"></p>`), Options{
+		FallbackFont: fontPath, BaseDir: dir, File: "img.html",
+		Limits: Limits{MaxImagePixels: 4},
+	}); !hasCode(diags, "resource/limit") {
+		t.Fatalf("Validate reported %v, want resource/limit", diags.Lines())
+	}
 
 	sheet := `<style>@font-face { font-family: Big; src: url(f.ttf) } body { font-family: Big }</style><p>A</p>`
 	data, readErr := os.ReadFile(fontPath)

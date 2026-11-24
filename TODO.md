@@ -156,7 +156,7 @@
 
 ### P3 — сопровождение и полнота проверок
 
-- [ ] **RV2-24 · P3: код `resource/limit` для превышения `MaxImagePixels`.**
+- [x] **RV2-24 · P3: код `resource/limit` для превышения `MaxImagePixels`.**
 
   **Код:** [internal/engine/images.go:94](/Users/vyachin/Projects/go-pdf/internal/engine/images.go:94): ошибка не обёрнута в `budget.ErrExceeded`, `layout.buildImage` классифицирует её как `img/load`.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-4/main.go`, секция `pixels`: `Limits{MaxImagePixels:5000}` → `error[img/load]: 10000 pixels exceed the limit of 5000`; `MaxImageBytes` в том же пробнике даёт `resource/limit`.
