@@ -348,6 +348,12 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		return l.paintStaticTable(page, b, b.x, y, b.width)
 	}
 	opStart := len(page.Ops)
+	if b.Kind == ListItem {
+		// The marker belongs to the first line. It is painted before any
+		// content, exactly like the paginated path does on entry.
+		b.listMarkerY = y + b.borderTop() + b.padTop()
+		l.paintListMarkerAt(page, b, x)
+	}
 	if b.Kind == Image {
 		if b.Image == nil {
 			return 0

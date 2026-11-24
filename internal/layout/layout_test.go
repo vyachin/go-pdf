@@ -568,3 +568,23 @@ func TestBlockImageInsideCellReservesHeight(t *testing.T) {
 		t.Fatalf("AFTER baseline %d overlaps the image that ends at %d", afterY, imageRect.Y+imageRect.H)
 	}
 }
+
+func TestListMarkersInsideCells(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr><td><ol><li>FIRST</li><li>SECOND</li></ol></td></tr></table>`)
+	text := textOf(doc)
+	if !strings.Contains(text, "1.") || !strings.Contains(text, "2.") {
+		t.Fatalf("list markers are missing inside a cell: %q", text)
+	}
+	if !strings.Contains(text, "FIRST") || !strings.Contains(text, "SECOND") {
+		t.Fatalf("list text is missing: %q", text)
+	}
+	if i, j := strings.Index(text, "1."), strings.Index(text, "FIRST"); i < 0 || j < 0 || i > j {
+		t.Fatalf("the marker is not before its item: %q", text)
+	}
+	// A bullet list keeps its bullet.
+	bullets := textOf(h.run(`<table><tr><td><ul><li>ITEM</li></ul></td></tr></table>`))
+	if !strings.Contains(bullets, "•") {
+		t.Fatalf("bullet marker is missing inside a cell: %q", bullets)
+	}
+}

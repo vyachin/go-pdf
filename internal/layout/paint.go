@@ -147,8 +147,16 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 	}
 }
 
-// paintListMarker draws the bullet or number of a list item.
+// paintListMarker draws the bullet or number of a list item in the paginated
+// flow.
 func (l *layouter) paintListMarker(f *flow, b *Box) {
+	l.paintListMarkerAt(f.page, b, f.left)
+}
+
+// paintListMarkerAt draws a list marker into a page, clamped to left so it does
+// not leave the containing content box. It serves both the paginated and the
+// static (table cell) path.
+func (l *layouter) paintListMarkerAt(page *Page, b *Box, left int32) {
 	st := b.Style
 	face, err := l.face(st)
 	if err != nil {
@@ -168,15 +176,15 @@ func (l *layouter) paintListMarker(f *flow, b *Box) {
 	// The marker belongs to the list's left padding, not to the item's
 	// content box: place it before the text and never over it.
 	x := b.x + b.padLeft() - run.Width - 2000
-	if x < f.left {
-		x = f.left
+	if x < left {
+		x = left
 	}
 	glyphs := make([]Glyph, len(run.Glyphs))
 	for i, g := range run.Glyphs {
 		glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
 	}
 	l.ops++
-	f.page.Ops = append(f.page.Ops, Op{
+	page.Ops = append(page.Ops, Op{
 		Kind: TextOpKind,
 		Text: &TextOp{
 			X:     x,

@@ -130,7 +130,7 @@
   **Воспроизведение:** `<table><tr><td><div style="width:30pt;margin:0 0 0 10pt;border:1pt solid red;background-color:blue">A</div></td></tr></table>`. В операциях нет ни красной рамки, ни синего фона. `b.width=width` игнорирует заданную ширину, горизонтальные margins не используются; ветка контейнера с anonymous block вообще не рисует декорации.
   **Исправление / приёмка:** общий расчёт used geometry и декораций для обычного и статического пути. Тот же div внутри/вне td должен сохранять content width 30 pt, margin 10 pt, фон и четыре стороны рамки. Это конкретное подтверждение ARCH-01.
 
-- [ ] **REV-20 · P2: сохранять маркеры списков внутри ячеек.**
+- [x] **REV-20 · P2: сохранять маркеры списков внутри ячеек.**
 
   **Код:** [internal/layout/table.go:338](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:338), `paintStaticBlock`; [internal/layout/paint.go:144](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:144), `paintListMarker`.
   **Воспроизведение:** `<table><tr><td><ol><li>FIRST</li><li>SECOND</li></ol></td></tr></table>` даёт текст **`FIRSTSECOND`** без `1.` и `2.`. Статический путь не вызывает отрисовку ListItem marker.
