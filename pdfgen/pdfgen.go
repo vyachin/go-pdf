@@ -89,6 +89,9 @@ type Limits struct {
 	// MaxImagePixels bounds width*height of a decoded image, checked before
 	// the pixels are decoded. Default 40,000,000.
 	MaxImagePixels int
+	// MaxRasterPixels bounds width*height of a debug page raster, checked
+	// before the buffer is allocated. Default 40,000,000.
+	MaxRasterPixels int
 	// MaxFontBytes bounds the size of a font file. Default 16 MiB.
 	MaxFontBytes int
 	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
@@ -290,6 +293,7 @@ func (o Options) toEngine() engine.Options {
 			MaxStylesheetBytes: o.Limits.MaxStylesheetBytes,
 			MaxPages:           o.Limits.MaxPages,
 			MaxImagePixels:     o.Limits.MaxImagePixels,
+			MaxRasterPixels:    o.Limits.MaxRasterPixels,
 			MaxFontBytes:       o.Limits.MaxFontBytes,
 			MaxDOMDepth:        o.Limits.MaxDOMDepth,
 			MaxTableCells:      o.Limits.MaxTableCells,

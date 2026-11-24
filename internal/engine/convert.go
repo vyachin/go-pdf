@@ -234,7 +234,17 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	}
 	var pngData []byte
 	if opts.RenderPNG && len(pages.Pages) > 0 {
-		img := raster.Render(pages.Pages[0], raster.Options{DPI: 96})
+		img, err := raster.Render(pages.Pages[0], raster.Options{DPI: 96, MaxPixels: limits.MaxRasterPixels})
+		if err != nil {
+			if errors.Is(err, budget.ErrExceeded) {
+				diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+				diags.Sort()
+				return Result{Diagnostics: diags}, diags.Error()
+			}
+			diags.Errorf("raster/render", diag.Position{}, "", "%v", err)
+			diags.Sort()
+			return Result{Diagnostics: diags}, diags.Error()
+		}
 		var buf bytes.Buffer
 		if err := png.Encode(&buf, img); err == nil {
 			pngData = buf.Bytes()

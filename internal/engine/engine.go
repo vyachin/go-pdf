@@ -57,6 +57,9 @@ type Limits struct {
 	// MaxImagePixels bounds width*height of a decoded image, checked before
 	// the pixels are decoded.
 	MaxImagePixels int
+	// MaxRasterPixels bounds width*height of a debug page raster, checked
+	// before the buffer is allocated.
+	MaxRasterPixels int
 	// MaxFontBytes bounds the size of a font file.
 	MaxFontBytes int
 	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
@@ -83,6 +86,9 @@ func (l Limits) resolved() Limits {
 	}
 	if l.MaxImagePixels <= 0 {
 		l.MaxImagePixels = 40_000_000
+	}
+	if l.MaxRasterPixels <= 0 {
+		l.MaxRasterPixels = 40_000_000
 	}
 	if l.MaxFontBytes <= 0 {
 		l.MaxFontBytes = 16 << 20

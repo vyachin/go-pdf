@@ -14,6 +14,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/layout"
@@ -23,7 +24,16 @@ import (
 type Options struct {
 	// DPI is the output resolution; 96 gives roughly one pixel per CSS px.
 	DPI int
+	// MaxPixels bounds the area of the output image and of every intermediate
+	// scaled image. Zero means the default of 40,000,000 pixels. A page and an
+	// image are checked before the buffer is allocated.
+	MaxPixels int
 }
+
+// defaultMaxPixels matches the image pixel budget of the engine. A page is
+// rasterized only on demand, so the default is generous; it exists to reject
+// a page geometry that would ask for gigabytes.
+const defaultMaxPixels = 40_000_000
 
 type point struct {
 	x, y float64
@@ -51,15 +61,23 @@ func Diff(a, b *image.RGBA, tolerance int) (int, error) {
 	return changed, nil
 }
 
-// Render draws a page into an RGBA image.
-func Render(page *layout.Page, opts Options) *image.RGBA {
+// Render draws a page into an RGBA image. A page whose output would exceed the
+// pixel budget is rejected with budget.ErrExceeded before the buffer is
+// allocated.
+func Render(page *layout.Page, opts Options) (*image.RGBA, error) {
 	if opts.DPI <= 0 {
 		opts.DPI = 96
+	}
+	if opts.MaxPixels <= 0 {
+		opts.MaxPixels = defaultMaxPixels
 	}
 	w := int(float64(page.Size.Width) / 1000 * float64(opts.DPI) / 72)
 	h := int(float64(page.Size.Height) / 1000 * float64(opts.DPI) / 72)
 	if w <= 0 || h <= 0 {
 		w, h = 1, 1
+	}
+	if exceedsArea(w, h, opts.MaxPixels) {
+		return nil, fmt.Errorf("%w: a %dx%d page raster exceeds the limit of %d pixels", budget.ErrExceeded, w, h, opts.MaxPixels)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	// White page, fully opaque.
@@ -79,7 +97,19 @@ func Render(page *layout.Page, opts Options) *image.RGBA {
 			drawImage(img, op, scaleX, scaleY)
 		}
 	}
-	return img
+	return img, nil
+}
+
+// exceedsArea reports whether w*h is larger than limit without overflowing the
+// multiplication.
+func exceedsArea(w, h, limit int) bool {
+	if w <= 0 || h <= 0 {
+		return false
+	}
+	if limit <= 0 {
+		return false
+	}
+	return w > limit/h
 }
 
 func toColor(c css.Color) color.RGBA {
@@ -162,24 +192,32 @@ func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {
 	if w <= 0 || h <= 0 {
 		return
 	}
+	// Only the visible part of the image needs a scaled buffer. An image that
+	// is wider than the page would otherwise allocate its full CSS size.
+	dst := image.Rect(x0, y0, x0+w, y0+h).Intersect(img.Bounds())
+	if dst.Empty() {
+		return
+	}
 	// Scale into a straight buffer, then composite with draw.Over so that
 	// translucent pixels blend with what is already on the page instead of
 	// replacing it.
-	scaled := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			px := b.Min.X + x*b.Dx()/maxInt(w, 1)
-			py := b.Min.Y + y*b.Dy()/maxInt(h, 1)
+	scaled := image.NewRGBA(image.Rect(0, 0, dst.Dx(), dst.Dy()))
+	for y := 0; y < dst.Dy(); y++ {
+		yf := y + dst.Min.Y - y0
+		py := b.Min.Y + yf*b.Dy()/maxInt(h, 1)
+		if py >= b.Max.Y {
+			py = b.Max.Y - 1
+		}
+		for x := 0; x < dst.Dx(); x++ {
+			xf := x + dst.Min.X - x0
+			px := b.Min.X + xf*b.Dx()/maxInt(w, 1)
 			if px >= b.Max.X {
 				px = b.Max.X - 1
-			}
-			if py >= b.Max.Y {
-				py = b.Max.Y - 1
 			}
 			scaled.Set(x, y, src.At(px, py))
 		}
 	}
-	draw.Draw(img, image.Rect(x0, y0, x0+w, y0+h), scaled, image.Point{}, draw.Over)
+	draw.Draw(img, dst, scaled, image.Point{}, draw.Over)
 }
 
 func decode(data []byte, format string) image.Image {

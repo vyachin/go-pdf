@@ -167,9 +167,10 @@ for _, d := range diags { // warnings only
 - **Previews.** `Options.RenderPNG` puts a raster of the first page in
   `res.PNG`.
 - **Budgets.** `Options.Limits` bounds input and stylesheet size, page count,
-  image pixels, font bytes, DOM depth, one table's grid and the total work of a
-  conversion. An over-limit document returns a `*pdfgen.Error` with code
-  `resource/limit` before the expensive allocation, not an OOM.
+  image pixels, font bytes, DOM depth, one table's grid, the debug page raster
+  and the total work of a conversion. An over-limit document returns a
+  `*pdfgen.Error` with code `resource/limit` before the expensive allocation,
+  not an OOM.
 - **Cancellation.** Pass a context that can be cancelled: parsing, stylesheet
   collection, font loading, layout between pages, rows and lines, and PDF
   serialization all stop when it is done, and `Convert` returns the context

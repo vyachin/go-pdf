@@ -2,6 +2,7 @@ package raster
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/layout"
@@ -43,7 +45,10 @@ func TestFillRectArea(t *testing.T) {
 		Rect:  layout.Rect{X: 0, Y: 0, W: 20000, H: 10000},
 		Color: css.Color{Set: true},
 	})
-	img := Render(page, Options{DPI: 72})
+	img, err := Render(page, Options{DPI: 72})
+	if err != nil {
+		t.Fatal(err)
+	}
 	dark := countDark(img)
 	// 20pt x 10pt at 72 dpi is 20 x 10 pixels.
 	want := 200
@@ -77,7 +82,10 @@ func TestGlyphRingIsHollow(t *testing.T) {
 			Color: css.Color{Set: true},
 		},
 	})
-	img := Render(page, Options{DPI: 96})
+	img, err := Render(page, Options{DPI: 96})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if countDark(img) == 0 {
 		t.Fatal("the glyph was not drawn")
 	}
@@ -194,12 +202,56 @@ func TestImageAlphaCompositesOverThePage(t *testing.T) {
 		Rect:  layout.Rect{X: 0, Y: 0, W: 100000, H: 100000},
 		Image: &layout.ImageOp{Image: &layout.ImageData{Data: pngBytes(128), Format: "png", PixelW: 1, PixelH: 1}},
 	})
-	img := Render(page, Options{DPI: 72})
+	img, err := Render(page, Options{DPI: 72})
+	if err != nil {
+		t.Fatal(err)
+	}
 	r, g, b, a := img.At(1, 1).RGBA()
 	if a != 0xffff {
 		t.Fatalf("the page must stay opaque, alpha = %#x", a)
 	}
 	if r != 0xffff || g < 0x7c00 || g > 0x8200 || b < 0x7c00 || b > 0x8200 {
 		t.Fatalf("half-transparent red over white = %#x,%#x,%#x, want ff,~7f,~7f", r, g, b)
+	}
+}
+
+func TestRenderRejectsOversizedPage(t *testing.T) {
+	// 10,000 pt square at 96 dpi is about 13,333 x 13,333 pixels: 177 million,
+	// larger than the default budget.
+	page := newPage(10_000_000, 10_000_000)
+	if _, err := Render(page, Options{DPI: 96}); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("oversized page returned %v, want a budget error", err)
+	}
+	if _, err := Render(newPage(100_000, 100_000), Options{DPI: 96, MaxPixels: 10}); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("custom pixel budget returned %v, want a budget error", err)
+	}
+}
+
+func solidPNG(t *testing.T, c color.NRGBA) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	img.SetNRGBA(0, 0, c)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestOversizedImageIsClippedToThePage(t *testing.T) {
+	// The image rectangle is a million times wider than the page. Only the
+	// visible part may allocate a buffer.
+	page := newPage(10_000, 10_000, layout.Op{
+		Kind:  layout.ImageOpKind,
+		Rect:  layout.Rect{X: 0, Y: 0, W: 2_000_000_000, H: 2_000_000_000},
+		Image: &layout.ImageOp{Image: &layout.ImageData{Data: solidPNG(t, color.NRGBA{R: 255, G: 255, B: 255, A: 255}), Format: "png", PixelW: 1, PixelH: 1}},
+	})
+	img, err := Render(page, Options{DPI: 72, MaxPixels: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := img.At(0, 0).RGBA()
+	if r < 0xfe00 || g < 0xfe00 || b < 0xfe00 {
+		t.Fatalf("the visible corner was not painted: %#x,%#x,%#x", r, g, b)
 	}
 }

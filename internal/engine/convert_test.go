@@ -1138,3 +1138,30 @@ func TestValidateHonoursCancellationAfterStart(t *testing.T) {
 		t.Fatalf("Validate returned %v, want context.Canceled", err)
 	}
 }
+
+func TestPageRasterLimit(t *testing.T) {
+	fontPath := testFontPath(t)
+	// 100,000 pt square at 96 dpi is about 133,333 x 133,333 pixels: 17.8
+	// billion, far above the default raster budget. The debug raster is the
+	// only place that allocates it, so the PDF itself must not be built by an
+	// out-of-memory allocation.
+	src := []byte(`<style>@page{size:100000pt 100000pt;margin:0}</style><p>A</p>`)
+	res, err := Convert(context.Background(), src, Options{
+		FallbackFont: fontPath,
+		File:         "big-page.html",
+		RenderPNG:    true,
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PNG) != 0 {
+		t.Fatalf("page raster limit was not enforced: err=%v diags=%v png=%d", err, res.Diagnostics.Lines(), len(res.PNG))
+	}
+	// The same page with an explicit budget below one page pixel area.
+	res, err = Convert(context.Background(), []byte(`<p>A</p>`), Options{
+		FallbackFont: fontPath,
+		File:         "small-raster.html",
+		RenderPNG:    true,
+		Limits:       Limits{MaxRasterPixels: 10},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PNG) != 0 {
+		t.Fatalf("custom raster limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+}
