@@ -1,32 +1,23 @@
 schema: spec-driven
 
 # Project context (optional)
-# Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  Project documentation is written in English. This covers README.md, every file
+  under docs/, and the OpenSpec artifacts (proposal, design, specs, tasks).
+
+  Existing Russian documents are migrated when they are next edited: a change
+  that touches such a document translates the file it touches. Russian text in
+  test fixtures, golden files and converted document templates is content, not
+  documentation, and stays as it is.
 
 # Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
-
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  proposal:
+    - Write the proposal in English.
+  design:
+    - Write the design in English.
+  specs:
+    - Write the Purpose section, requirements and scenarios in English.
+    - Use SHALL and MUST for normative statements.
+  tasks:
+    - Write task descriptions in English.
