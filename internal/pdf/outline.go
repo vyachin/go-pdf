@@ -36,6 +36,17 @@ func writeOutline(w *objectWriter, entries []OutlineEntry, rootID int, pages []*
 		stack = append(stack, i)
 	}
 
+	// A positive /Count is the number of visible descendants, not only direct
+	// children. Every node is written open, so all descendants are visible.
+	descendants := make([]int, n)
+	for i := n - 1; i >= 0; i-- {
+		total := 0
+		for _, c := range children[i] {
+			total += 1 + descendants[c]
+		}
+		descendants[i] = total
+	}
+
 	pageRef := func(page int) (int, int32) {
 		if page < 1 || page > len(pageIDs) {
 			return pageIDs[0], pages[0].height
@@ -51,7 +62,7 @@ func writeOutline(w *objectWriter, entries []OutlineEntry, rootID int, pages []*
 		fmt.Fprintf(&b, "/Title %s", pdfString(strings.TrimSpace(entries[i].Title)))
 		fmt.Fprintf(&b, " /Parent %d 0 R", parentID)
 		if kids := children[i]; len(kids) > 0 {
-			fmt.Fprintf(&b, " /First %d 0 R /Last %d 0 R /Count %d", ids[kids[0]], ids[kids[len(kids)-1]], len(kids))
+			fmt.Fprintf(&b, " /First %d 0 R /Last %d 0 R /Count %d", ids[kids[0]], ids[kids[len(kids)-1]], descendants[i])
 		}
 		if prev >= 0 {
 			fmt.Fprintf(&b, " /Prev %d 0 R", ids[prev])
@@ -95,5 +106,5 @@ func writeOutline(w *objectWriter, entries []OutlineEntry, rootID int, pages []*
 		return
 	}
 	w.set(root, []byte(fmt.Sprintf("<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count %d >>",
-		ids[rootChildren[0]], ids[rootChildren[len(rootChildren)-1]], len(rootChildren))))
+		ids[rootChildren[0]], ids[rootChildren[len(rootChildren)-1]], n)))
 }

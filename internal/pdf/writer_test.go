@@ -653,3 +653,32 @@ func TestBytesHonoursCancellationAfterStart(t *testing.T) {
 		t.Fatalf("Bytes returned %v, want context.Canceled", err)
 	}
 }
+
+func TestOutlineCountsAllVisibleDescendants(t *testing.T) {
+	entries := []OutlineEntry{
+		{Title: "A", Page: 1, Level: 1},
+		{Title: "B", Page: 1, Level: 2},
+		{Title: "C", Page: 1, Level: 3},
+		{Title: "D", Page: 1, Level: 1},
+	}
+	w := &objectWriter{}
+	root := w.add()
+	writeOutline(w, entries, root, []*page{{height: 800000}}, []int{99}, root)
+
+	body := func(id int) string { return string(w.bodies[id-1]) }
+	if got := body(root); !strings.Contains(got, "/Count 4") {
+		t.Fatalf("root /Count is wrong: %s", got)
+	}
+	// Entry ids follow the root id in insertion order.
+	if got := body(root + 1); !strings.Contains(got, "/Count 2") {
+		t.Fatalf("A /Count is wrong: %s", got)
+	}
+	if got := body(root + 2); !strings.Contains(got, "/Count 1") {
+		t.Fatalf("B /Count is wrong: %s", got)
+	}
+	for _, id := range []int{root + 3, root + 4} {
+		if got := body(id); strings.Contains(got, "/Count") {
+			t.Fatalf("a leaf must not have /Count: %s", got)
+		}
+	}
+}
