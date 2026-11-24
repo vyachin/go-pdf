@@ -39,6 +39,28 @@ type Options struct {
 	FallbackFont string
 	// Strict turns profile warnings into errors.
 	Strict bool
+	// Limits bounds the work a single conversion may do. Zero means the
+	// default: 8 MiB of HTML and 5000 pages.
+	Limits Limits
+}
+
+// Limits bounds the resources a conversion may consume.
+type Limits struct {
+	// MaxInputBytes is the largest accepted HTML document.
+	MaxInputBytes int
+	// MaxPages is the largest number of pages a document may produce.
+	MaxPages int
+}
+
+// resolved fills zero fields with their defaults.
+func (l Limits) resolved() Limits {
+	if l.MaxInputBytes <= 0 {
+		l.MaxInputBytes = 8 << 20
+	}
+	if l.MaxPages <= 0 {
+		l.MaxPages = 5000
+	}
+	return l
 }
 
 // Result is the outcome of a successful conversion.

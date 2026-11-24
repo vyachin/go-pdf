@@ -33,6 +33,12 @@ type prepared struct {
 // prepare validates the template and resolves everything that does not need
 // layout, so both entry points report the same problems.
 func prepare(src []byte, opts Options) (*prepared, diag.List, error) {
+	limits := opts.Limits.resolved()
+	if len(src) > limits.MaxInputBytes {
+		diags := diag.List{}
+		diags.Errorf("resource/limit", diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
+		return nil, diags, nil
+	}
 	doc, err := html.Parse(src, sourceName(opts))
 	if err != nil {
 		return nil, nil, err
@@ -75,6 +81,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	limits := opts.Limits.resolved()
 	p, diags, err := prepare(src, opts)
 	if err != nil {
 		return Result{}, err
@@ -113,6 +120,10 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		}
 		if layoutDiags.HasErrors() {
 			break
+		}
+		if pages != nil && len(pages.Pages) > limits.MaxPages {
+			diags.Errorf("resource/limit", diag.Position{}, "", "the document produced %d pages, the limit is %d", len(pages.Pages), limits.MaxPages)
+			return Result{Diagnostics: diags}, diags.Error()
 		}
 		next := referencedTargets(doc, pages)
 		if sameTargets(next, targets) {

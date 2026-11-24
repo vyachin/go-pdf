@@ -992,3 +992,28 @@ func TestConversionHonoursCancellation(t *testing.T) {
 		t.Fatal("no PDF may be written after cancellation")
 	}
 }
+
+func TestResourceLimits(t *testing.T) {
+	fontPath := testFontPath(t)
+	res, err := Convert(context.Background(), []byte(`<p>A</p>`), Options{
+		FallbackFont: fontPath,
+		File:         "limit.html",
+		Limits:       Limits{MaxInputBytes: 4},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("input limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+
+	var b strings.Builder
+	for i := 0; i < 400; i++ {
+		b.WriteString("<p>Строка для проверки лимита страниц.</p>")
+	}
+	res, err = Convert(context.Background(), []byte(b.String()), Options{
+		FallbackFont: fontPath,
+		File:         "pages.html",
+		Limits:       Limits{MaxPages: 1},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("page limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+}
