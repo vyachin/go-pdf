@@ -192,20 +192,14 @@ func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Fo
 		if len(candidates) == 0 {
 			continue
 		}
-		best := candidates[0]
-		bestScore := -1
+		var best *registeredFace
+		bestRank := 0
+		bestItalic := false
 		for _, c := range candidates {
-			score := 0
-			if c.weight == weight {
-				score += 2
-			} else if (weight >= 600 && c.weight >= 600) || (weight < 600 && c.weight < 600) {
-				score++
-			}
-			if c.italic == italic {
-				score++
-			}
-			if score > bestScore {
-				best, bestScore = c, score
+			rank := weightRank(c.weight, weight)
+			italicMatch := c.italic == italic
+			if best == nil || rank < bestRank || (rank == bestRank && italicMatch && !bestItalic) {
+				best, bestRank, bestItalic = c, rank, italicMatch
 			}
 		}
 		return best.font
@@ -217,6 +211,40 @@ func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Fo
 		return r.faces[0].font
 	}
 	return nil
+}
+
+// weightRank orders an available weight against the requested one, following
+// the CSS Fonts fallback order. A lower rank is a better match; the exact
+// weight is ranked first and the order of @font-face rules never decides
+// between two different weights.
+func weightRank(available, target int) int {
+	if available == target {
+		return 0
+	}
+	switch {
+	case target < 400:
+		// Lighter weights first, descending, then heavier ascending.
+		if available < target {
+			return 1 + (400 - available)
+		}
+		return 1000 + (available - target)
+	case target <= 500:
+		// The target..500 band ascending, then lighter descending, then
+		// heavier than 500 ascending.
+		if available >= target && available <= 500 {
+			return 1 + (available - target)
+		}
+		if available < target {
+			return 500 + (target - available)
+		}
+		return 1000 + (available - 500)
+	default:
+		// Heavier weights first, ascending, then lighter descending.
+		if available > target {
+			return 1 + (available - target)
+		}
+		return 1000 + (target - available)
+	}
 }
 
 func resolvePath(path, fontDir, baseDir string) string {

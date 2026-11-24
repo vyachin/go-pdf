@@ -1271,3 +1271,62 @@ func TestValidateMatchesConvertOnCMYK(t *testing.T) {
 		t.Fatalf("Validate diagnostics differ from Convert\n got: %v\nwant: %v", validated.Lines(), converted.Diagnostics.Lines())
 	}
 }
+
+// pickWeight returns the weight of the face that pick selects for a request.
+func pickWeight(t *testing.T, target int, italic bool, available ...int) int {
+	t.Helper()
+	r := &fontRegistry{}
+	byWeight := map[int]*font.Font{}
+	for _, w := range available {
+		f := &font.Font{}
+		byWeight[w] = f
+		r.faces = append(r.faces, &registeredFace{family: "w", weight: w, font: f})
+	}
+	got := r.pick([]string{"w"}, target, italic)
+	for w, f := range byWeight {
+		if f == got {
+			return w
+		}
+	}
+	return -1
+}
+
+func TestFontWeightFallbackOrder(t *testing.T) {
+	cases := []struct {
+		name      string
+		target    int
+		available []int
+		want      int
+	}{
+		{"closest below 400 wins over 100", 500, []int{100, 400}, 400},
+		{"500 is preferred below 400 for 400", 400, []int{300, 500}, 500},
+		{"lighter weights first below 400", 400, []int{100, 600}, 100},
+		{"heavier weights first above 500", 700, []int{400, 800}, 800},
+		{"lighter descending below 400 target", 300, []int{200, 400}, 200},
+		{"band target..500 first", 450, []int{400, 500}, 500},
+		{"exact match wins", 600, []int{500, 600, 700}, 600},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pickWeight(t, tc.target, false, tc.available...); got != tc.want {
+				t.Fatalf("pick(%d) from %v = %d, want %d", tc.target, tc.available, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFontWeightKeepsItalicPreference(t *testing.T) {
+	r := &fontRegistry{}
+	regular := &font.Font{}
+	italic := &font.Font{}
+	r.faces = append(r.faces,
+		&registeredFace{family: "w", weight: 400, italic: false, font: regular},
+		&registeredFace{family: "w", weight: 400, italic: true, font: italic},
+	)
+	if got := r.pick([]string{"w"}, 400, true); got != italic {
+		t.Fatal("an italic request did not prefer the italic face")
+	}
+	if got := r.pick([]string{"w"}, 400, false); got != regular {
+		t.Fatal("an upright request did not prefer the upright face")
+	}
+}
