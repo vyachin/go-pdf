@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"time"
 
@@ -120,7 +121,9 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		out = trimHTMLExt(input) + ".pdf"
 	}
 
-	res, err := engine.Convert(context.Background(), src, engine.Options{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	res, err := engine.Convert(ctx, src, engine.Options{
 		PageSize:  page,
 		Margin:    margin,
 		FontDir:   common.fontDir,
@@ -177,7 +180,9 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
 		return exitFailure
 	}
-	diagnostics, err := engine.Validate(context.Background(), src, engine.Options{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	diagnostics, err := engine.Validate(ctx, src, engine.Options{
 		FontDir: common.fontDir,
 		BaseDir: common.baseDir,
 		File:    fs.Arg(0),

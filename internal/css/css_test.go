@@ -452,3 +452,14 @@ func TestPseudoContentFollowsTheCascade(t *testing.T) {
 		t.Fatalf("!important was ignored: %+v", st.AfterContent)
 	}
 }
+
+func TestHugeLengthsAreRejected(t *testing.T) {
+	toks := Tokenize([]byte("1e100pt"))
+	if _, err := ParseLengthToken(toks[0]); err == nil {
+		t.Fatal("a huge length was accepted")
+	}
+	toks = Tokenize([]byte("1e100%"))
+	if _, err := ParseLengthToken(toks[0]); err == nil {
+		t.Fatal("a huge percentage was accepted")
+	}
+}

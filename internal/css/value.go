@@ -88,12 +88,30 @@ var mpPerUnit = map[string]float64{
 // and ensures every span fits an int32 without narrowing to zero.
 const MaxTableSpan = 100
 
+// maxMillipoints bounds every absolute length so that scaling it later cannot
+// overflow an int32.
+const maxMillipoints = int32(2_000_000_000)
+
+// scaleLength converts a CSS number and unit factor into millipoints, rejecting
+// values that would overflow.
+func scaleLength(v, factor float64) (int32, error) {
+	scaled := math.Round(v * factor)
+	if math.IsNaN(scaled) || math.IsInf(scaled, 0) || scaled > float64(maxMillipoints) || scaled < -float64(maxMillipoints) {
+		return 0, fmt.Errorf("length %g is out of range", v)
+	}
+	return int32(scaled), nil
+}
+
 // ParseLengthToken parses a single length token.
 func ParseLengthToken(t Token) (Length, error) {
 	switch t.Kind {
 	case DimensionToken:
 		if v, ok := mpPerUnit[t.Unit]; ok {
-			return Abs(int32(math.Round(t.Num * v))), nil
+			mp, err := scaleLength(t.Num, v)
+			if err != nil {
+				return Length{}, err
+			}
+			return Abs(mp), nil
 		}
 		if t.Unit == "em" {
 			return EmLen(t.Num), nil
@@ -103,6 +121,9 @@ func ParseLengthToken(t Token) (Length, error) {
 		}
 		return Length{}, fmt.Errorf("unit %q is not supported", t.Unit)
 	case PercentageToken:
+		if _, err := scaleLength(t.Num, 1000); err != nil {
+			return Length{}, err
+		}
 		return Pct(t.Num), nil
 	case NumberToken:
 		if t.Num == 0 {
