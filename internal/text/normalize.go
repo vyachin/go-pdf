@@ -104,6 +104,9 @@ const (
 type Item struct {
 	Kind ItemKind
 	Text string
+	// BreakAfter marks a word that already ends with a visible hyphen, so a
+	// line may break after it without adding or dropping a character.
+	BreakAfter bool
 }
 
 // Split breaks text into words and spaces. Whitespace collapses unless pre is
@@ -162,8 +165,13 @@ func Split(s string, pre bool) []Item {
 		case r == '\u00a0':
 			b.WriteRune(' ')
 		case r == '-' || r == '\u2010':
-			b.WriteRune('-')
+			// Keep the character as written: U+2010 is a different glyph with a
+			// different advance in some fonts, and the text layer must copy it.
+			b.WriteRune(r)
 			flush()
+			if n := len(items); n > 0 {
+				items[n-1].BreakAfter = true
+			}
 		default:
 			b.WriteRune(r)
 		}

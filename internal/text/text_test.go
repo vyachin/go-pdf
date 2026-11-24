@@ -65,23 +65,33 @@ func TestSplit(t *testing.T) {
 		{
 			name: "collapses whitespace",
 			in:   "a  b\n c",
-			want: []Item{{Word, "a"}, {Space, " "}, {Word, "b"}, {Space, " "}, {Word, "c"}},
+			want: []Item{{Kind: Word, Text: "a"}, {Kind: Space, Text: " "}, {Kind: Word, Text: "b"}, {Kind: Space, Text: " "}, {Kind: Word, Text: "c"}},
 		},
 		{
 			name: "non breaking space stays in the word",
 			in:   "г.\u00a0Москва",
-			want: []Item{{Word, "г. Москва"}},
+			want: []Item{{Kind: Word, Text: "г. Москва"}},
 		},
 		{
-			name: "hyphen ends a word",
+			name: "hyphen ends a word and allows a break",
 			in:   "слово-слово",
-			want: []Item{{Word, "слово-"}, {Word, "слово"}},
+			want: []Item{{Kind: Word, Text: "слово-", BreakAfter: true}, {Kind: Word, Text: "слово"}},
+		},
+		{
+			name: "unicode hyphen allows a break and keeps its glyph",
+			in:   "a\u2010b",
+			want: []Item{{Kind: Word, Text: "a\u2010", BreakAfter: true}, {Kind: Word, Text: "b"}},
+		},
+		{
+			name: "non breaking hyphen stays inside the word",
+			in:   "a\u2011b",
+			want: []Item{{Kind: Word, Text: "a\u2011b"}},
 		},
 		{
 			name: "pre keeps spaces and line breaks",
 			in:   "a  b\nc",
 			pre:  true,
-			want: []Item{{Word, "a"}, {Space, " "}, {Space, " "}, {Word, "b"}, {Newline, ""}, {Word, "c"}},
+			want: []Item{{Kind: Word, Text: "a"}, {Kind: Space, Text: " "}, {Kind: Space, Text: " "}, {Kind: Word, Text: "b"}, {Kind: Newline}, {Kind: Word, Text: "c"}},
 		},
 	}
 	for _, tc := range cases {

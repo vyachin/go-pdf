@@ -1101,3 +1101,45 @@ func TestRepeatedHeaderStillBreaksWhenTheRowFits(t *testing.T) {
 		t.Fatalf("row C appears on %d pages, want 1", seen)
 	}
 }
+
+// TestHyphenAllowsLineBreak guards RV2-11: text.Split ended a word at a hyphen
+// but the line builder cleared the break opportunity after every word, so
+// "слово-слово" overflowed a narrow block instead of breaking after the hyphen.
+func TestHyphenAllowsLineBreak(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 300000, Height: 300000}
+	margin := [4]int32{20000, 20000, 20000, 20000}
+	src := `<p style="width:60pt;margin:0;font-size:10pt;line-height:12pt">слово-слово</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if hasError(diags, "layout/overflow") {
+		t.Fatalf("hyphenated text did not break: %v", diags.Lines())
+	}
+	ys := map[int32]bool{}
+	var firstX, lastRight int32
+	first := true
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		ys[op.Text.Y] = true
+		if first {
+			firstX = op.Text.X
+			first = false
+		}
+		lastRight = op.Text.X + op.Text.Run.Width
+	}
+	if len(ys) != 2 {
+		t.Fatalf("hyphenated text produced %d baselines, want 2 (a break after the hyphen)", len(ys))
+	}
+	if firstX != 20000 {
+		t.Fatalf("the text starts at X=%d, want the content left edge 20000", firstX)
+	}
+	if limit := int32(20000 + 60000); lastRight > limit {
+		t.Fatalf("the text ends at X=%d, past the content right edge %d", lastRight, limit)
+	}
+	// A space still breaks text the same way, and an inline element boundary
+	// still does not create a break point (REV-25).
+	if got := pageText(doc, 1); got != "слово-слово" {
+		t.Fatalf("the text layer = %q", got)
+	}
+}

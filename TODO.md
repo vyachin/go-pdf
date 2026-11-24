@@ -76,7 +76,7 @@
   **Воспроизведение:** `go run ./testdata/probe/font-text-16/main.go` на `/System/Library/Fonts/SFNS.ttf`: все PairPos за type 9, `Kerning` = 0 для A/V, T/o, A/T, Y/o, P/., А/Т, Т/о при ожидаемых −140…−270 units (A/V при 12 pt — 938 mp). Из системных шрифтов type 9 используют SFNS, SFCompact*, SFNS*, KefaIII.
   **Исправление / приёмка:** разворачивать extension (extensionLookupType=2) до разбора PairPos format 1/2. Приёмка: SFNS даёт ненулевой `Kerning` и TJ-корректировку в PDF; покрыть обе формы сабтаблиц.
 
-- [ ] **RV2-11 · P2: переносить строку после дефиса.**
+- [x] **RV2-11 · P2: переносить строку после дефиса.**
 
   **Код:** [internal/text/normalize.go:164](/Users/vyachin/Projects/go-pdf/internal/text/normalize.go:164), `Split` завершает слово после `-`, но [internal/layout/lines.go:325](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:325) после `wordPiece` ставит `canWrap = false`; `ItemKind` не выражает «перенос после дефиса».
   **Воспроизведение:** `go run ./testdata/probe/font-text-7/main.go`: `<p style="width:60pt">слово-слово</p>` — одна строка шириной 76378 mp при content width 60000 mp, правый край 104,72 pt против 88,35 pt, диагностик нет. «слово слово» переносится.

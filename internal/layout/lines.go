@@ -60,13 +60,14 @@ const (
 )
 
 type piece struct {
-	kind     pieceKind
-	text     string
-	style    *css.Style
-	node     *htmlNode
-	image    *ImageData
-	preserve bool   // a space that must not be collapsed or dropped
-	anchor   string // element id that starts at this piece
+	kind      pieceKind
+	text      string
+	style     *css.Style
+	node      *htmlNode
+	image     *ImageData
+	preserve  bool   // a space that must not be collapsed or dropped
+	anchor    string // element id that starts at this piece
+	wrapAfter bool   // the word ends with a hyphen and allows a break after it
 }
 
 // htmlNode is a minimal indirection so that diagnostics can carry a position
@@ -108,7 +109,7 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 				case text.Space:
 					*out = append(*out, piece{kind: spacePiece, style: c.Style, preserve: pre})
 				default:
-					*out = append(*out, piece{kind: wordPiece, text: it.Text, style: c.Style})
+					*out = append(*out, piece{kind: wordPiece, text: it.Text, style: c.Style, wrapAfter: it.BreakAfter})
 				}
 			}
 		case Image:
@@ -321,8 +322,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Height = max32(cur.Height, p.style.LineHeightMP())
 			cur.Ascent = max32(cur.Ascent, face.Ascent)
 			x += run.Width
-			// A following word can only wrap after a space or a break.
-			canWrap = false
+			// A following word can wrap after a space, a forced break or a
+			// hyphen that already ends this word.
+			canWrap = p.wrapAfter
 			_ = firstLine
 		}
 	}
