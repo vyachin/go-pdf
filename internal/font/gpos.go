@@ -64,7 +64,7 @@ func (f *Font) parseGPOS() {
 			continue
 		}
 		lookupType := binary.BigEndian.Uint16(gpos[off : off+2])
-		if lookupType != 2 {
+		if lookupType != 2 && lookupType != 9 {
 			continue
 		}
 		subCount := int(binary.BigEndian.Uint16(gpos[off+4 : off+6]))
@@ -75,6 +75,15 @@ func (f *Font) parseGPOS() {
 				break
 			}
 			subOff := off + int(binary.BigEndian.Uint16(gpos[subOffPos:subOffPos+2]))
+			if lookupType == 9 {
+				// Extension positioning wraps the real subtable behind a
+				// 32-bit offset. Several system fonts (SFNS, SFCompact, Kefa)
+				// store every PairPos subtable this way.
+				subOff, ok = extensionSubtable(gpos, subOff)
+				if !ok {
+					continue
+				}
+			}
 			lookup.parsePairPos(k, gpos, subOff)
 		}
 		if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
@@ -84,6 +93,28 @@ func (f *Font) parseGPOS() {
 	if len(k.lookups) > 0 {
 		f.gpos = k
 	}
+}
+
+// extensionSubtable resolves an ExtensionPos (lookup type 9) subtable to the
+// PairPos subtable it wraps. It reports false for any other extension type.
+func extensionSubtable(data []byte, off int) (int, bool) {
+	if off < 0 || off+8 > len(data) {
+		return 0, false
+	}
+	format := binary.BigEndian.Uint16(data[off : off+2])
+	lookupType := binary.BigEndian.Uint16(data[off+2 : off+4])
+	if format != 1 || lookupType != 2 {
+		return 0, false
+	}
+	delta := int(binary.BigEndian.Uint32(data[off+4 : off+8]))
+	if delta <= 0 || delta > len(data)-off {
+		return 0, false
+	}
+	target := off + delta
+	if target+8 > len(data) {
+		return 0, false
+	}
+	return target, true
 }
 
 // parsePairPos parses one subtable into a lookup of its own. It is the entry

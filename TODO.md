@@ -70,7 +70,7 @@
   **Воспроизведение:** `go run ./testdata/probe/font-text-19/main.go`. В DejaVu Sans два kern-lookup: 97 покрытых глифов и **1832 ненулевые пары**, затем 20 глифов и 0 пар. Остаётся второй: `Kerning('T','o') = 0` вместо −348 units; «To» при 12 pt — 14672 mp вместо 12633 mp (разница 2039 mp). `TestKerning` маскирует дефект через `t.Skip` при нуле.
   **Исправление / приёмка:** суммировать применимые lookup'ы (несколько сабтаблиц на lookup тоже). Приёмка: `Kerning('T','o') == -348` для DejaVu, `Shape("To")` 12 pt = 12633 mp; существующий тест должен требовать ненулевое значение, а не пропускать.
 
-- [ ] **RV2-10 · P2: поддержать GPOS ExtensionPos (lookup type 9).**
+- [x] **RV2-10 · P2: поддержать GPOS ExtensionPos (lookup type 9).**
 
   **Код:** [internal/font/gpos.go:51](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:51): `if lookupType != 2 { continue }`, extension-сабтаблица не разворачивается.
   **Воспроизведение:** `go run ./testdata/probe/font-text-16/main.go` на `/System/Library/Fonts/SFNS.ttf`: все PairPos за type 9, `Kerning` = 0 для A/V, T/o, A/T, Y/o, P/., А/Т, Т/о при ожидаемых −140…−270 units (A/V при 12 pt — 938 mp). Из системных шрифтов type 9 используют SFNS, SFCompact*, SFNS*, KefaIII.

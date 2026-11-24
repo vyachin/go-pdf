@@ -292,3 +292,70 @@ func TestClassKerningUsesImplicitClassZero(t *testing.T) {
 		t.Fatalf("a left glyph outside Coverage must not kern, got %d", got)
 	}
 }
+
+// pairPosFormat1Test builds a PairPos format 1 subtable with one explicit pair.
+func pairPosFormat1Test(coverGID, secondGID uint16, adjustment int16) []byte {
+	header := make([]byte, 12)
+	binary.BigEndian.PutUint16(header[0:2], 1)    // format 1
+	binary.BigEndian.PutUint16(header[4:6], 4)    // valueFormat1: XAdvance
+	binary.BigEndian.PutUint16(header[8:10], 1)   // pairSetCount
+	binary.BigEndian.PutUint16(header[10:12], 12) // pairSet offset
+	pairSet := make([]byte, 6)
+	binary.BigEndian.PutUint16(pairSet[0:2], 1) // one pair
+	binary.BigEndian.PutUint16(pairSet[2:4], secondGID)
+	binary.BigEndian.PutUint16(pairSet[4:6], uint16(adjustment))
+	coverage := coverageFormat1Test([]uint16{coverGID})
+	binary.BigEndian.PutUint16(header[2:4], uint16(len(header)+len(pairSet))) // coverage offset
+	body := append([]byte{}, header...)
+	body = append(body, pairSet...)
+	return append(body, coverage...)
+}
+
+// gposWithExtensionPairPos wraps one PairPos subtable in a type 9 ExtensionPos
+// lookup, as several system fonts do.
+func gposWithExtensionPairPos(subtable []byte, extensionType uint16) []byte {
+	gpos := make([]byte, 30)
+	binary.BigEndian.PutUint32(gpos[0:4], 0x00010000)
+	binary.BigEndian.PutUint16(gpos[8:10], 10) // LookupList offset
+	binary.BigEndian.PutUint16(gpos[10:12], 1) // lookup count
+	binary.BigEndian.PutUint16(gpos[12:14], 4) // lookup offset from LookupList
+	binary.BigEndian.PutUint16(gpos[14:16], 9) // lookup type 9
+	binary.BigEndian.PutUint16(gpos[18:20], 1) // subtable count
+	binary.BigEndian.PutUint16(gpos[20:22], 8) // subtable offset from Lookup
+	binary.BigEndian.PutUint16(gpos[22:24], 1) // extension format
+	binary.BigEndian.PutUint16(gpos[24:26], extensionType)
+	binary.BigEndian.PutUint32(gpos[26:30], 8) // extension offset from subtable
+	return append(gpos, subtable...)
+}
+
+// TestExtensionPosKerning guards RV2-10: PairPos subtables behind an
+// ExtensionPos lookup used to be skipped, so fonts that store all kerning that
+// way (SFNS and friends) silently lost every pair.
+func TestExtensionPosKerning(t *testing.T) {
+	f := testFont(t)
+	data := replaceTable(t, f.data, "GPOS", gposWithExtensionPairPos(pairPosFormat1Test(65, 86, -100), 2))
+	parsed, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.gpos == nil {
+		t.Fatal("the extension kerning lookup was dropped")
+	}
+	if got := parsed.Kerning(65, 86); got != -100 {
+		t.Fatalf("kerning through ExtensionPos = %d, want -100", got)
+	}
+}
+
+// TestExtensionPosIgnoresOtherLookupTypes makes sure the extension is only
+// unwrapped when it wraps PairPos.
+func TestExtensionPosIgnoresOtherLookupTypes(t *testing.T) {
+	f := testFont(t)
+	data := replaceTable(t, f.data, "GPOS", gposWithExtensionPairPos(pairPosFormat1Test(65, 86, -100), 4))
+	parsed, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.gpos != nil && parsed.Kerning(65, 86) != 0 {
+		t.Fatalf("an extension of lookup type 4 was treated as kerning")
+	}
+}
