@@ -414,3 +414,41 @@ func TestInvalidDeclarationsAreReported(t *testing.T) {
 		t.Fatal("an invalid inline declaration was not reported")
 	}
 }
+
+func TestPseudoContentFollowsTheCascade(t *testing.T) {
+	cssText := `
+		a.hot::after { content: "CORRECT" }
+		a::after { content: "WRONG" }
+	`
+	sheet := ParseSheet(SheetOptions{File: "t.css"}, []byte(cssText))
+	doc, err := html.Parse([]byte(`<p><a class="hot">A</a></p>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node *html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Tag == "a" {
+			node = n
+			return
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(doc.Root)
+	st := NewCascade(sheet).Compute(node, nil)
+	if len(st.AfterContent) == 0 || st.AfterContent[0].Text != "CORRECT" {
+		t.Fatalf("specificity was ignored: %+v", st.AfterContent)
+	}
+
+	cssText = `
+		a::after { content: "IMPORTANT" !important }
+		a.hot::after { content: "LATER" }
+	`
+	sheet = ParseSheet(SheetOptions{File: "t.css"}, []byte(cssText))
+	st = NewCascade(sheet).Compute(node, nil)
+	if len(st.AfterContent) == 0 || st.AfterContent[0].Text != "IMPORTANT" {
+		t.Fatalf("!important was ignored: %+v", st.AfterContent)
+	}
+}

@@ -42,7 +42,7 @@ Only the findings that are still open are listed below. A successful existing te
 
 ### CSS values and generated content
 
-- [ ] **CSS-07 · P2: apply specificity and importance to `a::after` content.**
+- [x] **CSS-07 · P2: apply specificity and importance to `a::after` content.**
 
   **Source:** [internal/css/cascade.go:60](/Users/vyachin/Projects/go-pdf/internal/css/cascade.go:60), `Compute`.
   **Reproduction:** `<style>a.hot::after{content:"CORRECT"}a::after{content:"WRONG"}</style><p><a class="hot">A</a></p>` renders `AWRONG`. Pseudo-element declarations are assigned during rule iteration before the normal cascade sorting, so later rules always win regardless of specificity or `!important`.

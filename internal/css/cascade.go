@@ -39,9 +39,10 @@ func NewCascade(sheets ...*Stylesheet) *Cascade {
 }
 
 type styleEntry struct {
-	decl Declaration
-	spec [3]int
-	ord  int
+	decl   Declaration
+	spec   [3]int
+	ord    int
+	pseudo bool // content of a::after, cascaded like any other declaration
 }
 
 // Compute returns the computed style of n given the parent style.
@@ -58,14 +59,14 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 			continue
 		}
 		if r.pseudo != "" {
-			// Generated content belongs to the originating element.
+			// Generated content belongs to the originating element but must
+			// follow the same importance, specificity and order rules as any
+			// other property.
 			for _, d := range r.decls {
 				if d.Property != "content" {
 					continue
 				}
-				if items, err := ParseContent(d.Value); err == nil {
-					st.AfterContent = items
-				}
+				entries = append(entries, styleEntry{decl: d, spec: r.spec, ord: r.order, pseudo: true})
 			}
 			continue
 		}
@@ -93,6 +94,12 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 		return a.ord < b.ord
 	})
 	for _, e := range entries {
+		if e.pseudo {
+			if items, err := ParseContent(e.decl.Value); err == nil {
+				st.AfterContent = items
+			}
+			continue
+		}
 		_ = ApplyDecl(st, e.decl.Property, e.decl.Value, parentSize)
 	}
 
