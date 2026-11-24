@@ -6,7 +6,10 @@ import "encoding/binary"
 type kerning struct {
 	pairs map[uint32]int16
 	// class based positioning (PairPos format 2)
-	class1  map[uint16]uint16
+	class1 map[uint16]uint16
+	// covered is the first-glyph Coverage of the class-based subtable: glyphs
+	// outside it must not use the class records.
+	covered map[uint16]bool
 	records [][]int16
 	class2  []classRange
 }
@@ -122,6 +125,10 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 		}
 		k.records = make([][]int16, class1Count)
 		k.class1 = map[uint16]uint16{}
+		k.covered = make(map[uint16]bool, len(cover))
+		for _, gid := range cover {
+			k.covered[gid] = true
+		}
 		for _, r := range classes1 {
 			for g := uint32(r.start); g <= uint32(r.end); g++ {
 				k.class1[uint16(g)] = r.class
@@ -279,6 +286,9 @@ func (f *Font) Kerning(left, right uint16) int32 {
 		return int32(v)
 	}
 	if f.gpos.records == nil {
+		return 0
+	}
+	if f.gpos.covered != nil && !f.gpos.covered[left] {
 		return 0
 	}
 	c1, ok := f.gpos.class1[left]
