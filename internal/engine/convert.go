@@ -51,6 +51,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 	images := &imageLoader{baseDir: opts.BaseDir}
+	defer images.Close()
 
 	// target-counter needs a second pass: the page numbers written into the
 	// table of contents can change the page breaks themselves.

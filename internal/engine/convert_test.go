@@ -867,3 +867,33 @@ func TestFontFamilyAliasesShareOneFile(t *testing.T) {
 		t.Fatal("the alias must not fall back to the system font")
 	}
 }
+
+func countFDs(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Skipf("/dev/fd is not available: %v", err)
+	}
+	return len(entries)
+}
+
+func TestConversionsDoNotLeakDescriptors(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "i.png"))
+	src := []byte(`<p><img src="i.png"></p>`)
+	opts := Options{FallbackFont: fontPath, BaseDir: dir, File: "fd.html"}
+	if _, err := Convert(context.Background(), src, opts); err != nil {
+		t.Fatal(err)
+	}
+	before := countFDs(t)
+	for i := 0; i < 20; i++ {
+		if _, err := Convert(context.Background(), src, opts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after := countFDs(t)
+	if after > before+2 {
+		t.Fatalf("descriptors grew from %d to %d without GC", before, after)
+	}
+}

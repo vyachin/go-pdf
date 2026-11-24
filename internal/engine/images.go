@@ -27,6 +27,18 @@ type imageLoader struct {
 	loads int
 }
 
+// Close releases the lazily opened root.
+func (l *imageLoader) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.root == nil {
+		return nil
+	}
+	err := l.root.Close()
+	l.root = nil
+	return err
+}
+
 // Load implements layout.ImageLoader.
 func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if src == "" {
