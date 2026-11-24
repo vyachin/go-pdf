@@ -931,3 +931,27 @@ func TestPreformattedTextDoesNotWrap(t *testing.T) {
 		t.Fatalf("preformatted text produced %d baselines, want one line", len(baselines))
 	}
 }
+
+func TestPageDeclarationsHonourImportance(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 595276, Height: 841890}
+	margin := [4]int32{20000, 20000, 20000, 20000}
+	src := `<style>
+		@page { size: A5 !important; margin: 10pt !important }
+		@page { size: A4; margin: 20pt }
+	</style><p>x</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if diags.HasErrors() {
+		t.Fatalf("layout errors: %v", diags.Lines())
+	}
+	if len(doc.Pages) == 0 {
+		t.Fatal("no pages")
+	}
+	page := doc.Pages[0]
+	if page.Size.Width != 419528 || page.Size.Height != 595276 {
+		t.Fatalf("page size = %dx%d, want A5", page.Size.Width, page.Size.Height)
+	}
+	if page.Margin[0] != 10000 {
+		t.Fatalf("top margin = %d, want 10000 (important declaration)", page.Margin[0])
+	}
+}

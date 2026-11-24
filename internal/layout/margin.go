@@ -20,44 +20,29 @@ type PageStyle struct {
 // ParsePageStyle resolves @page and margin box rules across all stylesheets.
 // Fallback values are used for anything the document does not specify.
 func ParsePageStyle(sheets []*css.Stylesheet, fallbackSize css.PageSize, fallbackMargin [4]int32) PageStyle {
-	ps := PageStyle{Size: fallbackSize, Margin: fallbackMargin, Boxes: map[string][]css.ContentItem{}}
 	rules := css.RulesForPrint(sheets)
-	var spec css.PageSizeSpec
-	haveSize := false
-	for _, r := range rules {
-		if r.Kind != css.PageRule {
-			continue
+	// Page declarations cascade by importance first, then by document order.
+	var sizeDecl, marginDecl *css.Declaration
+	var sizeImportant, marginImportant bool
+	boxDecl := map[string]*css.Declaration{}
+	boxImportant := map[string]bool{}
+	pick := func(current **css.Declaration, currentImportant *bool, d css.Declaration) {
+		if *currentImportant && !d.Important {
+			return
 		}
-		for _, d := range r.Decls {
-			if d.Property != "size" {
-				continue
-			}
-			parsed, err := css.ParsePageSizeSpec(d.Value)
-			if err != nil {
-				// The validator reports the problem; layout keeps the last
-				// size it could understand.
-				continue
-			}
-			spec = parsed
-			haveSize = true
-		}
-	}
-	if haveSize {
-		ps.Size = spec.Resolve(fallbackSize)
+		decl := d
+		*current = &decl
+		*currentImportant = d.Important
 	}
 	for _, r := range rules {
 		switch r.Kind {
 		case css.PageRule:
 			for _, d := range r.Decls {
-				if d.Property != "margin" {
-					continue
-				}
-				box, err := css.ParsePageMargin(d.Value)
-				if err != nil {
-					continue
-				}
-				for i := 0; i < 4; i++ {
-					ps.Margin[i] = box[i].Resolve(ps.Size.Width)
+				switch d.Property {
+				case "size":
+					pick(&sizeDecl, &sizeImportant, d)
+				case "margin":
+					pick(&marginDecl, &marginImportant, d)
 				}
 			}
 		case css.PageMarginRule:
@@ -65,12 +50,37 @@ func ParsePageStyle(sheets []*css.Stylesheet, fallbackSize css.PageSize, fallbac
 				if d.Property != "content" {
 					continue
 				}
-				items, err := css.ParseContent(d.Value)
-				if err != nil {
+				if boxImportant[r.Name] && !d.Important {
 					continue
 				}
-				ps.Boxes[r.Name] = items
+				decl := d
+				boxDecl[r.Name] = &decl
+				boxImportant[r.Name] = d.Important
 			}
+		}
+	}
+
+	ps := PageStyle{Size: fallbackSize, Margin: fallbackMargin, Boxes: map[string][]css.ContentItem{}}
+	if sizeDecl != nil {
+		if spec, err := css.ParsePageSizeSpec(sizeDecl.Value); err == nil {
+			ps.Size = spec.Resolve(fallbackSize)
+		}
+	}
+	if marginDecl != nil {
+		if box, err := css.ParsePageMargin(marginDecl.Value); err == nil {
+			for i := 0; i < 4; i++ {
+				ps.Margin[i] = box[i].Resolve(ps.Size.Width)
+			}
+		}
+	}
+	names := make([]string, 0, len(boxDecl))
+	for name := range boxDecl {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if items, err := css.ParseContent(boxDecl[name].Value); err == nil {
+			ps.Boxes[name] = items
 		}
 	}
 	return ps
