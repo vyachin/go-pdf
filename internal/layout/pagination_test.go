@@ -1143,3 +1143,71 @@ func TestHyphenAllowsLineBreak(t *testing.T) {
 		t.Fatalf("the text layer = %q", got)
 	}
 }
+
+// TestCellContentUsesBlockWidth guards RV2-15: measuring a table cell ignored
+// the width and horizontal margins of a block inside it, so the block wrapped
+// at the cell width while the row height did not cover the painted lines.
+func TestCellContentUsesBlockWidth(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 300000, Height: 300000}
+	margin := [4]int32{20000, 20000, 20000, 20000}
+	src := `<style>table{width:200pt}td{padding:0;border:0}
+	p{width:40pt;margin:0;font-size:10pt;line-height:12pt}</style>
+	<table><tr><td><p>AAAAA BBBBB</p></td></tr></table><p>AFTER</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if hasError(diags, "layout/overflow") {
+		t.Fatalf("the cell content overflowed: %v", diags.Lines())
+	}
+	var runs []struct {
+		x, y, right int32
+	}
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		runs = append(runs, struct{ x, y, right int32 }{op.Text.X, op.Text.Y, op.Text.X + op.Text.Run.Width})
+	}
+	if len(runs) != 3 {
+		t.Fatalf("got %d text runs, want 3 (two cell lines and AFTER): %+v", len(runs), runs)
+	}
+	if runs[0].y == runs[1].y {
+		t.Fatalf("the cell paragraph did not wrap: %+v", runs)
+	}
+	for _, r := range runs[:2] {
+		if r.x != 20000 {
+			t.Fatalf("a cell line starts at X=%d, want the content left edge 20000", r.x)
+		}
+		if r.right > 20000+40000 {
+			t.Fatalf("a run ends at X=%d, past the 40pt content box", r.right)
+		}
+	}
+	if runs[2].y <= runs[1].y {
+		t.Fatalf("AFTER baseline %d overlaps the second cell line %d", runs[2].y, runs[1].y)
+	}
+
+	// A left margin inside the cell shifts the content and shrinks the box the
+	// same way it does outside a table.
+	src = `<style>table{width:200pt}td{padding:0;border:0}
+	p{width:30pt;margin:0 0 0 10pt;font-size:10pt;line-height:12pt}</style>
+	<table><tr><td><p>AAAA BBBB</p></td></tr></table>`
+	doc, diags = h.runRaw(src, size, margin)
+	if hasError(diags, "layout/overflow") {
+		t.Fatalf("the margined cell content overflowed: %v", diags.Lines())
+	}
+	marginedYs := map[int32]bool{}
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		marginedYs[op.Text.Y] = true
+		if op.Text.X != 30000 {
+			t.Fatalf("the margined block starts at X=%d, want 30000", op.Text.X)
+		}
+		if right := op.Text.X + op.Text.Run.Width; right > 60000 {
+			t.Fatalf("a run ends at X=%d, past the content right edge 60000", right)
+		}
+	}
+	if len(marginedYs) != 2 {
+		t.Fatalf("the margined block produced %d baselines, want 2", len(marginedYs))
+	}
+}

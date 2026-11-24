@@ -159,7 +159,15 @@ func (l *layouter) registerAnchor(b *Box, page int, y int32) {
 // so the outer width adds padding and borders. Pagination and the static path
 // inside table cells share it.
 func (b *Box) usedGeometry(x, width int32) {
-	st := b.Style
+	b.width = usedWidth(b.Style, width)
+	b.x = x + b.Style.Margin[3].Resolve(width)
+}
+
+// usedWidth returns the width a box would use inside a containing block of the
+// given width: its margins are removed, and a declared width is honoured. Both
+// placement and measurement go through it, so a text block inside a table cell
+// wraps at the width its declarations ask for.
+func usedWidth(st *css.Style, width int32) int32 {
 	marginLeft := st.Margin[3].Resolve(width)
 	marginRight := st.Margin[1].Resolve(width)
 	avail := width - marginLeft - marginRight
@@ -168,17 +176,17 @@ func (b *Box) usedGeometry(x, width int32) {
 	}
 	extra := st.Padding[1].Resolve(avail) + st.Padding[3].Resolve(avail) +
 		visibleWidth(st.Border[1]) + visibleWidth(st.Border[3])
-	b.width = avail
+	w := avail
 	switch st.Width.Kind {
 	case css.MP:
-		b.width = st.Width.Value + extra
+		w = st.Width.Value + extra
 	case css.Percent:
-		b.width = st.Width.Resolve(avail) + extra
+		w = st.Width.Resolve(avail) + extra
 	}
-	if b.width > avail || b.width <= 0 {
-		b.width = avail
+	if w > avail || w <= 0 {
+		w = avail
 	}
-	b.x = x + marginLeft
+	return w
 }
 
 // placeBlock places as much of b as fits and reports whether it is complete.
@@ -460,9 +468,10 @@ func (l *layouter) checkPageBreak(f *flow, needed int32) bool {
 // measure returns the outer height of a box when placed at the given width.
 func (l *layouter) measure(b *Box, width int32) int32 {
 	st := b.Style
-	own := st.Padding[0].Resolve(width) + st.Padding[2].Resolve(width) +
+	used := usedWidth(st, width)
+	own := st.Padding[0].Resolve(used) + st.Padding[2].Resolve(used) +
 		visibleWidth(st.Border[0]) + visibleWidth(st.Border[2])
-	inner := width - st.Padding[1].Resolve(width) - st.Padding[3].Resolve(width) -
+	inner := used - st.Padding[1].Resolve(used) - st.Padding[3].Resolve(used) -
 		visibleWidth(st.Border[1]) - visibleWidth(st.Border[3])
 	if inner < 0 {
 		inner = 0

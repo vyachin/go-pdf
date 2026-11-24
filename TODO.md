@@ -100,7 +100,7 @@
   **Воспроизведение:** `go run ./testdata/probe/css-html-4/main.go`: `<style media="screen">p{display:none}</style><p>VISIBLE</p>` → текст пуст, то есть экранная таблица применена к печати. `<style media="print">` ведёт себя так же, как без media.
   **Исправление / приёмка:** применять к печати только `print`/`all` (как у `@media`), `screen` игнорировать; неверное значение — диагностика. Приёмка: три случая (`screen` — текст виден, `print` — скрыт, без media — скрыт) в Validate и Convert.
 
-- [ ] **RV2-15 · P2: применять ширину и горизонтальные margin блока внутри ячейки при расчёте высоты строки.**
+- [x] **RV2-15 · P2: применять ширину и горизонтальные margin блока внутри ячейки при расчёте высоты строки.**
 
   **Код:** [internal/layout/paginate.go:483](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:483), `measure` строит строки по ширине ячейки; [internal/layout/table.go:305](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:305) запускает его до отрисовки, затем `b.built` мешает перестройке.
   **Воспроизведение:** `go run ./testdata/probe/layout-2/main.go`: `<table><tr><td><p style="width:40pt;margin:0;font-size:10pt;line-height:12pt">AAAAA BBBBB</p></td></tr></table>` — в ячейке одна строка, `BBBBB` X=57384..91684 при content box [20000,60000], переполнение 31684 mp; контроль вне ячейки — две строки.
