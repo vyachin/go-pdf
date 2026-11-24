@@ -136,7 +136,7 @@
   **Воспроизведение:** `<table><tr><td><ol><li>FIRST</li><li>SECOND</li></ol></td></tr></table>` даёт текст **`FIRSTSECOND`** без `1.` и `2.`. Статический путь не вызывает отрисовку ListItem marker.
   **Исправление / приёмка:** использовать общий путь размещения маркера и первой строки. Проверить ol/ul, `start`, вложенные списки и длинный маркер внутри td.
 
-- [ ] **REV-21 · P2: регистрировать ID и закладки блочных элементов в таблицах.**
+- [x] **REV-21 · P2: регистрировать ID и закладки блочных элементов в таблицах.**
 
   **Код:** [internal/layout/table.go:338](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:338), `paintStaticBlock`; [internal/layout/paginate.go:207](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:207), регистрация в обычном пути.
   **Воспроизведение:** `<table><tr><td><h2 id="target">TITLE</h2></td></tr></table>` рисует TITLE, но `Anchors["target"]` и outline entry отсутствуют. Добавление перед таблицей ссылки с `a::after{content:target-counter(attr(href),page)}` даёт **`PAGE0TITLE`** и ложное предупреждение о неизвестном ID.

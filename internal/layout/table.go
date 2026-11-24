@@ -344,6 +344,7 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		b.started = true
 		b.usedGeometry(x, width)
 	}
+	l.registerAnchor(b, page.Number, y)
 	if b.Kind == Table {
 		return l.paintStaticTable(page, b, b.x, y, b.width)
 	}

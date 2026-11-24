@@ -1394,3 +1394,24 @@ func TestKeywordsAreCopiedToThePDF(t *testing.T) {
 		t.Fatal("an absent keywords meta produced a /Keywords entry")
 	}
 }
+
+func TestTargetCounterResolvesInsideATable(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<style>a::after{content:target-counter(attr(href),page)}</style>` +
+		`<p style="margin:0"><a href="#target">PAGE</a></p>` +
+		`<table><tr><td><h2 id="target">TITLE</h2></td></tr></table>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "target-table.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if hasCode(res.Diagnostics, "pagination/unknown-target") {
+		t.Fatalf("the id inside the cell was reported as unknown: %v", res.Diagnostics.Lines())
+	}
+	text, err := extractText(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "PAGE1") {
+		t.Fatalf("target-counter did not show page 1: %q", text)
+	}
+}

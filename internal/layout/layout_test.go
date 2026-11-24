@@ -588,3 +588,39 @@ func TestListMarkersInsideCells(t *testing.T) {
 		t.Fatalf("bullet marker is missing inside a cell: %q", bullets)
 	}
 }
+
+func TestAnchorsAndBookmarksInsideCells(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr><td><h2 id="target">TITLE</h2></td></tr></table>`)
+	anchor, ok := doc.Anchors["target"]
+	if !ok {
+		t.Fatal("an id inside a table cell was not registered")
+	}
+	if anchor.Page != 1 {
+		t.Fatalf("anchor page = %d, want 1", anchor.Page)
+	}
+	if len(doc.Outline) != 1 || doc.Outline[0].Title != "TITLE" {
+		t.Fatalf("outline = %+v, want one TITLE entry", doc.Outline)
+	}
+	// An id on a nested block inside the cell works too.
+	doc = h.run(`<table><tr><td><div><p id="deep">DEEP</p></div></td></tr></table>`)
+	if _, ok := doc.Anchors["deep"]; !ok {
+		t.Fatal("a nested id inside a table cell was not registered")
+	}
+}
+
+func TestRepeatedHeaderDoesNotDuplicateBookmarks(t *testing.T) {
+	h := newHarness(t)
+	var rows strings.Builder
+	for i := 0; i < 80; i++ {
+		rows.WriteString("<tr><td>Row text for pagination.</td></tr>")
+	}
+	src := `<table><thead><tr><th><h2 id="head">HEAD</h2></th></tr></thead><tbody>` + rows.String() + `</tbody></table>`
+	doc := h.run(src)
+	if len(doc.Outline) != 1 {
+		t.Fatalf("outline has %d entries, want one", len(doc.Outline))
+	}
+	if len(doc.Pages) < 2 {
+		t.Fatalf("the table did not paginate: %d pages", len(doc.Pages))
+	}
+}

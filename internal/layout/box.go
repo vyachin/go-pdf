@@ -70,6 +70,9 @@ type Box struct {
 	fragments     int
 	listMarkerY   int32
 	contentTopY   int32
+	// anchored records that the id and heading of the box were registered,
+	// so a repeated table header does not duplicate outline entries.
+	anchored bool
 
 	// col is the grid column of a table cell, assigned by the table layout.
 	col int

@@ -127,6 +127,28 @@ func (l *layouter) paginate(root *Box) *Document {
 	return l.doc
 }
 
+// registerAnchor records the id and heading bookmark of a box at the position
+// where it is placed. The paginated and the static (table cell) path share it.
+func (l *layouter) registerAnchor(b *Box, page int, y int32) {
+	if b.Node == nil || b.anchored {
+		return
+	}
+	b.anchored = true
+	if id := b.Node.ID(); id != "" {
+		if _, ok := l.anchors[id]; !ok {
+			l.anchors[id] = Anchor{Page: page, Y: y}
+		}
+	}
+	if level := headingLevel(b.Node.Tag); level > 0 {
+		l.doc.Outline = append(l.doc.Outline, OutlineEntry{
+			Title: b.Node.TextContent(),
+			Page:  page,
+			Y:     y,
+			Level: level,
+		})
+	}
+}
+
 // usedGeometry applies the horizontal margins and the CSS width of a block to
 // the available width, setting b.x and b.width. CSS width is the content width,
 // so the outer width adds padding and borders. Pagination and the static path
@@ -205,21 +227,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		b.fragStartY = f.y
 		b.fragStartPage = f.pageNum
 		b.fragOpStart = len(f.page.Ops)
-		if b.Node != nil {
-			if id := b.Node.ID(); id != "" {
-				if _, ok := l.anchors[id]; !ok {
-					l.anchors[id] = Anchor{Page: f.pageNum, Y: f.y}
-				}
-			}
-			if level := headingLevel(b.Node.Tag); level > 0 {
-				l.doc.Outline = append(l.doc.Outline, OutlineEntry{
-					Title: b.Node.TextContent(),
-					Page:  f.pageNum,
-					Y:     f.y,
-					Level: level,
-				})
-			}
-		}
+		l.registerAnchor(b, f.pageNum, f.y)
 		f.y += b.borderTop() + b.padTop()
 		b.contentTopY = f.y
 		if b.Kind == ListItem && b.cursor.child == 0 && b.cursor.line == 0 {
