@@ -102,7 +102,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	return &prepared{
 		doc:       doc,
 		sheets:    sheets,
-		cascade:   css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...),
+		cascade:   css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...),
 		pageSize:  pageSize,
 		margin:    margin,
 		pageStyle: pageStyle,

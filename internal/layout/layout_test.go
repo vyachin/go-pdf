@@ -143,7 +143,7 @@ func (h *harness) runRaw(src string, size css.PageSize, margin [4]int32) (*Docum
 	diags := profile.Validate(doc, profile.Options{})
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profile.Options{})
 	diags = append(diags, sheetDiags...)
-	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
 	ctx.Cascade = cascade
@@ -164,7 +164,7 @@ func (h *harness) runWithSize(src string, size css.PageSize, margin [4]int32) *D
 		h.t.Fatalf("validation failed: %v", diags.Lines())
 	}
 	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
-	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
 	ctx.Cascade = cascade
@@ -186,7 +186,7 @@ func (h *harness) buildTree(src string) *Box {
 		h.t.Fatal(err)
 	}
 	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
-	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ctx := h.ctx
 	ctx.Cascade = cascade
 	root, diags := Build(doc, ctx)

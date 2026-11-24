@@ -106,7 +106,7 @@
 
 ### Каскад, скрытое содержимое и таблицы
 
-- [ ] **REV-16 · P2: различать происхождение UA и авторских CSS-правил в каскаде.**
+- [x] **REV-16 · P2: различать происхождение UA и авторских CSS-правил в каскаде.**
 
   **Код:** [internal/css/cascade.go:27](/Users/vyachin/Projects/go-pdf/internal/css/cascade.go:27), `NewCascade`, `Compute`; [internal/engine/convert.go:71](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:71).
   **Воспроизведение:** `<style>*{padding:0}</style><table><tr><td>A</td></tr></table>`. Авторский reset проигрывает более специфичному UA `td { padding:1mm }`: `A` начинается в **59528 mp** вместо **56693 mp**. Сначала должен учитываться origin, затем specificity внутри origin; одно лишь добавление UA sheet в начало списка этого не обеспечивает.

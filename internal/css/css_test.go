@@ -463,3 +463,61 @@ func TestHugeLengthsAreRejected(t *testing.T) {
 		t.Fatal("a huge percentage was accepted")
 	}
 }
+
+func findElement(n *html.Node, tag string) *html.Node {
+	if n.Type == html.ElementNode && n.Tag == tag {
+		return n
+	}
+	for _, c := range n.Children {
+		if found := findElement(c, tag); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func TestAuthorOriginBeatsUserAgentSpecificity(t *testing.T) {
+	doc := mustDoc(t, `<table><tr><td>A</td></tr></table>`)
+	td := findElement(doc.Root, "td")
+	if td == nil {
+		t.Fatal("no td")
+	}
+	uas := DefaultStylesheet()
+	author := Parse([]byte(`* { padding: 0; margin: 0 }`))
+	st := NewCascadeForDocument(uas, author).Compute(td, nil)
+	for _, side := range st.Padding {
+		if side.Value != 0 {
+			t.Fatalf("author * reset lost to the UA td rule: padding = %v", st.Padding)
+		}
+	}
+	for _, side := range st.Margin {
+		if side.Value != 0 {
+			t.Fatalf("author * reset lost to the UA td rule: margin = %v", st.Margin)
+		}
+	}
+	// Without the author reset the UA rule still applies.
+	plain := NewCascadeForDocument(uas).Compute(td, nil)
+	if plain.Padding[0].Value == 0 {
+		t.Fatal("the UA td padding disappeared")
+	}
+}
+
+func TestUserAgentImportantBeatsAuthorImportant(t *testing.T) {
+	doc := mustDoc(t, `<p id="p">A</p>`)
+	p := findElement(doc.Root, "p")
+	if p == nil {
+		t.Fatal("no p")
+	}
+	ua := Parse([]byte(`p { color: #ff0000 !important }`))
+	author := Parse([]byte(`p { color: #00ff00 !important }`))
+	st := NewCascadeForDocument(ua, author).Compute(p, nil)
+	if want := (Color{R: 255, Set: true}); st.Color != want {
+		t.Fatalf("color = %+v, want the UA !important colour", st.Color)
+	}
+	// A normal author declaration still beats a normal UA one.
+	authorNormal := Parse([]byte(`p { color: #00ff00 }`))
+	st = NewCascadeForDocument(Parse([]byte(`p { color: #ff0000 }`)), authorNormal).Compute(p, nil)
+	if want := (Color{G: 255, Set: true}); st.Color != want {
+		t.Fatalf("color = %+v, want the author colour", st.Color)
+	}
+}

@@ -396,7 +396,7 @@ func TestPaginationIterationCapIsAnError(t *testing.T) {
 		t.Fatal(err)
 	}
 	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
-	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ctx := h.ctx
 	ctx.Cascade = cascade
 	ctx.PageSize = size
