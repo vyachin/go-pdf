@@ -46,7 +46,7 @@
 
 ### P2 — неверное поведение поддерживаемых функций
 
-- [ ] **RV2-06 · P2: не выносить содержимое `display:none` блока из таблицы через foster parenting.**
+- [x] **RV2-06 · P2: не выносить содержимое `display:none` блока из таблицы через foster parenting.**
 
   **Код:** [internal/html/parse.go:369](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:369), `inTable`; используется в `appendText` ([:209](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:209)) и `insertElement` ([:307](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:307)).
   **Воспроизведение:** `go run ./testdata/probe/css-html-8/main.go`. `<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>` даёт пустой `div` и текстовый узел `SECRET` рядом; PDF text `"SECRETCELL"`, диагностик нет. Аналогично `<b>` выносится из `div`.

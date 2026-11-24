@@ -1485,3 +1485,24 @@ func TestPageSizeFlagThroughConvert(t *testing.T) {
 		t.Fatalf("unexpected MediaBox in the PDF")
 	}
 }
+
+// TestHiddenBlockInsideTableStaysHidden guards RV2-06 end to end: content of a
+// foster-parented display:none block used to be printed next to the table.
+func TestHiddenBlockInsideTableStaysHidden(t *testing.T) {
+	res, err := Convert(context.Background(),
+		[]byte(`<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>`),
+		Options{FallbackFont: testFontPath(t), File: "hidden.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "SECRET") {
+		t.Fatalf("a hidden block inside a table was printed: %q", text)
+	}
+	if !strings.Contains(text, "CELL") {
+		t.Fatalf("the table cell is missing: %q", text)
+	}
+}

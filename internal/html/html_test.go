@@ -525,3 +525,62 @@ func BenchmarkDecodeEntities(b *testing.B) {
 		})
 	}
 }
+
+// TestFosterParentKeepsChildContent guards RV2-06: once an element is
+// foster-parented out of a table, its own text and children belong to it. They
+// used to be fostered again next to the table, which printed a display:none
+// block that should have stayed hidden.
+func TestFosterParentKeepsChildContent(t *testing.T) {
+	doc, err := Parse([]byte(`<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>`), "foster.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	div := findElement(doc.Root, "div")
+	if div == nil {
+		t.Fatal("the fostered div is missing")
+	}
+	if got := div.TextContent(); got != "SECRET" {
+		t.Fatalf("the fostered div contains %q, want %q", got, "SECRET")
+	}
+	if style, _ := div.Attr("style"); style != "display:none" {
+		t.Fatalf("the fostered div lost its style: %q", style)
+	}
+	if body := findElement(doc.Root, "body"); body != nil && strings.Contains(body.TextContent(), "SECRETSECRET") {
+		t.Fatal("the text was duplicated next to the table")
+	}
+
+	doc, err = Parse([]byte(`<table><div><b>B</b></div><tr><td>CELL</td></tr></table>`), "foster2.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	div = findElement(doc.Root, "div")
+	if div == nil || findElement(div, "b") == nil {
+		t.Fatalf("the bold element is not inside the fostered div: %s", Dump(doc.Root))
+	}
+
+	// A table-structure tag returns to the table context: the fostered element
+	// is closed and the row belongs to the table.
+	doc, err = Parse([]byte(`<table><div>x</div><tr><td>y</td></tr></table>`), "foster3.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := findElement(doc.Root, "table")
+	if table == nil || findElement(table, "tr") == nil {
+		t.Fatalf("the row is not inside the table: %s", Dump(doc.Root))
+	}
+	if div := findElement(doc.Root, "div"); div == nil || div.TextContent() != "x" {
+		t.Fatalf("the fostered div was lost: %s", Dump(doc.Root))
+	}
+}
+
+func findElement(n *Node, tag string) *Node {
+	if n.Type == ElementNode && n.Tag == tag {
+		return n
+	}
+	for _, c := range n.Children {
+		if got := findElement(c, tag); got != nil {
+			return got
+		}
+	}
+	return nil
+}

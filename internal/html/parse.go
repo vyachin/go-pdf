@@ -37,6 +37,13 @@ var tableAllowed = map[string]bool{
 	"style": true, "script": true,
 }
 
+// tableStructure is the set of elements that hold table structure: content
+// directly inside them must be table structure too, or it is foster-parented.
+var tableStructure = map[string]bool{
+	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true,
+	"colgroup": true,
+}
+
 type parser struct {
 	doc   *Document
 	toks  []Token
@@ -207,7 +214,7 @@ func (p *parser) text(t Token) {
 }
 
 func (p *parser) appendText(t Token) {
-	if p.inTable() {
+	if p.inTableStructure() {
 		if strings.TrimSpace(t.Data) == "" {
 			return
 		}
@@ -306,7 +313,12 @@ func (p *parser) implicitClose(name string) {
 
 func (p *parser) insertElement(t Token) {
 	el := &Node{Type: ElementNode, Tag: t.Name, Attrs: t.Attrs, Start: t.Offset, End: t.End}
-	if p.inTable() && !tableAllowed[t.Name] {
+	// A start tag for table structure clears a foster-parented element that is
+	// still open, as the HTML parser returns to a table context.
+	if tableStructure[t.Name] && p.inTableContext() && !p.inTableStructure() {
+		p.clearToTableStructure()
+	}
+	if p.inTableStructure() && !tableAllowed[t.Name] {
 		p.foster(el)
 	} else {
 		p.current().AppendChild(el)
@@ -366,7 +378,9 @@ func (p *parser) closeOpen(tag string) bool {
 	return false
 }
 
-func (p *parser) inTable() bool {
+// inTableContext reports whether a table is open and the stack has not entered
+// a cell or caption.
+func (p *parser) inTableContext() bool {
 	for i := len(p.stack) - 1; i >= 0; i-- {
 		switch p.stack[i].Tag {
 		case "td", "th", "caption":
@@ -376,6 +390,25 @@ func (p *parser) inTable() bool {
 		}
 	}
 	return false
+}
+
+// inTableStructure reports whether the insertion point is table structure
+// itself. Inside a foster-parented element the insertion point is that element,
+// so its text and child elements belong to it and must not be fostered again:
+// otherwise a hidden block inside a table leaks its content next to the table.
+func (p *parser) inTableStructure() bool {
+	if len(p.stack) == 0 {
+		return false
+	}
+	return tableStructure[p.stack[len(p.stack)-1].Tag]
+}
+
+// clearToTableStructure pops foster-parented elements until table structure is
+// current again, the "clear the stack back to a table context" step.
+func (p *parser) clearToTableStructure() {
+	for len(p.stack) > 0 && !p.inTableStructure() {
+		p.stack = p.stack[:len(p.stack)-1]
+	}
 }
 
 // foster inserts a node before the nearest table ancestor, as the HTML parser
