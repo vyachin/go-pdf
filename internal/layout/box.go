@@ -534,23 +534,52 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 	}
 	addRows(n, false, style)
 	if b.failure == nil && b.maxCells > 0 && len(tb.Rows) > 0 {
-		// The grid is allocated from the column count times the row count, so
-		// an ordinary cell count is not enough: wide spans multiply too.
-		columns := 0
-		for _, row := range tb.Rows {
-			width := 0
-			for _, cell := range row.Cells {
-				width += normSpan(cell.ColSpan)
-			}
-			if width > columns {
-				columns = width
-			}
-		}
-		if area := columns * len(tb.Rows); area > b.maxCells {
+		// The grid is allocated from the column count times the row count. A
+		// rowspan shifts the cells of the following rows to the right, so the
+		// width of one row is not enough: the placement has to be simulated.
+		if columns, within := tableGridColumns(tb.Rows, b.maxCells); !within {
+			b.stop(fmt.Errorf("%w: a table needs more than %d grid cells", budget.ErrExceeded, b.maxCells))
+		} else if area := int64(columns) * int64(len(tb.Rows)); area > int64(b.maxCells) {
 			b.stop(fmt.Errorf("%w: a table needs %d grid cells, the limit is %d", budget.ErrExceeded, area, b.maxCells))
 		}
 	}
 	return tb
+}
+
+// tableGridColumns simulates the grid placement and returns the final column
+// count, or false when the grid is already known to exceed limit cells. It
+// charges nothing: the limit is checked before layout allocates anything.
+func tableGridColumns(rows []*Row, limit int) (int, bool) {
+	rowsCount := len(rows)
+	type slot struct{ row, col int }
+	occupied := make(map[slot]bool)
+	columns := 0
+	for r, row := range rows {
+		col := 0
+		for _, cell := range row.Cells {
+			for occupied[slot{r, col}] {
+				col++
+			}
+			colSpan, rowSpan := normSpan(cell.ColSpan), normSpan(cell.RowSpan)
+			if r+rowSpan > rowsCount {
+				rowSpan = rowsCount - r
+			}
+			for dr := 0; dr < rowSpan; dr++ {
+				for dc := 0; dc < colSpan; dc++ {
+					occupied[slot{r + dr, col + dc}] = true
+				}
+			}
+			width := col + colSpan
+			if int64(width)*int64(rowsCount) > int64(limit) || len(occupied) > limit {
+				return 0, false
+			}
+			if width > columns {
+				columns = width
+			}
+			col = width
+		}
+	}
+	return columns, true
 }
 
 func liIndex(n *html.Node) int {

@@ -1502,3 +1502,38 @@ func TestTableRowBreak(t *testing.T) {
 		t.Fatalf("the second page does not repeat the header and continue the rows: %q", pageText(doc, 2))
 	}
 }
+
+// TestTableGridLimitCountsRowspanShift guards RV2-28: MaxTableCells counted the
+// widest row's colspan sum, but a rowspan pushes the following rows to the
+// right, so a table could allocate a grid far wider than the limit allowed.
+func TestTableGridLimitCountsRowspanShift(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.MaxTableCells = 50
+	size := css.PageSize{Width: 400000, Height: 400000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	var b strings.Builder
+	b.WriteString(`<table>`)
+	for r := 0; r < 5; r++ {
+		b.WriteString("<tr>")
+		for c := 0; c < 10; c++ {
+			b.WriteString(`<td rowspan="100">x</td>`)
+		}
+		b.WriteString("</tr>")
+	}
+	b.WriteString(`</table><p>AFTER</p>`)
+
+	_, diags := h.runRaw(b.String(), size, margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("a table with a 50-column grid passed a 50-cell limit: %v", diags.Lines())
+	}
+
+	// A table that really fits the same limit still renders.
+	doc, diags := h.runRaw(`<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>`,
+		css.PageSize{Width: 200000, Height: 200000}, [4]int32{10000, 10000, 10000, 10000})
+	if hasError(diags, "resource/limit") {
+		t.Fatalf("a 2x2 table was rejected: %v", diags.Lines())
+	}
+	if !strings.Contains(pageText(doc, 1), "d") {
+		t.Fatalf("the small table did not render: %q", pageText(doc, 1))
+	}
+}

@@ -85,6 +85,11 @@ func (l *layouter) buildGrid(t *Box) {
 	for r, row := range t.Rows {
 		col := 0
 		for _, cell := range row.Cells {
+			// Placing a cell is work: a table with many rowspans fills many grid
+			// slots, and the shared budget must see it.
+			if l.tick() != nil {
+				return
+			}
 			for occupied[r][col] {
 				col++
 			}

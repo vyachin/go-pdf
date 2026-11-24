@@ -180,7 +180,7 @@
   **Воспроизведение:** `go run ./testdata/probe/font-text-21/main.go` и `-22/main.go`: `a&#8208;b` извлекается из PDF как `a-b` (в Apple Symbols advance отличается на 396 units); `a&#173;b` рисует видимый дефис (gid 111, 4 точки контура).
   **Исправление / приёмка:** U+2010 сохраняет свой глиф и код в ToUnicode; U+00AD — невидимая точка переноса (видимый дефис на разрыве не синтезируется; ограничение записано в docs/profile.md).
 
-- [ ] **RV2-28 · P3: учитывать rowspan при подсчёте `MaxTableCells` и бюджете сетки.**
+- [x] **RV2-28 · P3: учитывать rowspan при подсчёте `MaxTableCells` и бюджете сетки.**
 
   **Код:** [internal/layout/box.go:536](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:536): колонки = максимум суммы colspan по строке, сдвиг от rowspan не учитывается; `buildGrid` не вызывает `budget.Add`.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-7/main.go`: 5 строк × 10 ячеек с `rowspan=100`, `MaxTableCells=50` → успех, 50 различных x-позиций (сетка 50×5 = 250 ячеек).
