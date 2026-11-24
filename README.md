@@ -347,10 +347,11 @@ rather than merged on a green build alone.
 
 The remaining inputs stay manual, because every bump of them is a decision
 rather than a refresh: the `ubuntu-24.04` runner and its poppler, which
-determine the golden rasters; `pdfcpu`, whose version is coupled to the Go
-minimum in `go.mod`; the pinned `golangci-lint` version below; and the `go`
-directive itself. A change that moves one of them without the matching
-regeneration or version move does not belong to the automated path.
+determine the golden rasters; `pdfcpu`, whose version must stay buildable by
+the Go minimum in `go.mod`, so the two move together; the pinned
+`golangci-lint` version below; and the `go` directive itself. A change that
+moves one of them without the matching regeneration or version move does not
+belong to the automated path.
 
 ## Formatting and linting
 
@@ -368,7 +369,7 @@ version. Install the release binary for your platform from
 [the v2.15.0 release](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0).
 Building it from source with
 `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`
-requires Go 1.26 or newer, above the module's Go 1.24 minimum.
+requires Go 1.26 or newer, which the module's Go 1.26 minimum already provides.
 
 ## Performance
 

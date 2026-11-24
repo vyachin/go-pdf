@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          # The module declares go 1.24: CI must prove that minimum works.
+          # The module declares go 1.26: CI must prove that minimum works.
           go-version-file: go.mod
           # The module has no dependencies and therefore no go.sum.
           cache: false
@@ -30,9 +30,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y poppler-utils
       - name: Install pdfcpu
-        # Pinned: v0.12 and later require Go 1.25, while the module targets
-        # go 1.24. Bump both together.
-        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.11.0
+        # Pinned and coupled to the go directive: this release requires
+        # Go 1.26, which is exactly the module's minimum. Bump both together.
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.4
       - name: Add Go bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Vet
@@ -67,7 +67,7 @@ jobs:
       - name: Snapshot artifacts
         # Uploaded only when a golden test fails: produced, expected and diff.
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-artifacts
           path: artifacts/golden
