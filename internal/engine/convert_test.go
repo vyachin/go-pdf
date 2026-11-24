@@ -1652,3 +1652,42 @@ func TestSoftHyphenIsInvisible(t *testing.T) {
 		t.Fatalf("U+2010 became %q, want it preserved", text)
 	}
 }
+
+// TestTruncatedPNGFailsValidation guards RV2-22: the header of a truncated PNG
+// still parses, so Validate accepted a file that Convert could not embed.
+func TestTruncatedPNGFailsValidation(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for i := range img.Pix {
+		img.Pix[i] = 90
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	if len(data) < 64 {
+		t.Fatalf("unexpected PNG size %d", len(data))
+	}
+	truncated := data[:len(data)/2]
+	if err := os.WriteFile(filepath.Join(dir, "trunc.png"), truncated, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := []byte(`<p><img src="trunc.png"></p>`)
+	opts := Options{FallbackFont: testFontPath(t), BaseDir: dir, File: "trunc.html"}
+
+	diags, _ := Validate(context.Background(), src, opts)
+	if !hasCode(diags, "img/load") {
+		t.Fatalf("Validate accepted a truncated PNG: %v", diags.Lines())
+	}
+	res, err := Convert(context.Background(), src, opts)
+	if err == nil || len(res.PDF) != 0 {
+		t.Fatalf("Convert embedded a truncated PNG: err=%v", err)
+	}
+	if !hasCode(res.Diagnostics, "img/load") {
+		t.Fatalf("Convert reported %v, want img/load", res.Diagnostics.Lines())
+	}
+	if got, want := diags.Lines()[0], res.Diagnostics.Lines()[0]; got != want {
+		t.Fatalf("Validate reported %q, Convert reported %q", got, want)
+	}
+}

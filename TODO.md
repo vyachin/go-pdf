@@ -2,7 +2,7 @@
 
 ## Второй проход — 24 ноября 2026 года
 
-Проверен снимок `12b26c4`. Каждый пункт ниже воспроизведён запуском на этом снимке; пробники лежат локально в `testdata/probe/` и не входят в репозиторий — при исправлении сценарий переносится в постоянный regression-тест. **Открыто 30 задач: 5 P1, 18 P2, 7 P3.**
+Проверен снимок `12b26c4`. Каждый пункт воспроизведён запуском; сценарии перенесены в постоянные regression-тесты. **Статус: все 30 задач закрыты** (5 P1, 18 P2, 7 P3).
 
 Области: HTML/CSS-парсеры и каскад, шрифты и текст, layout и пагинация, PDF-writer, публичный API и CLI. Метрики геометрии в millipoints (mp), 1 pt = 1000 mp.
 
@@ -142,7 +142,7 @@
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-6/main.go`: 20000 `<p style="flex:1">x</p>`, отмена через 20 мс → `errKind=*pdfgen.Error`, `errorsIs=false`, 20000 диагностик; `Validate` в той же точке возвращает `context canceled`.
   **Исправление / приёмка:** если `ctx.Err() != nil` — возвращать ошибку контекста (в порядке приоритета), затем ошибку шаблона. Приёмка: `errors.Is(err, context.Canceled)` для отмены на шаблоне с ошибками, невалидный шаблон без отмены — по-прежнему `*pdfgen.Error`.
 
-- [ ] **RV2-22 · P2: `Validate` обязан отвергать повреждённый PNG, который не встраивается.**
+- [x] **RV2-22 · P2: `Validate` обязан отвергать повреждённый PNG, который не встраивается.**
 
   **Код:** [internal/engine/images.go:89](/Users/vyachin/Projects/go-pdf/internal/engine/images.go:89): проверяется только `png.DecodeConfig`; полное декодирование — позже, в `internal/pdf/writer.go`.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-1/main.go`, секция `truncated PNG`: `Validate: err=nil, diags=[]`, затем `Convert: error[pdf/write]: png: invalid format: not enough pixel data`.

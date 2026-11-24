@@ -93,6 +93,12 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 			return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 		}
+		// The writer decodes the pixels when it embeds the image, so a truncated
+		// file passes the header check and fails only at render time. Decoding
+		// here keeps Validate and Convert reporting the same problem.
+		if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,
 			Height: int32(cfg.Height) * 750,
@@ -114,6 +120,8 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 			return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 		}
+		// A JPEG is embedded as DCTDecode without decoding, so the header check
+		// is the whole check Convert performs.
 		return l.store(src, &layout.ImageData{
 			Width:  int32(cfg.Width) * 750,
 			Height: int32(cfg.Height) * 750,
