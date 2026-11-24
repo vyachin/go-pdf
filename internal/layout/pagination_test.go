@@ -802,3 +802,16 @@ func TestWidowsPullLinesToTheNextPage(t *testing.T) {
 		t.Fatalf("second page = %q, want CDE", second)
 	}
 }
+
+func TestHorizontalMarginsShiftBlocks(t *testing.T) {
+	h := newHarness(t)
+	base := textOps(h.run(`<p>X</p>`))[0].X
+	shifted := textOps(h.run(`<p style="margin:0 0 0 20pt">X</p>`))[0].X
+	if got := shifted - base; got != 20000 {
+		t.Fatalf("left margin shifted text by %d, want 20000", got)
+	}
+	percent := textOps(h.run(`<p style="margin:0 0 0 10%">X</p>`))[0].X
+	if percent <= base {
+		t.Fatalf("percentage margin did not shift text: %d vs %d", percent, base)
+	}
+}

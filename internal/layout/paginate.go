@@ -121,21 +121,28 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	if !b.started {
 		b.started = true
 		b.startPage = f.pageNum
-		// CSS width is the content width; the outer width adds padding and
-		// borders (content-box model).
-		extra := st.Padding[1].Resolve(width) + st.Padding[3].Resolve(width) +
+		// Horizontal margins shrink the box and move it right; the vertical
+		// ones are applied to the flow separately. CSS width is the content
+		// width, so the outer width adds padding and borders (content box).
+		marginLeft := st.Margin[3].Resolve(width)
+		marginRight := st.Margin[1].Resolve(width)
+		avail := width - marginLeft - marginRight
+		if avail < 0 {
+			avail = 0
+		}
+		extra := st.Padding[1].Resolve(avail) + st.Padding[3].Resolve(avail) +
 			visibleWidth(st.Border[1]) + visibleWidth(st.Border[3])
-		b.width = width
+		b.width = avail
 		switch st.Width.Kind {
 		case css.MP:
 			b.width = st.Width.Value + extra
 		case css.Percent:
-			b.width = st.Width.Resolve(width) + extra
+			b.width = st.Width.Resolve(avail) + extra
 		}
-		if b.width > width || b.width <= 0 {
-			b.width = width
+		if b.width > avail || b.width <= 0 {
+			b.width = avail
 		}
-		b.x = x
+		b.x = x + marginLeft
 	}
 	cw := b.contentWidth()
 
