@@ -29,6 +29,8 @@ func testFontPath(t testing.TB) string {
 	if p := os.Getenv("PDFTEST_FONT"); p != "" {
 		candidates = append(candidates, p)
 	}
+	// The bundled font keeps results identical on every platform and in CI.
+	candidates = append(candidates, filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
 	if runtime.GOOS == "darwin" {
 		candidates = append(candidates,
 			"/System/Library/Fonts/Supplemental/Arial.ttf",
@@ -240,8 +242,17 @@ func TestFontFaceIsUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(res.PDF, []byte("/BaseFont /Arial")) && !bytes.Contains(res.PDF, []byte("/BaseFont /DejaVuSans")) && !bytes.Contains(res.PDF, []byte("/BaseFont /LiberationSerif")) {
-		t.Fatalf("the declared font is not embedded: %q", res.PDF[:min(200, len(res.PDF))])
+	data, err := os.ReadFile(fontPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared, err := font.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/BaseFont /" + strings.ReplaceAll(declared.Family(), " ", "-")
+	if !bytes.Contains(res.PDF, []byte(want)) {
+		t.Fatalf("the declared font %q is not embedded: %q", want, res.PDF[:min(200, len(res.PDF))])
 	}
 }
 

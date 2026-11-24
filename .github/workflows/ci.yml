@@ -22,10 +22,6 @@ jobs:
           # The module declares go 1.24: CI must prove that minimum works.
           go-version-file: go.mod
           cache: true
-      - name: Install fonts
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-dejavu-core
       - name: Install pdfcpu
         # Pinned: v0.12 and later require Go 1.25, while the module targets
         # go 1.24. Bump both together.
