@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -274,4 +275,68 @@ func TestSubsetChecksums(t *testing.T) {
 		return
 	}
 	t.Fatal("the subset has no head table")
+}
+
+// renameTable changes a table tag in the sfnt directory.
+func renameTable(t *testing.T, data []byte, from, to string) []byte {
+	t.Helper()
+	if len(to) != 4 {
+		t.Fatalf("table tag %q must be four bytes", to)
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if string(data[rec:rec+4]) != from {
+			continue
+		}
+		out := append([]byte(nil), data...)
+		copy(out[rec:rec+4], to)
+		return out
+	}
+	t.Skipf("the test font has no %s table", from)
+	return nil
+}
+
+// tableOffset returns the file offset and length of a table.
+func tableOffset(t *testing.T, data []byte, tag string) (int, int) {
+	t.Helper()
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if string(data[rec:rec+4]) == tag {
+			return int(binary.BigEndian.Uint32(data[rec+8 : rec+12])), int(binary.BigEndian.Uint32(data[rec+12 : rec+16]))
+		}
+	}
+	t.Skipf("the test font has no %s table", tag)
+	return 0, 0
+}
+
+func TestMissingGlyfTableIsRejected(t *testing.T) {
+	f := testFont(t)
+	data := renameTable(t, f.data, "glyf", "gone")
+	parsed, err := Parse(data)
+	if err == nil {
+		t.Fatal("a font without a glyf table was accepted")
+	}
+	if parsed != nil {
+		t.Fatal("a rejected font must not be returned")
+	}
+	if !strings.Contains(err.Error(), "glyf") {
+		t.Fatalf("error %q does not name the glyf table", err)
+	}
+}
+
+func TestCorruptLocaIsRejected(t *testing.T) {
+	f := testFont(t)
+	off, length := tableOffset(t, f.data, "loca")
+	if length < 6 {
+		t.Fatalf("loca table is only %d bytes", length)
+	}
+	// Make the third short offset point outside glyf, which also breaks
+	// monotonicity.
+	data := append([]byte(nil), f.data...)
+	binary.BigEndian.PutUint16(data[off+4:off+6], 0xFFFF)
+	if _, err := Parse(data); err == nil {
+		t.Fatal("a loca offset outside glyf was accepted")
+	}
 }

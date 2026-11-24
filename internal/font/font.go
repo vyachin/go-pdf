@@ -95,7 +95,13 @@ func Parse(data []byte) (*Font, error) {
 	}
 	f.numGlyphs = binary.BigEndian.Uint16(maxp[4:6])
 
-	f.glyf = f.tables["glyf"]
+	glyf, ok := f.tables["glyf"]
+	if !ok {
+		// The profile supports TrueType outlines only. A font without glyf
+		// used to parse and then silently produce glyphs with no contours.
+		return nil, fmt.Errorf("font: missing glyf table")
+	}
+	f.glyf = glyf
 	loca, ok := f.tables["loca"]
 	if !ok {
 		return nil, fmt.Errorf("font: missing loca table")
@@ -117,6 +123,19 @@ func Parse(data []byte) (*Font, error) {
 		for i := 0; i < count; i++ {
 			f.loca[i] = binary.BigEndian.Uint32(loca[i*4 : i*4+4])
 		}
+	}
+
+	// loca must be monotonic and stay inside glyf: every glyph. A corrupt
+	// table must be rejected instead of yielding an empty subset.
+	prev := uint32(0)
+	for i, off := range f.loca {
+		if off < prev {
+			return nil, fmt.Errorf("font: loca offsets are not monotonic at glyph %d", i)
+		}
+		if int64(off) > int64(len(f.glyf)) {
+			return nil, fmt.Errorf("font: loca offset %d for glyph %d is outside the glyf table", off, i)
+		}
+		prev = off
 	}
 
 	if err := f.parseHmtx(); err != nil {
