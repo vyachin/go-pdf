@@ -250,6 +250,13 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	res, err := engine.Convert(ctx, src, opts.toEngine())
 	out := Result{PDF: res.PDF, PNG: res.PNG, Diagnostics: fromDiags(res.Diagnostics)}
 	if err != nil {
+		// Cancellation wins over a template error: a template that already
+		// produced validation errors must not hide the fact that the caller
+		// asked the conversion to stop. Without this order a cancelled request
+		// looked like an invalid template.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return out, ctxErr
+		}
 		if out.Diagnostics.HasErrors() {
 			return out, out.Diagnostics.Err()
 		}
@@ -268,6 +275,9 @@ func Validate(ctx context.Context, src []byte, opts Options) (Diagnostics, error
 	list, err := engine.Validate(ctx, src, opts.toEngine())
 	out := fromDiags(list)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return out, ctxErr
+		}
 		return out, err
 	}
 	// The engine reports validation problems through the list and leaves the

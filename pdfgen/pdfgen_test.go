@@ -240,3 +240,53 @@ func TestPageSizeWithSharedUnit(t *testing.T) {
 		t.Fatal("the documented page size did not reach the PDF")
 	}
 }
+
+// countingContext reports context.Canceled once Err has been called limit
+// times, which lets the test cancel at a chosen pipeline stage without timers.
+type countingContext struct {
+	calls, limit int
+}
+
+func (c *countingContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *countingContext) Done() <-chan struct{}       { return nil }
+func (c *countingContext) Value(any) any               { return nil }
+func (c *countingContext) Err() error {
+	c.calls++
+	if c.calls >= c.limit {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestCancellationBeatsTemplateErrors guards RV2-21: when the template had
+// already produced validation errors, Convert returned *pdfgen.Error and hid
+// the fact that the caller cancelled the conversion.
+func TestCancellationBeatsTemplateErrors(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 20000; i++ {
+		b.WriteString(`<p style="flex:1">x</p>`)
+	}
+	src := []byte(b.String())
+	opts := pdfgen.Options{File: "cancel.html"}
+	// Count how often the pipeline asks for cancellation, then cancel halfway
+	// through: by then the profile errors already exist, which used to mask the
+	// cancellation.
+	counter := &countingContext{limit: 1 << 30}
+	if _, err := pdfgen.Convert(counter, src, opts); err == nil {
+		t.Fatal("the invalid template validated successfully")
+	}
+	if counter.calls < 4 {
+		t.Fatalf("the pipeline checked cancellation only %d times", counter.calls)
+	}
+	for _, limit := range []int{counter.calls / 2, counter.calls - 1} {
+		ctx := &countingContext{limit: limit}
+		_, err := pdfgen.Convert(ctx, src, opts)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("limit %d of %d: Convert returned %T (%v), want context.Canceled", limit, counter.calls, err, err)
+		}
+	}
+	// Without cancellation the same template still reports the profile errors.
+	if _, err := pdfgen.Convert(context.Background(), src, opts); err == nil {
+		t.Fatal("an invalid template without cancellation must fail")
+	}
+}

@@ -136,7 +136,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-8/main.go`: два блока `margin-top:2000000pt` → Y второго run = **−294931757 mp**, диагностик нет.
   **Исправление / приёмка:** общий helper сложения с насыщением/ошибкой `css/unsupported-value` или `layout/overflow`. Приёмка: документ с суммами > int32 не даёт отрицательных координат и невалидного PDF; regression-тест на границах.
 
-- [ ] **RV2-21 · P2: не подменять `context.Canceled` ошибкой шаблона в `pdfgen.Convert`.**
+- [x] **RV2-21 · P2: не подменять `context.Canceled` ошибкой шаблона в `pdfgen.Convert`.**
 
   **Код:** [pdfgen/pdfgen.go:253](/Users/vyachin/Projects/go-pdf/pdfgen/pdfgen.go:253): при `err != nil` сначала возвращается `out.Diagnostics.Err()`, исходная ошибка теряется.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-6/main.go`: 20000 `<p style="flex:1">x</p>`, отмена через 20 мс → `errKind=*pdfgen.Error`, `errorsIs=false`, 20000 диагностик; `Validate` в той же точке возвращает `context canceled`.
