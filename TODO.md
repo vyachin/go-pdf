@@ -363,7 +363,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   The functional suite passes, but `go test -race ./...` failed this test because the 50-page conversion took about 1.07 seconds against an 800 ms wall-clock threshold. Race instrumentation and shared-machine load change these timings without proving a product regression.
   **Improvement / acceptance:** run fixed performance budgets in a dedicated, controlled job or opt-in benchmark mode. Keep page-count and content correctness assertions in the ordinary suite. The race job should exercise concurrency correctness without requiring uninstrumented speed; retain the separate performance gate.
 
-- [ ] **CLI-01 · P3: pass the input filename to conversion diagnostics.**
+- [x] **CLI-01 · P3: pass the input filename to conversion diagnostics.**
 
   **Source:** [cmd/pdfgen/main.go:122](/Users/vyachin/Projects/go-pdf/cmd/pdfgen/main.go:122), `runConvert`.
   `runValidate` sets `Options.File`, but `runConvert` omits it, so inline HTML/CSS diagnostics identify `document.html` instead of the supplied input file. This makes CLI failures harder to locate and inconsistent with validation.

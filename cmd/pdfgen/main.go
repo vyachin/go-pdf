@@ -127,6 +127,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		Date:      date,
 		RenderPNG: png,
 		Strict:    strict,
+		File:      input,
 	})
 	for _, d := range res.Diagnostics {
 		fmt.Fprintln(stderr, d.String())

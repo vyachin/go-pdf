@@ -116,12 +116,15 @@ func TestConvertFailsOnInvalidTemplate(t *testing.T) {
 	if err := os.WriteFile(in, []byte("<style>p{display:flex}</style><p>x</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, _ := runCLI(t, "convert", in)
+	code, _, stderr := runCLI(t, "convert", in)
 	if code != exitFailure {
 		t.Fatalf("exit code = %d, want %d", code, exitFailure)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "bad.pdf")); err == nil {
 		t.Fatal("no PDF must be written for an invalid template")
+	}
+	if !strings.Contains(stderr, "bad.html") {
+		t.Fatalf("diagnostics do not name the input file: %s", stderr)
 	}
 }
 
