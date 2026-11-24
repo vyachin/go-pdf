@@ -5,6 +5,18 @@ import (
 	"github.com/vyachin/go-pdf/internal/diag"
 )
 
+// normSpan clamps a stored span, so layout never depends on the parser having
+// validated it.
+func normSpan(v int) int {
+	if v < 1 {
+		return 1
+	}
+	if v > maxTableSpan {
+		return maxTableSpan
+	}
+	return v
+}
+
 // computeColumns implements the fixed table layout: widths come from the first
 // row, the rest of the available width is split evenly between the remaining
 // columns. Cell columns come from the occupancy grid.
@@ -12,10 +24,7 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 	n := 0
 	for _, row := range t.Rows {
 		for _, cell := range row.Cells {
-			span := cell.ColSpan
-			if span < 1 {
-				span = 1
-			}
+			span := normSpan(cell.ColSpan)
 			if end := cell.col + span; end > n {
 				n = end
 			}
@@ -27,10 +36,7 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 	widths := make([]int32, n)
 	if len(t.Rows) > 0 {
 		for _, cell := range t.Rows[0].Cells {
-			span := cell.ColSpan
-			if span < 1 {
-				span = 1
-			}
+			span := normSpan(cell.ColSpan)
 			var w int32
 			switch cell.Style.Width.Kind {
 			case css.MP:
@@ -82,14 +88,8 @@ func (l *layouter) buildGrid(t *Box) {
 			for occupied[r][col] {
 				col++
 			}
-			span := cell.ColSpan
-			if span < 1 {
-				span = 1
-			}
-			rowspan := cell.RowSpan
-			if rowspan < 1 {
-				rowspan = 1
-			}
+			span := normSpan(cell.ColSpan)
+			rowspan := normSpan(cell.RowSpan)
 			cell.col = col
 			for dr := 0; dr < rowspan && r+dr < len(t.Rows); dr++ {
 				for c := col; c < col+span; c++ {
@@ -117,10 +117,7 @@ func (l *layouter) measureTable(t *Box, width int32) int32 {
 func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 	var h int32
 	for _, cell := range row.Cells {
-		span := cell.ColSpan
-		if span < 1 {
-			span = 1
-		}
+		span := normSpan(cell.ColSpan)
 		var w int32
 		for i := 0; i < span && cell.col+i < len(t.columns); i++ {
 			w += t.columns[cell.col+i]
@@ -128,8 +125,8 @@ func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 		cell.width = w
 		cell.x = t.x
 		cellH := l.measure(cell, w)
-		if cell.RowSpan > 1 {
-			cellH = cellH / int32(cell.RowSpan)
+		if rowspan := normSpan(cell.RowSpan); rowspan > 1 {
+			cellH = cellH / int32(rowspan)
 		}
 		if cellH > h {
 			h = cellH
@@ -202,10 +199,7 @@ func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 	y := f.y
 	startX := t.x + t.borderLeft()
 	for _, cell := range row.Cells {
-		span := cell.ColSpan
-		if span < 1 {
-			span = 1
-		}
+		span := normSpan(cell.ColSpan)
 		x := startX
 		for i := 0; i < cell.col && i < len(t.columns); i++ {
 			x += t.columns[i]
@@ -215,9 +209,9 @@ func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 			w += t.columns[cell.col+i]
 		}
 		cellH := h
-		if cell.RowSpan > 1 {
+		if rowspan := normSpan(cell.RowSpan); rowspan > 1 {
 			cellH = 0
-			for r := index; r < index+cell.RowSpan && r < len(t.rowHeights); r++ {
+			for r := index; r < index+rowspan && r < len(t.rowHeights); r++ {
 				cellH += t.rowHeights[r]
 			}
 		}

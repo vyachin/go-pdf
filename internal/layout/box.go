@@ -389,6 +389,17 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 	return box
 }
 
+// span reads one table span and reports an invalid value instead of letting it
+// reach layout arithmetic.
+func (b *builder) span(n *html.Node, name string) int {
+	value, ok := spanAttr(n, name)
+	if !ok {
+		b.diags.Errorf("html/invalid-span", diag.Position{}, n.Path(), "%s value is outside 1..%d", name, maxTableSpan)
+		return 1
+	}
+	return value
+}
+
 func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 	tb := &Box{Kind: Table, Node: n, Style: style}
 	var addRows func(*html.Node, bool, *css.Style)
@@ -417,8 +428,8 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 						}
 					}
 					cell := &Box{Kind: TableCell, Node: cellNode, Style: cellStyle}
-					cell.ColSpan = attrInt(cellNode, "colspan", 1)
-					cell.RowSpan = attrInt(cellNode, "rowspan", 1)
+					cell.ColSpan = b.span(cellNode, "colspan")
+					cell.RowSpan = b.span(cellNode, "rowspan")
 					cell.Children = b.buildBlocks(cellNode, cellStyle)
 					row.Cells = append(row.Cells, cell)
 				}
@@ -461,6 +472,24 @@ func listLevel(n *html.Node) int {
 		}
 	}
 	return level
+}
+
+// maxTableSpan bounds colspan and rowspan: it keeps the occupancy grid small
+// and ensures every span fits an int32 without narrowing to zero.
+const maxTableSpan = 100
+
+// spanAttr reads a span attribute, reporting false when the value is not an
+// integer in 1..maxTableSpan.
+func spanAttr(n *html.Node, name string) (int, bool) {
+	v, ok := n.Attr(name)
+	if !ok {
+		return 1, true
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil || i < 1 || i > maxTableSpan {
+		return 1, false
+	}
+	return i, true
 }
 
 func attrInt(n *html.Node, name string, def int) int {

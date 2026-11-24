@@ -603,3 +603,27 @@ func TestUnitlessLineHeightInheritsAsFactor(t *testing.T) {
 		t.Fatalf("line gap = %d, want 40000", gap)
 	}
 }
+
+func TestTableSpansAreBounded(t *testing.T) {
+	h := newHarness(t)
+	size, margin := smallPage()
+	cases := []string{
+		`<table><tr><td rowspan="4294967296">A</td></tr></table>`,
+		`<table><tr><td colspan="100000">A</td></tr></table>`,
+		`<table><tr><td colspan="-3">A</td></tr></table>`,
+	}
+	for _, src := range cases {
+		doc, diags := h.runRaw(src, size, margin)
+		if !hasError(diags, "html/invalid-span") {
+			t.Fatalf("%s: expected html/invalid-span, got %v (pages=%d)", src, diags.Lines(), len(doc.Pages))
+		}
+	}
+	// Ordinary spans still lay out.
+	doc, diags := h.runRaw(`<table><tr><td rowspan="2">A</td><td colspan="2">B</td></tr><tr><td>C</td><td>D</td></tr></table>`, size, margin)
+	if diags.HasErrors() {
+		t.Fatalf("ordinary spans: %v", diags.Lines())
+	}
+	if len(doc.Pages) == 0 || len(textOps(doc)) == 0 {
+		t.Fatal("ordinary spans produced no content")
+	}
+}
