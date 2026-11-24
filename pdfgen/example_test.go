@@ -3,6 +3,7 @@ package pdfgen_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -69,4 +70,20 @@ func ExampleValidate() {
 	if diags.HasErrors() {
 		log.Fatal("the template is invalid")
 	}
+}
+
+// ExampleError shows the shape of a rejected document: the error carries every
+// diagnostic, each with a stable code, a position and the element's path.
+func ExampleError() {
+	_, err := pdfgen.Convert(context.Background(),
+		[]byte(`<style>p{color:notacolour}</style><p>x</p>`),
+		pdfgen.Options{File: "invoice.html"})
+
+	var verr *pdfgen.Error
+	if errors.As(err, &verr) {
+		for _, d := range verr.Diagnostics {
+			fmt.Println(d.Severity, d.Code)
+		}
+	}
+	// Output: error css/unsupported-value
 }

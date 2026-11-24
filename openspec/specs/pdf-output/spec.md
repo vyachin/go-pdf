@@ -114,11 +114,15 @@ The engine SHALL build a bookmark tree from `h1`–`h3` headings in document ord
 
 ### Requirement: Atomic result writing
 
-The engine SHALL write the result so that after any rendering error the destination holds either no file or the previous file, never a partially written or corrupted one.
+The package SHALL NOT write the result: it returns the PDF to the caller. The reference command SHALL write the file only after a complete PDF was returned, so that a conversion that fails leaves the destination absent or unchanged and never partially written.
 
 #### Scenario: Error during writing
-- **WHEN** an error occurs while the PDF is being produced
-- **THEN** the target file is absent or unchanged, and never corrupted
+- **WHEN** a conversion fails and the output path already holds a file
+- **THEN** the target file is byte-identical to what it was before the run
+
+#### Scenario: A successful conversion replaces the destination
+- **WHEN** a conversion succeeds and the output path already holds a file
+- **THEN** the destination holds the new PDF and no other file is created
 
 ### Requirement: Page resources list only images the page draws
 

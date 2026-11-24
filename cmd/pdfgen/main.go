@@ -1,19 +1,22 @@
-// Command pdfgen converts an HTML template into a PDF document.
+// Command pdfgen converts one HTML file into a PDF.
+//
+// It is the reference example for the pdfgen package: one input, one output,
+// and no settings beyond the output path. The package is the versioned
+// surface; this command is not, so its flags may change in any release.
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
+	"strings"
 
-	"github.com/vyachin/go-pdf/internal/engine"
-	"github.com/vyachin/go-pdf/internal/fsx"
-	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/pdfgen"
 )
 
 const (
@@ -27,229 +30,109 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
+	if len(args) > 0 && isRemovedCommand(args[0]) {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: the %q subcommand was removed; the command converts one file:\n\n", args[0])
 		usage(stderr)
 		return exitUsage
 	}
-	switch args[0] {
-	case "convert":
-		return runConvert(args[1:], stdout, stderr)
-	case "validate":
-		return runValidate(args[1:], stdout, stderr)
-	case "help", "-h", "--help":
-		usage(stdout)
-		return exitOK
-	default:
-		_, _ = fmt.Fprintf(stderr, "pdfgen: unknown command %q\n\n", args[0])
+
+	fs := flag.NewFlagSet("pdfgen", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {}
+	out := fs.String("o", "", "output PDF path (default: <input>.pdf)")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			usage(stdout)
+			return exitOK
+		}
+		return exitUsage
+	}
+	if fs.NArg() != 1 {
+		_, _ = fmt.Fprintln(stderr, "pdfgen: exactly one input file is required")
+		fs.Usage()
 		usage(stderr)
 		return exitUsage
 	}
+
+	input := fs.Arg(0)
+	if *out == "" {
+		*out = outputPath(input)
+	}
+
+	src, err := os.ReadFile(input)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
+		return exitFailure
+	}
+
+	dir := filepath.Dir(input)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+		File: input,
+		// Relative images, stylesheets and fonts resolve against the input
+		// file, so a document and its assets work from any directory.
+		BaseDir: dir,
+		FontDir: dir,
+		// Browser-oriented templates are the common real input. Accepting them
+		// is this example's policy; the package defaults to the strict profile.
+		ImportBrowser: true,
+	})
+	for _, d := range res.Diagnostics {
+		_, _ = fmt.Fprintln(stderr, d)
+	}
+	if err != nil {
+		var verr *pdfgen.Error
+		if errors.As(err, &verr) {
+			// The diagnostics above already carry the details; printing the
+			// error would repeat every line.
+			_, _ = fmt.Fprintln(stderr, "pdfgen: template is invalid")
+		} else {
+			_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
+		}
+		return exitFailure
+	}
+
+	// The write is the caller's decision and happens only after a complete PDF
+	// exists, so a failed conversion leaves the destination untouched.
+	if err := os.WriteFile(*out, res.PDF, 0o644); err != nil {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
+		return exitFailure
+	}
+	_, _ = fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", *out, len(res.PDF))
+	return exitOK
 }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprint(w, `pdfgen converts HTML templates into PDF documents.
+	_, _ = fmt.Fprint(w, `pdfgen converts one HTML file into a PDF.
 
 Usage:
-  pdfgen convert [flags] <input.html>
-  pdfgen validate [flags] <input.html>
-  pdfgen help
+  pdfgen [-o out.pdf] <input.html>
 
-Commands:
-  convert   render the template to a PDF file
-  validate  check the template and its layout without writing a PDF
+Without -o the PDF is written next to the input as <input>.pdf. Relative
+images, stylesheets and fonts resolve against the input file's directory.
 
-Run "pdfgen convert -h" for the flags of a command.
+Exit codes: 0 success, 1 the document cannot be converted, 2 a usage error.
+
+This command is a reference example for the pdfgen package and carries no
+compatibility promise; only the package is versioned.
 `)
 }
 
-type commonFlags struct {
-	fontDir string
-	baseDir string
+// isRemovedCommand reports whether the first argument names a subcommand of the
+// previous command surface. Such a word is not an input file, and treating it
+// as one would report a confusing "file not found".
+func isRemovedCommand(arg string) bool {
+	switch arg {
+	case "convert", "validate", "help":
+		return true
+	}
+	return false
 }
 
-func addCommonFlags(fs *flag.FlagSet, c *commonFlags) {
-	fs.StringVar(&c.fontDir, "font-dir", "", "directory used to resolve relative @font-face paths")
-	fs.StringVar(&c.baseDir, "base-dir", "", "directory used to resolve relative image paths")
-}
-
-// readInput reads a template with the default input budget, so an oversized
-// file is rejected before it is loaded into memory.
-func readInput(path string) ([]byte, error) {
-	return fsx.ReadFileLimit(path, engine.DefaultLimits().MaxInputBytes)
-}
-
-func runConvert(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var (
-		out     string
-		page    string
-		margin  string
-		dateStr string
-		png     bool
-		strict  bool
-		common  commonFlags
-	)
-	fs.StringVar(&out, "o", "", "output PDF path (default: <input>.pdf)")
-	fs.StringVar(&page, "page", "A4", "fallback page size: A4, A5, Letter or <w>x<h><unit>")
-	fs.StringVar(&margin, "margin", "20mm", "fallback page margin")
-	fs.StringVar(&dateStr, "date", "", "creation date in RFC 3339 (default: fixed constant)")
-	fs.BoolVar(&png, "render-png", false, "also write <output>.png with the first page")
-	fs.BoolVar(&strict, "strict", false, "treat profile warnings as errors and disable browser import")
-	addCommonFlags(fs, &common)
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return exitOK
-		}
-		return exitUsage
-	}
-	if fs.NArg() != 1 {
-		_, _ = fmt.Fprintln(stderr, "pdfgen convert: exactly one input file is required")
-		return exitUsage
-	}
-	input := fs.Arg(0)
-
-	var date time.Time
-	if dateStr != "" {
-		parsed, err := time.Parse(time.RFC3339, dateStr)
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "pdfgen convert: invalid -date: %v\n", err)
-			return exitUsage
-		}
-		date = parsed
-	}
-
-	src, err := readInput(input)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
-		return exitFailure
-	}
-	if out == "" {
-		out = trimHTMLExt(input) + ".pdf"
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	res, err := engine.Convert(ctx, src, engine.Options{
-		PageSize:      page,
-		Margin:        margin,
-		FontDir:       common.fontDir,
-		BaseDir:       common.baseDir,
-		Date:          date,
-		RenderPNG:     png,
-		Strict:        strict,
-		ImportBrowser: !strict,
-		File:          input,
-	})
-	for _, d := range res.Diagnostics {
-		_, _ = fmt.Fprintln(stderr, d.String())
-	}
-	if err != nil {
-		// The diagnostics above already carry the details; printing err would
-		// repeat every line, because the engine's error joins the same list.
-		if res.Diagnostics.HasErrors() {
-			_, _ = fmt.Fprintln(stderr, "pdfgen convert: template is invalid")
-		} else {
-			_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
-		}
-		return exitFailure
-	}
-	if err := writeFileAtomic(out, res.PDF); err != nil {
-		_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
-		return exitFailure
-	}
-	_, _ = fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", out, len(res.PDF))
-	if png && len(res.PNG) > 0 {
-		if err := writeFileAtomic(trimPDFExt(out)+".png", res.PNG); err != nil {
-			_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
-			return exitFailure
-		}
-	}
-	return exitOK
-}
-
-func runValidate(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var common commonFlags
-	strict := fs.Bool("strict", false, "treat profile warnings as errors")
-	printProfile := fs.Bool("print-profile", false, "print the supported CSS profile and exit")
-	addCommonFlags(fs, &common)
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return exitOK
-		}
-		return exitUsage
-	}
-	if *printProfile {
-		_, _ = fmt.Fprint(stdout, profile.Text())
-		return exitOK
-	}
-	if fs.NArg() != 1 {
-		_, _ = fmt.Fprintln(stderr, "pdfgen validate: exactly one input file is required")
-		return exitUsage
-	}
-	src, err := readInput(fs.Arg(0))
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
-		return exitFailure
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-	diagnostics, err := engine.Validate(ctx, src, engine.Options{
-		FontDir: common.fontDir,
-		BaseDir: common.baseDir,
-		File:    fs.Arg(0),
-		Strict:  *strict,
-	})
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
-		return exitFailure
-	}
-	for _, d := range diagnostics {
-		_, _ = fmt.Fprintln(stdout, d.String())
-	}
-	if diagnostics.HasErrors() {
-		_, _ = fmt.Fprintln(stderr, "pdfgen validate: template is invalid")
-		return exitFailure
-	}
-	_, _ = fmt.Fprintf(stdout, "ok: %s is valid\n", fs.Arg(0))
-	return exitOK
-}
-
-func trimHTMLExt(path string) string {
-	if n := len(path); n > 5 && path[n-5:] == ".html" {
-		return path[:n-5]
-	}
-	if n := len(path); n > 4 && path[n-4:] == ".htm" {
-		return path[:n-4]
-	}
-	return path
-}
-
-func trimPDFExt(path string) string {
-	if n := len(path); n > 4 && path[n-4:] == ".pdf" {
-		return path[:n-4]
-	}
-	return path
-}
-
-// writeFileAtomic writes data through a temporary file in the same directory so
-// that a failure never leaves a truncated document behind.
-func writeFileAtomic(path string, data []byte) error {
-	dir, name := filepath.Dir(path), filepath.Base(path)
-	f, err := os.CreateTemp(dir, "."+name+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+// outputPath replaces the input extension with ".pdf", so "invoice.html" and a
+// directory-qualified path both land next to the source.
+func outputPath(input string) string {
+	return strings.TrimSuffix(input, filepath.Ext(input)) + ".pdf"
 }

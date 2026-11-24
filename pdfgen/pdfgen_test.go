@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"image/png"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -289,4 +294,176 @@ func TestCancellationBeatsTemplateErrors(t *testing.T) {
 	if _, err := pdfgen.Convert(context.Background(), src, opts); err == nil {
 		t.Fatal("an invalid template without cancellation must fail")
 	}
+}
+
+// TestConvertConcurrent pins the concurrency guarantee the package documents:
+// conversions share no mutable state, so parallel results equal sequential ones.
+// CI runs the suite under the race detector.
+func TestConvertConcurrent(t *testing.T) {
+	opts := testOptions(t)
+	docs := []string{
+		invoiceHTML,
+		`<style>p{font-size:10pt}</style><p>Второй документ для параллельной конвертации.</p>`,
+		invoiceHTML,
+	}
+	sequential := make([][]byte, len(docs))
+	for i, doc := range docs {
+		res, err := pdfgen.Convert(context.Background(), []byte(doc), opts)
+		if err != nil {
+			t.Fatalf("sequential conversion %d: %v", i, err)
+		}
+		sequential[i] = res.PDF
+	}
+
+	const workers = 8
+	results := make([][][]byte, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			results[w] = make([][]byte, len(docs))
+			for i, doc := range docs {
+				res, err := pdfgen.Convert(context.Background(), []byte(doc), opts)
+				if err != nil {
+					errs <- fmt.Errorf("worker %d, document %d: %w", w, i, err)
+					return
+				}
+				results[w][i] = res.PDF
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	for w := range results {
+		for i := range docs {
+			if !bytes.Equal(results[w][i], sequential[i]) {
+				t.Fatalf("worker %d produced different bytes for document %d", w, i)
+			}
+		}
+	}
+}
+
+// TestConvertWritesNothing pins the no-disk guarantee: a conversion reads the
+// assets it needs and returns bytes, nothing more.
+func TestConvertWritesNothing(t *testing.T) {
+	font, err := filepath.Abs(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := pdfgen.Options{FallbackFont: font, File: "invoice.html"}
+	t.Chdir(t.TempDir())
+
+	before := workingDirectoryNames(t)
+	if _, err := pdfgen.Convert(context.Background(), []byte(invoiceHTML), opts); err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if _, err := pdfgen.Validate(context.Background(), []byte(invoiceHTML), opts); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	after := workingDirectoryNames(t)
+	if !slices.Equal(before, after) {
+		t.Fatalf("the conversion changed the working directory:\nbefore: %v\nafter:  %v", before, after)
+	}
+}
+
+func workingDirectoryNames(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, len(entries))
+	for i, entry := range entries {
+		names[i] = entry.Name()
+	}
+	return names
+}
+
+// TestDefaultOptions pins the documented defaults: the zero Options value is a
+// complete request for a profile document that declares its font.
+func TestDefaultOptions(t *testing.T) {
+	font, err := filepath.Abs(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := `<html><head><style>
+  @font-face { font-family: "Bundled"; src: url(` + font + `) }
+  body { font-family: "Bundled"; font-size: 12pt }
+</style></head><body><p>Значения по умолчанию.</p></body></html>`
+
+	res, err := pdfgen.Convert(context.Background(), []byte(doc), pdfgen.Options{})
+	if err != nil {
+		t.Fatalf("Convert with zero options: %v", err)
+	}
+	pdf := string(res.PDF)
+	for _, want := range []string{
+		"/MediaBox [0 0 595.276 841.89",   // A4, the documented default size.
+		"/CreationDate (D:20000101000000", // The fixed default date.
+	} {
+		if !strings.Contains(pdf, want) {
+			t.Fatalf("the default-options PDF does not contain %q", want)
+		}
+	}
+}
+
+// TestDefaultMargin pins the documented default margin at 20 mm: the content
+// area starts one margin from the page edge, measured on the rendered raster.
+func TestDefaultMargin(t *testing.T) {
+	font, err := filepath.Abs(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := `<style>div{height:20mm;background-color:#ff0000}</style><div></div>`
+	res, err := pdfgen.Convert(context.Background(), []byte(src), pdfgen.Options{
+		FallbackFont: font,
+		RenderPNG:    true,
+	})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(res.PNG))
+	if err != nil {
+		t.Fatalf("decoding the preview: %v", err)
+	}
+
+	// The raster resolution follows the page size, so derive it from the image
+	// width and A4's 210 mm rather than assuming a fixed dpi.
+	bounds := img.Bounds()
+	dpi := float64(bounds.Dx()) / (210.0 / 25.4)
+	margin := int(math.Round(20.0 / 25.4 * dpi))
+	if margin <= 0 || bounds.Dx() < 4*margin {
+		t.Fatalf("unexpected raster %v for A4: margin would be %d px", bounds, margin)
+	}
+
+	isRed := func(x, y int) bool {
+		r, g, _, _ := img.At(x, y).RGBA()
+		return r>>8 > 200 && g>>8 < 100
+	}
+	probeY := margin + 20
+	for _, tc := range []struct {
+		name string
+		x    int
+		red  bool
+	}{
+		{"left margin is blank", margin - 10, false},
+		{"content starts at the left margin", margin + 10, true},
+		{"content ends at the right margin", bounds.Dx() - margin - 10, true},
+		{"right margin is blank", bounds.Dx() - margin + 10, false},
+	} {
+		if got := isRed(tc.x, probeY); got != tc.red {
+			t.Fatalf("%s: pixel (%d,%d) is %s, want %s", tc.name, tc.x, probeY, colorName(got), colorName(tc.red))
+		}
+	}
+}
+
+func colorName(red bool) string {
+	if red {
+		return "red"
+	}
+	return "blank"
 }
