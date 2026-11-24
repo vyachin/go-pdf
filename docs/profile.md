@@ -22,7 +22,7 @@ img span br hr strong b em i a title meta style link
 
 | Свойство | Наследуется | Значения |
 |---|---|---|
-| `display` | нет | `block`, `inline`, `inline-block`, `list-item`, `table`, `table-row`, `table-cell`, `none` |
+| `display` | нет | `block`, `inline`, `list-item`, `table`, `table-row`, `table-cell`, `none` |
 | `width`, `height` | нет | длина или `auto` |
 | `margin`, `padding` | нет | 1–4 длины |
 | `border` | нет | `[width] [solid\|none] [color]` |

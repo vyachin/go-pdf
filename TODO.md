@@ -162,7 +162,7 @@
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-4/main.go`, секция `pixels`: `Limits{MaxImagePixels:5000}` → `error[img/load]: 10000 pixels exceed the limit of 5000`; `MaxImageBytes` в том же пробнике даёт `resource/limit`.
   **Исправление / приёмка:** тот же код и путь, что у остальных бюджетов, в Validate и Convert.
 
-- [ ] **RV2-25 · P3: привести `docs/profile.md` в соответствие с валидатором.**
+- [x] **RV2-25 · P3: привести `docs/profile.md` в соответствие с валидатором.**
 
   **Код:** [docs/profile.md:25](/Users/vyachin/Projects/go-pdf/docs/profile.md:25) обещает `display: inline-block`, [internal/profile/profile.go:208](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go:208) его отклоняет.
   **Воспроизведение:** `pdfgen validate` на `<div style="display:inline-block">x</div>` → `css/unsupported-value: display: inline-block is not supported`.
