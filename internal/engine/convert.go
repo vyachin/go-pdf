@@ -136,7 +136,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 	limits := opts.Limits.resolved()
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
 	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes}
-	defer images.Close()
+	defer func() { _ = images.Close() }()
 
 	// target-counter needs a second pass: the page numbers written into the
 	// table of contents can change the page breaks themselves.

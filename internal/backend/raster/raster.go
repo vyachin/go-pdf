@@ -321,11 +321,6 @@ type edge struct {
 	dir            int
 }
 
-// fillPolygon rasterizes one closed polygon with non-zero winding.
-func fillPolygon(img *image.RGBA, poly []point, col color.RGBA) {
-	fillPolygons(img, [][]point{poly}, col)
-}
-
 // fillPolygons rasterizes a set of contours as one shape with the non-zero
 // winding rule, which is what TrueType outlines expect.
 func fillPolygons(img *image.RGBA, polys [][]point, col color.RGBA) {

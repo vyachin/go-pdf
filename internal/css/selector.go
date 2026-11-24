@@ -255,20 +255,20 @@ func parseCompound(s string) (Compound, int, error) {
 	started := false
 	for i < len(s) {
 		ch := s[i]
-		switch {
-		case ch == ' ' || ch == '>' || ch == ',':
+		switch ch {
+		case ' ', '>', ',':
 			if !started {
 				return Compound{}, 0, fmt.Errorf("empty compound selector")
 			}
 			return c, i, nil
-		case ch == '*':
+		case '*':
 			if started {
 				return Compound{}, 0, fmt.Errorf("unexpected %q", "*")
 			}
 			c.Universal = true
 			started = true
 			i++
-		case ch == '.':
+		case '.':
 			name, n := readIdent(s[i+1:])
 			if n == 0 {
 				return Compound{}, 0, fmt.Errorf("class selector without a name")
@@ -276,7 +276,7 @@ func parseCompound(s string) (Compound, int, error) {
 			c.Classes = append(c.Classes, name)
 			i += 1 + n
 			started = true
-		case ch == '#':
+		case '#':
 			name, n := readIdent(s[i+1:])
 			if n == 0 {
 				return Compound{}, 0, fmt.Errorf("id selector without a name")
@@ -284,7 +284,7 @@ func parseCompound(s string) (Compound, int, error) {
 			c.ID = name
 			i += 1 + n
 			started = true
-		case ch == ':':
+		case ':':
 			if strings.HasPrefix(s[i:], "::") {
 				name, n := readIdent(s[i+2:])
 				if n == 0 {
@@ -304,7 +304,7 @@ func parseCompound(s string) (Compound, int, error) {
 			}
 			name, _ := readIdent(s[i+1:])
 			return Compound{}, 0, fmt.Errorf("pseudo-class %q is not supported", ":"+name)
-		case ch == '[':
+		case '[':
 			return Compound{}, 0, fmt.Errorf("attribute selectors are not supported")
 		default:
 			if !isNameStart(ch) && ch != '-' {

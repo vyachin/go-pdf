@@ -101,10 +101,7 @@ func (l *layouter) paginate(root *Box) *Document {
 		maxIterations = 5000
 	}
 	iterations := 0
-	for {
-		if l.tick() != nil || l.pagesExhausted {
-			break
-		}
+	for l.tick() == nil && !l.pagesExhausted {
 		opsBefore := l.ops
 		yBefore := f.y
 		done := l.placeBlock(f, root, f.left, f.width, true)
@@ -436,10 +433,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		f.y = satAdd(f.y, line.Height)
 		b.cursor.line++
 	}
-	if b.cursor.line < len(b.lines) {
-		return false
-	}
-	return true
+	return b.cursor.line >= len(b.lines)
 }
 
 func countFitting(lines []Line, from int, y, bottom int32) int {
@@ -454,18 +448,6 @@ func countFitting(lines []Line, from int, y, bottom int32) int {
 		n++
 	}
 	return n
-}
-
-func (l *layouter) checkPageBreak(f *flow, needed int32) bool {
-	if int64(f.y)+int64(needed) <= int64(f.bottom) {
-		return false
-	}
-	if f.empty {
-		l.diags.Warnf("layout/overflow", diag.Position{}, "", "content is taller than the page and is clipped")
-		return false
-	}
-	f.newPage()
-	return true
 }
 
 // measure returns the outer height of a box when placed at the given width.

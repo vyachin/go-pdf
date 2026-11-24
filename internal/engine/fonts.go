@@ -54,7 +54,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 	if fontRootErr != nil {
 		return nil, fmt.Errorf("opening the font directory: %w", fontRootErr)
 	}
-	defer fontRoot.Close()
+	defer func() { _ = fontRoot.Close() }()
 	maxFontBytes := opts.Limits.resolved().MaxFontBytes
 	for _, rule := range css.RulesForPrint(sheets) {
 		if rule.Kind != css.FontFaceRule {

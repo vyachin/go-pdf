@@ -135,13 +135,13 @@ var Table = map[string]PropSpec{
 			if len(f) != 1 {
 				return Value{}, fmt.Errorf("font-weight expects one value")
 			}
-			switch {
-			case f[0].Kind == NumberToken:
+			switch f[0].Kind {
+			case NumberToken:
 				if f[0].Bad || !finiteInRange(f[0].Num) {
 					return Value{}, fmt.Errorf("font-weight %q is out of range", f[0].Text)
 				}
 				return Value{Kind: "number", Number: int(f[0].Num)}, nil
-			case f[0].Kind == IdentToken:
+			case IdentToken:
 				switch strings.ToLower(f[0].Text) {
 				case "normal":
 					return Value{Kind: "number", Number: 400}, nil

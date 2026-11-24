@@ -63,17 +63,10 @@ type piece struct {
 	kind      pieceKind
 	text      string
 	style     *css.Style
-	node      *htmlNode
 	image     *ImageData
 	preserve  bool   // a space that must not be collapsed or dropped
 	anchor    string // element id that starts at this piece
 	wrapAfter bool   // the word ends with a hyphen and allows a break after it
-}
-
-// htmlNode is a minimal indirection so that diagnostics can carry a position
-// without importing html into every helper.
-type htmlNode struct {
-	path string
 }
 
 func (l *layouter) face(style *css.Style) (*FontFace, error) {
@@ -315,7 +308,6 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if len(cur.Items) > 0 && canWrap && x+spaceW+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
 				spacePending = false
 				flush(false)
-				canWrap = false
 				firstLine = false
 			}
 			if spacePending && len(cur.Items) > 0 {

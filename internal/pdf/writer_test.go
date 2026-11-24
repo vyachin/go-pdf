@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/build"
 	"image"
 	"image/color"
 	"image/png"
@@ -222,7 +223,7 @@ func decodeStream(t *testing.T, body string) string {
 	if err != nil {
 		return string(raw)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(zr); err != nil {
 		return string(raw)
@@ -334,7 +335,7 @@ func TestImageResourcesAreDeterministic(t *testing.T) {
 	first1 := strings.Index(pageDict, "/Im1 ")
 	first2 := strings.Index(pageDict, "/Im2 ")
 	first3 := strings.Index(pageDict, "/Im3 ")
-	if first1 < 0 || first2 < 0 || first3 < 0 || !(first1 < first2 && first2 < first3) {
+	if first1 < 0 || first2 < 0 || first3 < 0 || first1 >= first2 || first2 >= first3 {
 		t.Fatalf("image resources are out of document order: %d %d %d", first1, first2, first3)
 	}
 }
@@ -580,7 +581,7 @@ func TestPNGAlphaUsesASoftMask(t *testing.T) {
 }
 
 func TestCMYKJPEGIsNotEmbeddedAsRGB(t *testing.T) {
-	fixture := filepath.Join(runtime.GOROOT(), "src", "image", "testdata", "video-001.cmyk.jpeg")
+	fixture := filepath.Join(build.Default.GOROOT, "src", "image", "testdata", "video-001.cmyk.jpeg")
 	data, err := os.ReadFile(fixture)
 	if err != nil {
 		t.Skipf("no CMYK fixture in this Go distribution: %v", err)

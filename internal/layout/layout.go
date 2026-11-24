@@ -96,6 +96,6 @@ func (l *layouter) tick() error {
 	if err == nil {
 		return nil
 	}
-	l.stopReason()
+	_ = l.stopReason()
 	return err
 }

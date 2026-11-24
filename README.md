@@ -259,6 +259,27 @@ go test ./internal/mpdfcompat -update      # rebuild golden texts
 The test suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical
 on every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it.
 
+CI runs the tests above and, in a separate `lint` job, the formatting and
+linting checks described below.
+
+## Formatting and linting
+
+The source is formatted with `gofmt` and checked by `golangci-lint` using the
+configuration in `.golangci.yml`.
+
+```bash
+gofmt -w $(git ls-files '*.go')   # format the source
+gofmt -l $(git ls-files '*.go')   # check: prints files that need formatting
+golangci-lint run ./...           # lint the whole module
+```
+
+The pinned version is `golangci-lint` v2.15.0; CI installs exactly that
+version. Install the release binary for your platform from
+[the v2.15.0 release](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0).
+Building it from source with
+`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`
+requires Go 1.26 or newer, above the module's Go 1.24 minimum.
+
 ## Performance
 
 On an Apple M2 Pro: one page ≈ 2.5 ms, a 50-page document ≈ 115 ms with about

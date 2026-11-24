@@ -19,14 +19,6 @@ func validate(t *testing.T, src string) diag.List {
 	return Validate(doc, Options{})
 }
 
-func codes(l diag.List) []string {
-	out := make([]string, len(l))
-	for i, d := range l {
-		out[i] = d.Code
-	}
-	return out
-}
-
 func TestValidDocumentHasNoDiagnostics(t *testing.T) {
 	src := `<html><head><title>Счёт</title>
 	<style>

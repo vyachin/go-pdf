@@ -24,7 +24,7 @@ func TestReadInsideRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	data, err := root.Read(path)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestReadRejectsEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if _, err := root.Read(filepath.Join(outside, "secret.css")); !errors.Is(err, ErrOutsideRoot) {
 		t.Fatalf("absolute outside path: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestReadFollowsInternalSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if _, err := root.Read(link); err != nil {
 		t.Fatalf("internal symlink: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestReadRejectsEscapingSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if _, err := root.Read(link); !errors.Is(err, ErrOutsideRoot) {
 		t.Fatalf("escaping symlink: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestReadReportsPermissionError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	_, err = root.Read(path)
 	if err == nil {
 		t.Fatal("expected an error")
@@ -135,7 +135,7 @@ func TestRelativeRootWithAbsolutePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if _, err := root.Read(file); err != nil {
 		t.Fatalf("an absolute path inside a relative root must be allowed: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestReadLimitBoundsTheRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	data, err := root.ReadLimit(path, 100)
 	if err != nil || len(data) != 100 {
