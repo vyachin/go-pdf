@@ -501,21 +501,26 @@ func hasCode(l diag.List, code string) bool {
 	return false
 }
 
-func TestConvertFailsWithoutPaginationProgress(t *testing.T) {
+func TestConvertClipsAnOversizedLine(t *testing.T) {
 	fontPath := testFontPath(t)
 	src := `<style>
 		@page { size: 100pt 100pt; margin: 10pt }
 		p { font-size: 10pt; line-height: 100pt; margin: 0 }
 	</style><p>IMPORTANT</p>`
-	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "loop.html"})
-	if err == nil {
-		t.Fatal("expected an error when content cannot be placed")
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "overflow.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
 	}
-	if len(res.PDF) != 0 {
-		t.Fatal("no PDF must be produced")
-	}
-	if !hasCode(res.Diagnostics, "layout/no-progress") {
+	if !hasCode(res.Diagnostics, "layout/overflow") {
 		t.Fatalf("diagnostics = %v", res.Diagnostics.Lines())
+	}
+	if len(res.PDF) == 0 {
+		t.Fatal("a clipped line must still produce a PDF")
+	}
+	// Strict mode turns the overflow warning into an error.
+	strict := Options{FallbackFont: fontPath, File: "overflow.html", Strict: true}
+	if _, err := Convert(context.Background(), []byte(src), strict); err == nil {
+		t.Fatal("strict mode accepted an overflowing document")
 	}
 }
 

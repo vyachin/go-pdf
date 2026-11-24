@@ -821,3 +821,57 @@ func TestTrailingBreakDoesNotCreateAnEmptyPage(t *testing.T) {
 		t.Fatalf("an empty following block produced %d pages, want 1", len(doc.Pages))
 	}
 }
+
+func TestOversizedFirstLineIsClipped(t *testing.T) {
+	h := newHarness(t)
+	// A 50 pt tall page with a 100 pt line: the page cannot be advanced, so the
+	// line must be clipped with the overflow warning instead of no-progress.
+	h.ctx.PageSize = css.PageSize{Width: 200000, Height: 50000}
+	h.ctx.Margin = [4]int32{}
+	doc, diags := h.runRaw(`<p style="font-size:100pt;margin:0">A</p>`, h.ctx.PageSize, h.ctx.Margin)
+	if hasError(diags, "layout/no-progress") {
+		t.Fatalf("an oversized first line was reported as no progress: %v", diags.Lines())
+	}
+	if !hasWarning(doc, "layout/overflow") {
+		t.Fatalf("no overflow warning: %v", diags.Lines())
+	}
+	if textOf(doc) != "A" {
+		t.Fatalf("the clipped line was not painted: %q", textOf(doc))
+	}
+
+	// The same for a table row taller than the page.
+	doc, diags = h.runRaw(`<table><tr><td><p style="font-size:100pt;margin:0">B</p></td></tr></table>`, h.ctx.PageSize, h.ctx.Margin)
+	if hasError(diags, "layout/no-progress") {
+		t.Fatalf("an oversized first row was reported as no progress: %v", diags.Lines())
+	}
+	if textOf(doc) != "B" {
+		t.Fatalf("the clipped row was not painted: %q", textOf(doc))
+	}
+
+	// A block image taller than the page is clipped with the same policy.
+	img := image.NewRGBA(image.Rect(0, 0, 10, 100))
+	f, err := os.Create(filepath.Join(h.images.dir, "tall.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	doc, diags = h.runRaw(`<img src="tall.png" style="width:20pt;height:100pt;display:block">`, h.ctx.PageSize, h.ctx.Margin)
+	if hasError(diags, "layout/no-progress") {
+		t.Fatalf("an oversized image was reported as no progress: %v", diags.Lines())
+	}
+	if !hasWarning(doc, "layout/overflow") {
+		t.Fatalf("no overflow warning for the image: %v", diags.Lines())
+	}
+	painted := false
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind == ImageOpKind {
+			painted = true
+		}
+	}
+	if !painted {
+		t.Fatal("the clipped image was not painted")
+	}
+}

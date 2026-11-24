@@ -179,7 +179,7 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		}
 		h := t.rowHeights[t.cursor.row]
 		if f.y+h > f.bottom {
-			if f.empty {
+			if len(f.page.Ops) == 0 {
 				l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(t), "a table row is taller than the page and is clipped")
 			} else {
 				return false

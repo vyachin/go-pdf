@@ -354,7 +354,7 @@ func truncateText(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func TestPaginationStopsWithoutProgress(t *testing.T) {
+func TestPaginationClipsAnOversizedLine(t *testing.T) {
 	h := newHarness(t)
 	size := css.PageSize{Width: 100000, Height: 100000} // 100pt square
 	margin := [4]int32{10000, 10000, 10000, 10000}
@@ -363,14 +363,17 @@ func TestPaginationStopsWithoutProgress(t *testing.T) {
 		p { font-size: 10pt; line-height: 100pt; margin: 0 }
 	</style><p>IMPORTANT</p>`
 	doc, diags := h.runRaw(src, size, margin)
-	if !hasError(diags, "layout/no-progress") {
-		t.Fatalf("expected layout/no-progress, got %v", diags.Lines())
+	if hasError(diags, "layout/no-progress") {
+		t.Fatalf("an oversized line was reported as no progress: %v", diags.Lines())
 	}
-	if len(doc.Pages) > 2 {
-		t.Fatalf("pagination produced %d pages before stopping", len(doc.Pages))
+	if !hasWarning(doc, "layout/overflow") {
+		t.Fatalf("expected an overflow warning, got %v", diags.Lines())
 	}
-	if len(doc.Pages) > 0 && len(doc.Pages[0].Ops) > 0 {
-		t.Fatal("the overflowing line must not be reported as placed")
+	if len(doc.Pages) != 1 {
+		t.Fatalf("pagination produced %d pages, want 1", len(doc.Pages))
+	}
+	if len(doc.Pages[0].Ops) == 0 {
+		t.Fatal("the clipped line was not placed")
 	}
 }
 

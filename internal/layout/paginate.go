@@ -223,7 +223,9 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		}
 		if l.isTextBlock(b) {
 			l.buildLines(b, cw)
-			if !f.empty {
+			// Only a page that already painted something can be advanced; on an
+			// empty page the orphans rule would loop between pages forever.
+			if len(f.page.Ops) > 0 {
 				startY := f.y + b.borderTop() + b.padTop()
 				avail := f.bottom - b.padBottom() - b.borderBottom()
 				n := countFitting(b.lines, 0, startY, avail)
@@ -354,7 +356,7 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 	w, h := imageSize(b.Style, b.Image, width, l.ctx)
 	avail := f.bottom - b.padBottom() - b.borderBottom()
 	if f.y+h > avail {
-		if f.empty {
+		if len(f.page.Ops) == 0 {
 			l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "an image is taller than the page and is clipped")
 		} else {
 			// The page loop owns page creation: creating one here as well
@@ -390,7 +392,10 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 	}
 	fits := countFitting(b.lines, b.cursor.line, f.y, avail)
 	if fits == 0 {
-		if !f.empty {
+		// f.empty means "this box was entered"; only a page that already has
+		// painted operations can be advanced. A first line taller than the
+		// page must be clipped instead of looping forever between pages.
+		if len(f.page.Ops) > 0 {
 			f.newPage()
 			return false
 		}
