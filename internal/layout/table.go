@@ -312,7 +312,11 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width int32) int32 {
 	var h int32
 	for _, b := range blocks {
+		// Cell measurement already includes block margins; painting has to
+		// advance by the same amounts or the drawn content drifts upwards.
+		h += b.Style.Margin[0].Resolve(width)
 		h += l.paintStaticBlock(page, b, x, y+h, width)
+		h += b.Style.Margin[2].Resolve(width)
 	}
 	return h
 }

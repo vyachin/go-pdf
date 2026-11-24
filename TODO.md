@@ -281,7 +281,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   **Reproduction:** `<style>th{font-weight:400;text-align:left}</style><table><tr><th>H</th></tr></table>` produces a cell with weight 700 and center alignment. Unless an inline style attribute exists, the builder overwrites the computed author values. The UA stylesheet already provides header defaults.
   **Fix / acceptance:** retain the computed style and keep defaults in the UA sheet. Test stylesheet overrides, class/id selectors and `!important`, as well as unstyled headers.
 
-- [ ] **LAY-07 · P2: account for block margins when painting table-cell content.**
+- [x] **LAY-07 · P2: account for block margins when painting table-cell content.**
 
   **Source:** [internal/layout/table.go:281](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:281), `paintStaticBlocks` and `paintStaticBlock`.
   **Reproduction:** `<table><tr><td><p style="margin:0 0 20pt">A</p><p style="margin:0">B</p></td></tr></table>` places the baselines 14400 mp apart instead of at least 34400 mp. Measurement includes margins, but static painting advances only by child content height, so measured and drawn cell geometry disagree.

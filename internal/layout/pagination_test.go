@@ -955,3 +955,23 @@ func TestPageDeclarationsHonourImportance(t *testing.T) {
 		t.Fatalf("top margin = %d, want 10000 (important declaration)", page.Margin[0])
 	}
 }
+
+func TestCellBlockMarginsAdvanceContent(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr><td><p style="margin:0 0 20pt">A</p><p style="margin:0">B</p></td></tr></table>`)
+	var ya, yb int32 = -1, -1
+	for _, op := range textOps(doc) {
+		switch pageTextRun(op) {
+		case "A":
+			ya = op.Y
+		case "B":
+			yb = op.Y
+		}
+	}
+	if ya < 0 || yb < 0 {
+		t.Fatalf("baselines missing: A=%d B=%d", ya, yb)
+	}
+	if gap := yb - ya; gap < 34400 {
+		t.Fatalf("baselines are %d apart, want at least 34400", gap)
+	}
+}
