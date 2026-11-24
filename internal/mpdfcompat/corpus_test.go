@@ -82,6 +82,8 @@ func testFont(t *testing.T) string {
 	if p := os.Getenv("PDFTEST_FONT"); p != "" {
 		candidates = append(candidates, p)
 	}
+	// The bundled font keeps the corpus identical on every platform and in CI.
+	candidates = append(candidates, filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
 	if runtime.GOOS == "darwin" {
 		candidates = append(candidates,
 			"/System/Library/Fonts/Supplemental/Arial.ttf",

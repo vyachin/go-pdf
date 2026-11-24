@@ -21,7 +21,8 @@ jobs:
         with:
           # The module declares go 1.24: CI must prove that minimum works.
           go-version-file: go.mod
-          cache: true
+          # The module has no dependencies and therefore no go.sum.
+          cache: false
       - name: Install pdfcpu
         # Pinned: v0.12 and later require Go 1.25, while the module targets
         # go 1.24. Bump both together.
