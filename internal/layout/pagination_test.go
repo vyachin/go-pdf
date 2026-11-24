@@ -745,3 +745,27 @@ func TestHeaderStylesComeFromTheCascade(t *testing.T) {
 		t.Fatalf("the UA centered header is not to the right of the left-aligned one: %d vs %d", ops[0].X, leftX)
 	}
 }
+
+func TestImageAspectRatioWithPercentageWidth(t *testing.T) {
+	img := &ImageData{Width: 80000, Height: 40000}
+	style := css.DefaultStyle()
+	style.Width = css.Pct(50)
+	style.Height = css.Length{Kind: css.Auto}
+	w, h := imageSize(style, img, 200000, Context{})
+	if w != 100000 || h != 50000 {
+		t.Fatalf("50%% width = %dx%d, want 100000x50000", w, h)
+	}
+	style = css.DefaultStyle()
+	style.Width = css.Abs(50000)
+	w, h = imageSize(style, img, 200000, Context{})
+	if w != 50000 || h != 25000 {
+		t.Fatalf("absolute width = %dx%d, want 50000x25000", w, h)
+	}
+	style = css.DefaultStyle()
+	style.Width = css.Pct(50)
+	style.Height = css.Abs(30000)
+	w, h = imageSize(style, img, 200000, Context{})
+	if w != 100000 || h != 30000 {
+		t.Fatalf("explicit height was overwritten: %dx%d", w, h)
+	}
+}

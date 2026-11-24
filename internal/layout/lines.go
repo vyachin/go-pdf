@@ -279,20 +279,20 @@ func fitMetrics(line *Line) {
 func imageSize(style *css.Style, img *ImageData, containerWidth int32, ctx Context) (int32, int32) {
 	w, h := img.Width, img.Height
 	specW, specH := style.Width, style.Height
-	if specW.Kind == css.MP {
-		w = specW.Value
-	} else if specW.Kind == css.Percent {
+	hasW := specW.Kind == css.MP || specW.Kind == css.Percent
+	hasH := specH.Kind == css.MP || specH.Kind == css.Percent
+	if hasW {
 		w = specW.Resolve(containerWidth)
 	}
-	if specH.Kind == css.MP {
-		h = specH.Value
-	} else if specH.Kind == css.Percent {
+	if hasH {
 		h = specH.Resolve(containerWidth)
 	}
-	if specW.Kind == css.MP && specH.Kind != css.MP && img.Width > 0 {
+	// The unspecified dimension follows the aspect ratio; this must work for
+	// a percentage width as well as for an absolute one.
+	if hasW && !hasH && img.Width > 0 {
 		h = int32(int64(w) * int64(img.Height) / int64(img.Width))
 	}
-	if specH.Kind == css.MP && specW.Kind != css.MP && img.Height > 0 {
+	if hasH && !hasW && img.Height > 0 {
 		w = int32(int64(h) * int64(img.Width) / int64(img.Height))
 	}
 	return w, h
