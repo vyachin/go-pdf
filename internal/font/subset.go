@@ -73,19 +73,10 @@ func (f *Font) Subset(used map[uint16]bool) ([]byte, error) {
 	// checksumAdjustment is computed over the whole file with the field zeroed.
 	sum := checksum(out)
 	adjustment := 0xB1B0AFBA - sum
+	// The spec keeps the head directory checksum computed with the adjustment
+	// field zeroed; refreshing it here would change the sum again and leave
+	// the font structurally invalid.
 	binary.BigEndian.PutUint32(out[headOffset+8:headOffset+12], adjustment)
-	// Refresh the head checksum in the table directory.
-	numTables := int(binary.BigEndian.Uint16(out[4:6]))
-	for i := 0; i < numTables; i++ {
-		rec := 12 + i*16
-		if string(out[rec:rec+4]) != "head" {
-			continue
-		}
-		off := int(binary.BigEndian.Uint32(out[rec+8 : rec+12]))
-		length := int(binary.BigEndian.Uint32(out[rec+12 : rec+16]))
-		binary.BigEndian.PutUint32(out[rec+4:rec+8], checksum(out[off:off+length]))
-		break
-	}
 	return out, nil
 }
 

@@ -237,3 +237,38 @@ func TestTruncatedGPOSDoesNotPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestSubsetChecksums(t *testing.T) {
+	f := testFont(t)
+	gid, ok := f.GlyphIndex('A')
+	if !ok {
+		t.Skip("test font has no A")
+	}
+	data, err := f.Subset(map[uint16]bool{gid: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum := checksum(data); sum != 0xB1B0AFBA {
+		t.Fatalf("whole-font checksum = %#x, want 0xb1b0afba", sum)
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if string(data[rec:rec+4]) != "head" {
+			continue
+		}
+		dirSum := binary.BigEndian.Uint32(data[rec+4 : rec+8])
+		off := int(binary.BigEndian.Uint32(data[rec+8 : rec+12]))
+		length := int(binary.BigEndian.Uint32(data[rec+12 : rec+16]))
+		head := append([]byte(nil), data[off:off+length]...)
+		binary.BigEndian.PutUint32(head[8:12], 0)
+		if got := checksum(head); got != dirSum {
+			t.Fatalf("head directory checksum = %#x, want %#x (checksum with the adjustment zeroed)", dirSum, got)
+		}
+		if _, err := Parse(data); err != nil {
+			t.Fatalf("the subset does not parse: %v", err)
+		}
+		return
+	}
+	t.Fatal("the subset has no head table")
+}
