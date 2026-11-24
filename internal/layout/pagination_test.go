@@ -1016,3 +1016,23 @@ func TestSpacesCollapseAcrossInlineNodes(t *testing.T) {
 		t.Fatalf("preformatted spaces were collapsed: %d, want 3", got)
 	}
 }
+
+func TestCellVerticalAlignment(t *testing.T) {
+	h := newHarness(t)
+	yOfBottom := func(doc *Document) int32 {
+		for _, op := range textOps(doc) {
+			if pageTextRun(op) == "BOTTOM" {
+				return op.Y
+			}
+		}
+		return -1
+	}
+	top := yOfBottom(h.run(`<table><tr><td>BOTTOM</td><td>A<br>B<br>C</td></tr></table>`))
+	bottom := yOfBottom(h.run(`<table><tr><td style="vertical-align:bottom">BOTTOM</td><td>A<br>B<br>C</td></tr></table>`))
+	if top < 0 || bottom < 0 {
+		t.Fatalf("text missing: top=%d bottom=%d", top, bottom)
+	}
+	if bottom <= top {
+		t.Fatalf("bottom alignment did not move the text: %d vs %d", bottom, top)
+	}
+}

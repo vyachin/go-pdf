@@ -272,6 +272,20 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	}
 	contentX := x + bl + cell.padLeft()
 	contentY := y + bt + cell.padTop()
+	contentH := int32(0)
+	for _, c := range cell.Children {
+		contentH += l.measure(c, inner)
+	}
+	availH := h - bt - bb - cell.padTop() - cell.padBottom()
+	switch cell.Style.VerticalAlign {
+	case css.VAMiddle:
+		contentY += (availH - contentH) / 2
+	case css.VABottom:
+		contentY += availH - contentH
+	}
+	if contentY < y+bt+cell.padTop() {
+		contentY = y + bt + cell.padTop()
+	}
 	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner)
 }
 

@@ -34,7 +34,7 @@ Only the findings that are still open are listed below. A successful existing te
 
 ### Layout and pagination
 
-- [ ] **LAY-14 · P2: apply vertical alignment inside table cells.**
+- [x] **LAY-14 · P2: apply vertical alignment inside table cells.**
 
   **Source:** [internal/layout/table.go:232](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:232), `paintCell`.
   **Reproduction:** `<table><tr><td style="vertical-align:bottom">BOTTOM</td><td>A<br>B<br>C</td></tr></table>` places `BOTTOM` on the first baseline, 28800 mp above `C`. `VerticalAlign` is parsed but the cell always paints at its top inset.
