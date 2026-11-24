@@ -77,3 +77,29 @@ jobs:
           EOF
           go mod tidy
           go build ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          # The module has no dependencies and therefore no go.sum.
+          cache: false
+      - name: Format
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "Unformatted files:"
+            echo "$files"
+            gofmt -d $files
+            exit 1
+          fi
+      # Pinned: findings and action behaviour change between releases.
+      # Bump this version and the one in README.md together.
+      - uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.15.0
+          args: --timeout=5m
