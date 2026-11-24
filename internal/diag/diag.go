@@ -136,6 +136,16 @@ func (l List) Sort() {
 	})
 }
 
+// EscalateWarnings turns every warning into an error. Strict mode uses it so
+// that a template with warnings fails the build.
+func (l List) EscalateWarnings() {
+	for i := range l {
+		if l[i].Severity == Warning {
+			l[i].Severity = Error
+		}
+	}
+}
+
 // Lines renders every diagnostic on its own line, in the current order.
 func (l List) Lines() []string {
 	out := make([]string, len(l))

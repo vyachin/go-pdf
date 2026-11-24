@@ -21,6 +21,7 @@ func TestCorpus(t *testing.T) {
 		{"invoice.html", []string{"Счёт", "Итого", "НДС", "534"}},
 		{"act.html", []string{"Акт", "Разработка", "Исполнитель"}},
 		{"contract.html", []string{"Договор", "Предмет договора", "Ответственность"}},
+		{"bigtable.html", []string{"Отчёт", "Показы", "Итого", "2 690 000"}},
 	}
 	for _, tc := range corpus {
 		t.Run(tc.file, func(t *testing.T) {

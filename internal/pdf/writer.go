@@ -544,7 +544,8 @@ func f3(v float64) string {
 	return s
 }
 
-func f3b(v uint8) string { return f3(float64(v)) }
+// f3b formats a colour component in the 0..1 range that PDF expects.
+func f3b(v uint8) string { return f3(float64(v) / 255) }
 
 func pdfDate(t time.Time) string {
 	return t.UTC().Format("D:20060102150405Z")

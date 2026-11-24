@@ -188,3 +188,32 @@ func TestConvertRenderPNG(t *testing.T) {
 		t.Fatalf("output is not a PNG: %q", data[:min(8, len(data))])
 	}
 }
+
+func TestStrictMode(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "script.html")
+	if err := os.WriteFile(in, []byte(`<script>x()</script><p>текст</p>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := runCLI(t, "validate", in)
+	if code != exitOK {
+		t.Fatalf("non-strict validate = %d, want 0 (stdout: %s)", code, stdout)
+	}
+	if !strings.Contains(stdout, "html/ignored-script") {
+		t.Fatalf("stdout = %q, want the script warning", stdout)
+	}
+
+	code, _, _ = runCLI(t, "validate", "-strict", in)
+	if code != exitFailure {
+		t.Fatalf("strict validate = %d, want %d", code, exitFailure)
+	}
+
+	requireFont(t)
+	code, _, _ = runCLI(t, "convert", "-strict", in)
+	if code != exitFailure {
+		t.Fatalf("strict convert = %d, want %d", code, exitFailure)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "script.pdf")); err == nil {
+		t.Fatal("strict convert must not write a PDF")
+	}
+}

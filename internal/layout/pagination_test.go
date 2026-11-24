@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -285,4 +286,64 @@ func TestOutlineFromHeadings(t *testing.T) {
 			t.Fatalf("entry %d page = %d, want 1", i, e.Page)
 		}
 	}
+}
+
+func TestPageOrientation(t *testing.T) {
+	h := newHarness(t)
+	a4 := css.PageSize{Width: 595276, Height: 841890}
+	a5 := css.PageSize{Width: 419528, Height: 595276}
+	_, margin := smallPage()
+
+	doc := h.runWithSize(`<style>@page { size: A4 landscape }</style><p>альбом</p>`, a4, margin)
+	if got := doc.Pages[0].Size; got.Width != a4.Height || got.Height != a4.Width {
+		t.Fatalf("A4 landscape = %+v, want %d x %d", got, a4.Height, a4.Width)
+	}
+
+	doc = h.runWithSize(`<style>@page { size: portrait }</style><p>портрет</p>`, a4, margin)
+	if got := doc.Pages[0].Size; got != a4 {
+		t.Fatalf("portrait with A4 fallback = %+v, want A4", got)
+	}
+
+	doc = h.runWithSize(`<style>@page { size: landscape }</style><p>альбом</p>`, a5, margin)
+	if got := doc.Pages[0].Size; got.Width != a5.Height || got.Height != a5.Width {
+		t.Fatalf("landscape with A5 fallback = %+v, want %d x %d", got, a5.Height, a5.Width)
+	}
+}
+
+func TestBigTableFixture(t *testing.T) {
+	src, err := os.ReadFile("../../testdata/bigtable.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t)
+	doc := h.run(string(src))
+	if len(doc.Pages) < 3 {
+		t.Fatalf("got %d pages, want at least 3", len(doc.Pages))
+	}
+	// The first page starts with the title; every continuation must start with
+	// the repeated table header.
+	if !strings.Contains(pageText(doc, 1), "Дата") {
+		t.Fatalf("the first page has no table header: %q", truncateText(pageText(doc, 1), 80))
+	}
+	for i := 2; i <= len(doc.Pages); i++ {
+		if !strings.HasPrefix(pageText(doc, i), "Дата") {
+			t.Fatalf("page %d does not start with the repeated header: %q", i, truncateText(pageText(doc, i), 60))
+		}
+	}
+	last := len(doc.Pages)
+	if !strings.Contains(pageText(doc, last), "Итого") {
+		t.Fatalf("the totals row is missing from the last page")
+	}
+	for i := 1; i < last; i++ {
+		if strings.Contains(pageText(doc, i), "Итого") {
+			t.Fatalf("the totals row must only appear on the last page, found on %d", i)
+		}
+	}
+}
+
+func truncateText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }

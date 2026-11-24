@@ -6,7 +6,7 @@ import "sync"
 // so that it validates like any other stylesheet.
 const uaCSS = `
 html, body { display: block; margin: 0; }
-head, title, meta { display: none; }
+head, title, meta, link, script { display: none; }
 div, p, h1, h2, h3, h4, h5, h6, ul, ol, table, thead, tbody, tfoot, tr, hr { display: block; }
 li { display: list-item; }
 table { display: table; border-collapse: collapse; }

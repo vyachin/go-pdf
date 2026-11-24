@@ -243,10 +243,11 @@ func TestUnsupportedUnitsAndValues(t *testing.T) {
 }
 
 func TestPageSizeAndContent(t *testing.T) {
-	size, err := ParsePageSize([]Token{{Kind: IdentToken, Text: "A4"}})
+	spec, err := ParsePageSizeSpec([]Token{{Kind: IdentToken, Text: "A4"}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	size := spec.Resolve(PageSize{Width: 1, Height: 2})
 	if size.Width != 595276 || size.Height != 841890 {
 		t.Fatalf("A4 = %+v", size)
 	}
@@ -306,4 +307,92 @@ func FuzzParse(f *testing.F) {
 			_ = r.Decls
 		}
 	})
+}
+
+func TestPageSizeSpec(t *testing.T) {
+	a4 := PageSize{Width: 595276, Height: 841890}
+	a5 := PageSize{Width: 419528, Height: 595276}
+	cases := []struct {
+		name        string
+		value       string
+		wantErr     bool
+		wantBase    PageSize
+		hasBase     bool
+		orientation Orientation
+	}{
+		{name: "named", value: "A4", wantBase: a4, hasBase: true},
+		{name: "named landscape", value: "A4 landscape", wantBase: a4, hasBase: true, orientation: OrientationLandscape},
+		{name: "orientation first", value: "landscape A4", wantBase: a4, hasBase: true, orientation: OrientationLandscape},
+		{name: "portrait", value: "A4 portrait", wantBase: a4, hasBase: true, orientation: OrientationPortrait},
+		{name: "orientation only", value: "landscape", orientation: OrientationLandscape},
+		{name: "two lengths", value: "210mm 297mm", wantBase: a4, hasBase: true},
+		{name: "unknown word", value: "A4 sideways", wantErr: true},
+		{name: "orientation with lengths", value: "210mm 297mm landscape", wantErr: true},
+		{name: "mixed name and length", value: "A4 210mm", wantErr: true},
+		{name: "two names", value: "A4 A5", wantErr: true},
+		{name: "empty", value: "", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := ParsePageSizeSpec(Tokenize([]byte(tc.value)))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q", tc.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%q: %v", tc.value, err)
+			}
+			if spec.HasBase != tc.hasBase || spec.Orientation != tc.orientation {
+				t.Fatalf("%q: spec = %+v", tc.value, spec)
+			}
+			if tc.hasBase && spec.Base != tc.wantBase {
+				t.Fatalf("%q: base = %+v, want %+v", tc.value, spec.Base, tc.wantBase)
+			}
+		})
+	}
+	// Landscape swaps the fallback size when no name is given.
+	if got := (PageSizeSpec{Orientation: OrientationLandscape}).Resolve(a5); got.Width != a5.Height || got.Height != a5.Width {
+		t.Fatalf("landscape fallback = %+v, want swapped A5", got)
+	}
+	// A named size is used as is when the run options say otherwise.
+	if got := (PageSizeSpec{Base: a4, HasBase: true}).Resolve(a5); got != a4 {
+		t.Fatalf("named size = %+v, want A4", got)
+	}
+}
+
+func TestStylesheetPositions(t *testing.T) {
+	src := []byte("p {\n  color: red;\n}\n")
+	sheet := ParseSheet(SheetOptions{File: "styles/print.css"}, src)
+	offset := strings.Index(string(src), "red")
+	pos := sheet.Position(offset)
+	if pos.File != "styles/print.css" || pos.Line != 2 || pos.Col != 10 {
+		t.Fatalf("position = %+v, want styles/print.css:2:10", pos)
+	}
+	// A stylesheet without a locator also reports its own file.
+	if pos := sheet.Position(0); pos.File != "styles/print.css" || pos.Line != 1 {
+		t.Fatalf("position(0) = %+v", pos)
+	}
+	// Inline sheets delegate to the document locator.
+	inline := ParseSheet(SheetOptions{Base: 100, Locate: func(off int) Position {
+		return Position{File: "doc.html", Line: 7, Col: off - 100 + 1}
+	}}, []byte("p { color: red }"))
+	if pos := inline.Position(104); pos.File != "doc.html" || pos.Line != 7 || pos.Col != 5 {
+		t.Fatalf("inline position = %+v", pos)
+	}
+}
+
+func TestRuleKeepsItsSheet(t *testing.T) {
+	sheet := ParseSheet(SheetOptions{File: "a.css"}, []byte("p { color: red }"))
+	if len(sheet.Rules) != 1 {
+		t.Fatalf("got %d rules", len(sheet.Rules))
+	}
+	rule := sheet.Rules[0]
+	if rule.Sheet != sheet {
+		t.Fatal("the rule does not reference its stylesheet")
+	}
+	if len(rule.Decls) != 1 || rule.Decls[0].Sheet != sheet {
+		t.Fatal("the declaration does not reference its stylesheet")
+	}
 }

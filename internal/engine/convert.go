@@ -25,13 +25,14 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	diags := profile.Validate(doc)
+	diags := profile.Validate(doc, profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict})
 	if diags.HasErrors() {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 
-	sheet := profile.ExtractStyleSheets(doc)
-	cascade := css.NewCascade(css.DefaultStylesheet(), sheet)
+	sheets, sheetDiags := profile.CollectStylesheets(doc, profile.Options{BaseDir: opts.BaseDir})
+	diags = append(diags, sheetDiags...)
+	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
 
 	pageSize, err := ParsePageSize(opts.PageSize)
 	if err != nil {
@@ -43,9 +44,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		diags.Errorf("options/margin", diag.Position{}, "", "%v", err)
 		return Result{Diagnostics: diags}, diags.Error()
 	}
-	pageStyle := layout.ParsePageStyle(sheet, pageSize, margin, &diags)
+	pageStyle := layout.ParsePageStyle(sheets, pageSize, margin)
 
-	registry, err := newFontRegistry(sheet, opts)
+	registry, err := newFontRegistry(sheets, opts)
 	if err != nil {
 		diags.Errorf("font/unavailable", diag.Position{}, "", "%v", err)
 		return Result{Diagnostics: diags}, diags.Error()
@@ -87,6 +88,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		}
 	}
 	diags = append(diags, layoutDiags...)
+	if opts.Strict {
+		diags.EscalateWarnings()
+	}
 	if diags.HasErrors() {
 		diags.Sort()
 		return Result{Diagnostics: diags}, diags.Error()
@@ -135,7 +139,17 @@ func ParsePageSize(s string) (css.PageSize, error) {
 			return css.PageSize{Width: width.Value, Height: height.Value}, nil
 		}
 	}
-	return css.ParsePageSize(css.Tokenize([]byte(s)))
+	spec, err := css.ParsePageSizeSpec(css.Tokenize([]byte(s)))
+	if err != nil {
+		return css.PageSize{}, err
+	}
+	if !spec.HasBase {
+		return css.PageSize{}, fmt.Errorf("page size %q must name a size (A4, A5 or Letter)", s)
+	}
+	if spec.Orientation != css.OrientationAny {
+		return css.PageSize{}, fmt.Errorf("page size %q: orientation is set by the document, not by the flag", s)
+	}
+	return spec.Base, nil
 }
 
 // ParseMargin parses a page margin shorthand such as "20mm" or "15mm 20mm".

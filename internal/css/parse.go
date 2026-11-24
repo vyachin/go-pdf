@@ -2,6 +2,7 @@ package css
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -29,6 +30,8 @@ type Declaration struct {
 	Value     []Token
 	Important bool
 	Offset    int
+	// Sheet is the stylesheet this declaration came from, used for positions.
+	Sheet *Stylesheet
 }
 
 // Rule is a parsed CSS rule. A selector list is stored as one rule per
@@ -42,6 +45,8 @@ type Rule struct {
 	Decls        []Declaration
 	Rules        []Rule
 	Offset       int
+	// Sheet is the stylesheet this rule came from, used for positions.
+	Sheet *Stylesheet
 }
 
 // Problem is a problem found while parsing CSS.
@@ -50,33 +55,87 @@ type Problem struct {
 	Offset  int
 }
 
-// Stylesheet is a parsed CSS source.
+// Position is a location inside a stylesheet.
+type Position struct {
+	File string
+	Line int
+	Col  int
+}
+
+// Stylesheet is a parsed CSS source together with enough information to map a
+// token offset back to a file position.
 type Stylesheet struct {
 	Rules    []Rule
 	Problems []Problem
-	// File is used in diagnostics when the stylesheet comes from its own file.
+	// File is the name of the stylesheet source, empty for an inline <style>.
 	File string
+
+	src    []byte
+	lines  []int
+	locate func(offset int) Position
+}
+
+// SheetOptions configures parsing of a stylesheet.
+type SheetOptions struct {
+	// File names the source for diagnostics.
+	File string
+	// Base is the offset of the stylesheet inside the surrounding document.
+	Base int
+	// Locate maps an absolute offset to a position. Inline styles use the
+	// position function of the HTML document.
+	Locate func(offset int) Position
+}
+
+// Position converts a token offset into a source position.
+func (s *Stylesheet) Position(offset int) Position {
+	if s == nil {
+		return Position{}
+	}
+	if s.locate != nil {
+		return s.locate(offset)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(s.src) {
+		offset = len(s.src)
+	}
+	i := sort.Search(len(s.lines), func(i int) bool { return s.lines[i] > offset }) - 1
+	if i < 0 {
+		i = 0
+	}
+	return Position{File: s.File, Line: i + 1, Col: offset - s.lines[i] + 1}
+}
+
+func lineStarts(src []byte) []int {
+	starts := []int{0}
+	for i, b := range src {
+		if b == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
 }
 
 type parser struct {
-	toks []Token
-	pos  int
+	toks  []Token
+	pos   int
+	sheet *Stylesheet
 }
 
-// Parse parses CSS from src.
-func Parse(src []byte) *Stylesheet { return ParseWithBase(src, 0) }
+// Parse parses CSS from src with positions relative to the stylesheet itself.
+func Parse(src []byte) *Stylesheet { return ParseSheet(SheetOptions{}, src) }
 
-// ParseWithBase parses CSS whose first byte corresponds to the given offset in
-// the surrounding document, so that diagnostics point into the original file.
-func ParseWithBase(src []byte, base int) *Stylesheet {
+// ParseSheet parses CSS and remembers how to map offsets to positions.
+func ParseSheet(opts SheetOptions, src []byte) *Stylesheet {
 	toks := Tokenize(src)
-	if base != 0 {
+	if opts.Base != 0 {
 		for i := range toks {
-			toks[i].Offset += base
+			toks[i].Offset += opts.Base
 		}
 	}
-	p := &parser{toks: toks}
-	sh := &Stylesheet{}
+	sh := &Stylesheet{File: opts.File, src: src, lines: lineStarts(src), locate: opts.Locate}
+	p := &parser{toks: toks, sheet: sh}
 	sh.Rules, sh.Problems = p.parseRules(false)
 	return sh
 }
@@ -158,7 +217,7 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 	}
 	if p.peek().Kind == SemicolonToken {
 		p.next()
-		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset}}, nil
+		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset, Sheet: p.sheet}}, nil
 	}
 	if p.peek().Kind != LBraceToken {
 		return nil, []Problem{{Message: "malformed @" + name, Offset: at.Offset}}
@@ -167,7 +226,7 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 	switch name {
 	case "page":
 		decls, nestedRules, probs := p.parseBlockContents()
-		rules := []Rule{{Kind: PageRule, Name: stringify(prelude), Decls: decls, Offset: at.Offset}}
+		rules := []Rule{{Kind: PageRule, Name: stringify(prelude), Decls: decls, Offset: at.Offset, Sheet: p.sheet}}
 		for _, nr := range nestedRules {
 			// An unknown nested at-rule inside @page is reported as an
 			// unsupported margin box.
@@ -179,16 +238,16 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		return rules, probs
 	case "font-face":
 		decls, _, probs := p.parseBlockContents()
-		return []Rule{{Kind: FontFaceRule, Decls: decls, Offset: at.Offset}}, probs
+		return []Rule{{Kind: FontFaceRule, Decls: decls, Offset: at.Offset, Sheet: p.sheet}}, probs
 	case "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right":
 		decls, _, probs := p.parseBlockContents()
-		return []Rule{{Kind: PageMarginRule, Name: name, Decls: decls, Offset: at.Offset}}, probs
+		return []Rule{{Kind: PageMarginRule, Name: name, Decls: decls, Offset: at.Offset, Sheet: p.sheet}}, probs
 	case "media":
 		inner, probs := p.parseRules(true)
-		return []Rule{{Kind: MediaRule, Name: strings.TrimSpace(stringify(prelude)), Rules: inner, Offset: at.Offset}}, probs
+		return []Rule{{Kind: MediaRule, Name: strings.TrimSpace(stringify(prelude)), Rules: inner, Offset: at.Offset, Sheet: p.sheet}}, probs
 	default:
 		p.skipBlockBody()
-		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset}}, nil
+		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset, Sheet: p.sheet}}, nil
 	}
 }
 
@@ -242,6 +301,7 @@ func (p *parser) parseQualifiedRule() ([]Rule, []Problem) {
 			Err:          err,
 			Decls:        decls,
 			Offset:       start,
+			Sheet:        p.sheet,
 		})
 	}
 	return rules, probs
@@ -325,7 +385,7 @@ func (p *parser) parseDeclaration() (Declaration, bool) {
 			}
 		}
 	}
-	return Declaration{Property: prop, Value: value, Important: important, Offset: start}, true
+	return Declaration{Property: prop, Value: value, Important: important, Offset: start, Sheet: p.sheet}, true
 }
 
 func lastNonSpace(toks []Token) int {

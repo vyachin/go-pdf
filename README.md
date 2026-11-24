@@ -22,7 +22,7 @@ pdfgen validate invoice.html
 ## Возможности
 
 - HTML-токенайзер и дерево с неявными тегами и foster-parenting для таблиц.
-- CSS: каскад, специфичность, наследование, сокращённые свойства, `@page`, `@font-face`, `@media print`, margin boxes.
+- CSS: каскад, специфичность, наследование, сокращённые свойства, `@page` (включая `landscape`/`portrait`), `@font-face`, `@media print`, margin boxes, локальные `<link rel="stylesheet">`.
 - Раскладка: блоки, инлайн, списки, таблицы с фиксированной раскладкой, `colspan`/`rowspan`, схлопывание границ.
 - Пагинация: `break-before/after/inside`, `orphans`, `widows`, повтор шапки таблицы, переполнение с диагностикой.
 - Шрифты: TrueType, `cmap` 4/12, кернинг из `GPOS`, субсеттинг, `Identity-H` + `ToUnicode` (русский текст копируется и ищется).
@@ -46,6 +46,7 @@ pdfgen help
 | `-margin` | поля по умолчанию: `20mm`, `25mm 20mm` |
 | `-date` | дата создания в RFC 3339 (по умолчанию фиксированная) |
 | `-render-png` | дополнительно отрисовать первую страницу в `<output>.png` |
+| `-strict` | считать предупреждения ошибками (для CI) |
 | `-font-dir` | каталог для относительных путей `@font-face` |
 | `-base-dir` | каталог для относительных путей изображений |
 
@@ -57,6 +58,9 @@ pdfgen validate -print-profile
 
 # Проверить шаблон без рендеринга (удобно в CI)
 pdfgen validate invoice.html && pdfgen convert invoice.html
+
+# Строгий режим: предупреждения (например, про игнорируемый <script>) валят сборку
+pdfgen validate -strict invoice.html
 ```
 
 ## Библиотека

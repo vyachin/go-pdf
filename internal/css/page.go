@@ -17,6 +17,18 @@ type PageSize struct {
 	Height int32
 }
 
+// Orientation is the orientation keyword of the page size property.
+type Orientation int
+
+const (
+	// OrientationAny leaves the page size as given.
+	OrientationAny Orientation = iota
+	// OrientationPortrait keeps the named size as is.
+	OrientationPortrait
+	// OrientationLandscape swaps the sides of the page.
+	OrientationLandscape
+)
+
 // Named page sizes in millipoints.
 var namedPageSizes = map[string]PageSize{
 	"a4":     {Width: 595276, Height: 841890},
@@ -24,30 +36,90 @@ var namedPageSizes = map[string]PageSize{
 	"letter": {Width: 612000, Height: 792000},
 }
 
-// ParsePageSize parses the value of the @page size property.
-func ParsePageSize(toks []Token) (PageSize, error) {
-	f := filterWhitespace(toks)
-	if len(f) == 1 && f[0].Kind == IdentToken {
-		if size, ok := namedPageSizes[strings.ToLower(f[0].Text)]; ok {
-			return size, nil
-		}
-		return PageSize{}, fmt.Errorf("unsupported page size %q", f[0].Text)
+// PageSizeSpec is the parsed value of the @page size property: a base size
+// (named or explicit) and an orientation, resolved later against the fallback
+// size from the run options.
+type PageSizeSpec struct {
+	Base        PageSize
+	HasBase     bool
+	Orientation Orientation
+}
+
+// Resolve returns the concrete page size, applying the orientation and the
+// fallback size when the document does not name one.
+func (s PageSizeSpec) Resolve(fallback PageSize) PageSize {
+	size := s.Base
+	if !s.HasBase {
+		size = fallback
 	}
-	if len(f) == 2 {
+	if s.Orientation == OrientationLandscape {
+		size.Width, size.Height = size.Height, size.Width
+	}
+	return size
+}
+
+// ParsePageSizeSpec parses the value of the @page size property. The grammar
+// is a subset of CSS Paged Media: a page size name and an orientation in any
+// order, or two lengths, or a single orientation applied to the fallback size.
+func ParsePageSizeSpec(toks []Token) (PageSizeSpec, error) {
+	f := filterWhitespace(toks)
+	if len(f) == 0 {
+		return PageSizeSpec{}, fmt.Errorf("page size is empty")
+	}
+	hasIdent := false
+	for _, t := range f {
+		if t.Kind == IdentToken {
+			hasIdent = true
+			break
+		}
+	}
+	if !hasIdent {
+		if len(f) != 2 {
+			return PageSizeSpec{}, fmt.Errorf("page size expects two lengths")
+		}
 		w, err := ParseLengthToken(f[0])
 		if err != nil {
-			return PageSize{}, err
+			return PageSizeSpec{}, err
 		}
 		h, err := ParseLengthToken(f[1])
 		if err != nil {
-			return PageSize{}, err
+			return PageSizeSpec{}, err
 		}
 		if w.Kind != MP || h.Kind != MP || w.Value <= 0 || h.Value <= 0 {
-			return PageSize{}, fmt.Errorf("page size expects two positive lengths")
+			return PageSizeSpec{}, fmt.Errorf("page size expects two positive lengths")
 		}
-		return PageSize{Width: w.Value, Height: h.Value}, nil
+		return PageSizeSpec{Base: PageSize{Width: w.Value, Height: h.Value}, HasBase: true}, nil
 	}
-	return PageSize{}, fmt.Errorf("page size expects a name or two lengths")
+	if len(f) > 2 {
+		return PageSizeSpec{}, fmt.Errorf("page size expects a name and an optional orientation")
+	}
+	var spec PageSizeSpec
+	for _, t := range f {
+		if t.Kind != IdentToken {
+			return PageSizeSpec{}, fmt.Errorf("orientation can only be combined with a page size name, not with lengths")
+		}
+		name := strings.ToLower(t.Text)
+		switch name {
+		case "portrait", "landscape":
+			if spec.Orientation != OrientationAny {
+				return PageSizeSpec{}, fmt.Errorf("page size has more than one orientation")
+			}
+			if name == "portrait" {
+				spec.Orientation = OrientationPortrait
+			} else {
+				spec.Orientation = OrientationLandscape
+			}
+		case "a4", "a5", "letter":
+			if spec.HasBase {
+				return PageSizeSpec{}, fmt.Errorf("page size has more than one size name")
+			}
+			spec.Base = namedPageSizes[name]
+			spec.HasBase = true
+		default:
+			return PageSizeSpec{}, fmt.Errorf("unsupported page size %q", t.Text)
+		}
+	}
+	return spec, nil
 }
 
 // ParsePageMargin parses the margin shorthand of an @page rule.

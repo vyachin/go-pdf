@@ -78,6 +78,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		margin  string
 		dateStr string
 		png     bool
+		strict  bool
 		common  commonFlags
 	)
 	fs.StringVar(&out, "o", "", "output PDF path (default: <input>.pdf)")
@@ -85,6 +86,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&margin, "margin", "20mm", "fallback page margin")
 	fs.StringVar(&dateStr, "date", "", "creation date in RFC 3339 (default: fixed constant)")
 	fs.BoolVar(&png, "render-png", false, "also write <output>.png with the first page")
+	fs.BoolVar(&strict, "strict", false, "treat profile warnings as errors")
 	addCommonFlags(fs, &common)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -124,6 +126,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		BaseDir:   common.baseDir,
 		Date:      date,
 		RenderPNG: png,
+		Strict:    strict,
 	})
 	for _, d := range res.Diagnostics {
 		fmt.Fprintln(stderr, d.String())
@@ -150,6 +153,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var common commonFlags
+	strict := fs.Bool("strict", false, "treat profile warnings as errors")
 	printProfile := fs.Bool("print-profile", false, "print the supported CSS profile and exit")
 	addCommonFlags(fs, &common)
 	if err := fs.Parse(args); err != nil {
@@ -175,6 +179,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		FontDir: common.fontDir,
 		BaseDir: common.baseDir,
 		File:    fs.Arg(0),
+		Strict:  *strict,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)

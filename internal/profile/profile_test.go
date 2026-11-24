@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
 )
@@ -15,7 +16,7 @@ func validate(t *testing.T, src string) diag.List {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Validate(doc)
+	return Validate(doc, Options{})
 }
 
 func codes(l diag.List) []string {
@@ -204,4 +205,54 @@ func TestDiagnosticFormatting(t *testing.T) {
 		t.Fatalf("diagnostic = %q", line)
 	}
 	_ = fmt.Sprint(line)
+}
+
+func TestPageOrientationValidation(t *testing.T) {
+	ok := validate(t, `<style>@page { size: A4 landscape }</style><p>x</p>`)
+	if ok.HasErrors() {
+		t.Fatalf("A4 landscape must be accepted: %v", ok.Lines())
+	}
+	for _, value := range []string{"A4 sideways", "210mm 297mm landscape", "A4 A5"} {
+		bad := validate(t, `<style>@page { size: `+value+` }</style><p>x</p>`)
+		if len(bad) != 1 || bad[0].Code != "css/unsupported-value" {
+			t.Fatalf("size %q diagnostics = %v", value, bad.Lines())
+		}
+	}
+}
+
+func TestExternalStylesheetPositions(t *testing.T) {
+	src := []byte("p {\n  display: flex;\n}\n")
+	sheet := css.ParseSheet(css.SheetOptions{File: "styles/print.css"}, src)
+	doc, err := html.Parse([]byte("<p>x</p>"), "doc.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out diag.List
+	validateSheet(doc, sheet, &out)
+	if len(out) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(out), out.Lines())
+	}
+	if out[0].Pos.File != "styles/print.css" || out[0].Pos.Line != 2 || out[0].Pos.Col <= 0 {
+		t.Fatalf("diagnostic position = %+v, want styles/print.css:2:<col>", out[0].Pos)
+	}
+	if out[0].Code != "css/unsupported-value" {
+		t.Fatalf("code = %q", out[0].Code)
+	}
+}
+
+func TestScriptIsIgnoredWithWarning(t *testing.T) {
+	l := validate(t, `<script>console.log("x")</script><p>текст</p>`)
+	if l.HasErrors() {
+		t.Fatalf("a script must not fail validation: %v", l.Lines())
+	}
+	if len(l) != 1 || l[0].Code != "html/ignored-script" || l[0].Severity != diag.Warning {
+		t.Fatalf("diagnostics = %v", l.Lines())
+	}
+	strict := Validate(parseDoc(t, `<script>console.log("x")</script><p>x</p>`), Options{Strict: true})
+	if !strict.HasErrors() {
+		t.Fatalf("strict mode must turn the warning into an error: %v", strict.Lines())
+	}
+	if strict[0].Code != "html/ignored-script" {
+		t.Fatalf("code = %q", strict[0].Code)
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/pdfdebug"
 )
 
@@ -331,3 +332,132 @@ func TestUnknownTargetWarns(t *testing.T) {
 func extractText(data []byte) (string, error) { return pdfdebug.Text(data) }
 
 func extractPageTexts(data []byte) ([]string, error) { return pdfdebug.Pages(data) }
+
+func TestLandscapePage(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<style>
+		@page { size: A4 landscape; margin: 15mm; @bottom-center { content: "Стр. " counter(page) } }
+		body { font-size: 12pt }
+	</style><p>Альбомная страница</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "landscape.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(res.PDF)
+	if !strings.Contains(out, "/MediaBox [0 0 841.89 595.276]") {
+		t.Fatalf("the page is not A4 landscape: %s", firstMediaBox(out))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Стр. 1") {
+		t.Fatalf("the footer is missing: %q", text)
+	}
+	validateWithPDFCPU(t, res.PDF)
+}
+
+func firstMediaBox(pdf string) string {
+	i := strings.Index(pdf, "/MediaBox")
+	if i < 0 {
+		return "(no MediaBox)"
+	}
+	end := i + 60
+	if end > len(pdf) {
+		end = len(pdf)
+	}
+	return pdf[i:end]
+}
+
+func TestExternalStylesheetApplied(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "style.css"), []byte(".box { background-color: #ff0000 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := `<link rel="stylesheet" href="style.css"><div class="box">внешний стиль</div>`
+	res, err := Convert(context.Background(), []byte(src), Options{
+		FallbackFont: fontPath,
+		BaseDir:      dir,
+		File:         "external.html",
+	})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	var content strings.Builder
+	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
+		content.Write(stream)
+	}
+	painted := content.String()
+	if !strings.Contains(painted, "1 0 0 rg") {
+		t.Fatalf("the background colour from the external stylesheet was not applied: %q", painted)
+	}
+	// The background must be painted before the text so that it stays behind it.
+	if fill, text := strings.Index(painted, " re f"), strings.Index(painted, "BT"); fill < 0 || text < 0 || fill > text {
+		t.Fatalf("paint order is wrong: background at %d, text at %d", fill, text)
+	}
+	validateWithPDFCPU(t, res.PDF)
+}
+
+func TestRemoteStylesheetRejected(t *testing.T) {
+	src := `<link rel="stylesheet" href="https://example.com/site.css"><p>x</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{File: "remote.html"})
+	if err == nil {
+		t.Fatal("expected an error for a remote stylesheet")
+	}
+	found := false
+	for _, d := range res.Diagnostics {
+		if d.Code == "css/link-remote" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("diagnostics = %v", res.Diagnostics.Lines())
+	}
+}
+
+func TestScriptIgnoredButContentNotRendered(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<script>var secret = "НЕ РЕНДЕРИТЬ";</script><p>видимый текст</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "script.html"})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !hasCode(res.Diagnostics, "html/ignored-script") {
+		t.Fatalf("expected a script warning, got %v", res.Diagnostics.Lines())
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "НЕ РЕНДЕРИТЬ") {
+		t.Fatalf("script content leaked into the PDF: %q", text)
+	}
+	if !strings.Contains(text, "видимый текст") {
+		t.Fatalf("regular text is missing: %q", text)
+	}
+}
+
+func TestStrictModeRejectsScripts(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<script>x()</script><p>текст</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "strict.html", Strict: true})
+	if err == nil {
+		t.Fatal("strict mode must reject a template with a script")
+	}
+	if len(res.PDF) != 0 {
+		t.Fatal("no PDF must be produced in strict mode")
+	}
+	if !hasCode(res.Diagnostics, "html/ignored-script") {
+		t.Fatalf("diagnostics = %v", res.Diagnostics.Lines())
+	}
+}
+
+func hasCode(l diag.List, code string) bool {
+	for _, d := range l {
+		if d.Code == code {
+			return true
+		}
+	}
+	return false
+}

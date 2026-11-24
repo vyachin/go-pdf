@@ -133,13 +133,13 @@ func (h *harness) runWithSize(src string, size css.PageSize, margin [4]int32) *D
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	diags := profile.Validate(doc)
+	diags := profile.Validate(doc, profile.Options{})
 	if diags.HasErrors() {
 		h.t.Fatalf("validation failed: %v", diags.Lines())
 	}
-	sheet := profile.ExtractStyleSheets(doc)
-	cascade := css.NewCascade(css.DefaultStylesheet(), sheet)
-	ps := ParsePageStyle(sheet, size, margin, &diags)
+	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
+	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
 	ctx.Cascade = cascade
 	ctx.PageStyle = ps
@@ -159,8 +159,8 @@ func (h *harness) buildTree(src string) *Box {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	sheet := profile.ExtractStyleSheets(doc)
-	cascade := css.NewCascade(css.DefaultStylesheet(), sheet)
+	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
 	ctx := h.ctx
 	ctx.Cascade = cascade
 	root, diags := Build(doc, ctx)
@@ -330,7 +330,7 @@ func TestUnsupportedValueIsAValidationError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diags := profile.Validate(doc)
+	diags := profile.Validate(doc, profile.Options{})
 	if !diags.HasErrors() {
 		t.Fatal("expected a validation error")
 	}

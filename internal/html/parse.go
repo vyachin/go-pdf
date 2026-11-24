@@ -146,7 +146,7 @@ func (p *parser) enterBody(t Token) {
 
 func (p *parser) text(t Token) {
 	if p.mode == modeHead {
-		if top := p.current(); top.Tag == "title" || top.Tag == "style" {
+		if top := p.current(); top.Tag == "title" || top.Tag == "style" || top.Tag == "script" {
 			p.appendText(t)
 			return
 		}

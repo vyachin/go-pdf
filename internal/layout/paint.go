@@ -21,8 +21,11 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	first := b.fragments == 0
 	b.fragments++
 	page := f.page
+	// Decorations are inserted where the fragment started so that they stay
+	// behind the content that was painted afterwards.
+	var ops []Op
 	if b.Style.Background.Set && bottom > top {
-		page.Ops = append(page.Ops, Op{
+		ops = append(ops, Op{
 			Kind:  FillOpKind,
 			Rect:  Rect{X: b.x, Y: top, W: b.width, H: bottom - top},
 			Color: b.Style.Background,
@@ -38,7 +41,7 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 		if !color.Set {
 			color = css.Color{Set: true}
 		}
-		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: rect, Color: color})
+		ops = append(ops, Op{Kind: FillOpKind, Rect: rect, Color: color})
 	}
 	bl, br := b.borderLeft(), b.borderRight()
 	bt, bb := b.borderTop(), b.borderBottom()
@@ -50,6 +53,21 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	if completed {
 		paintBorder(2, Rect{X: b.x, Y: bottom - bb, W: b.width, H: bb})
 	}
+	if len(ops) > 0 {
+		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
+	}
+}
+
+// insertOps places ops at the given index of dst, keeping paint order.
+func insertOps(dst []Op, at int, ops []Op) []Op {
+	if at < 0 || at > len(dst) {
+		at = len(dst)
+	}
+	out := make([]Op, 0, len(dst)+len(ops))
+	out = append(out, dst[:at]...)
+	out = append(out, ops...)
+	out = append(out, dst[at:]...)
+	return out
 }
 
 // paintLineAt draws one line of text.

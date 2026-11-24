@@ -12,33 +12,25 @@ import (
 	"github.com/vyachin/go-pdf/internal/html"
 )
 
-// ExtractStyleSheets collects every <style> element of the document into one
-// stylesheet. Token offsets are shifted so diagnostics point into the original
-// HTML file.
-func ExtractStyleSheets(doc *html.Document) *css.Stylesheet {
-	sh := &css.Stylesheet{}
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Tag == "style" {
-			base := n.Start
-			if len(n.Children) > 0 && n.Children[0].Type == html.TextNode {
-				base = n.Children[0].Start
-			}
-			sheet := css.ParseWithBase([]byte(n.TextContent()), base)
-			sh.Rules = append(sh.Rules, sheet.Rules...)
-			for _, p := range sheet.Problems {
-				sh.Problems = append(sh.Problems, css.Problem{Message: p.Message, Offset: p.Offset})
-			}
-			return
-		}
-		for _, c := range n.Children {
-			walk(c)
-		}
+// toDiag converts a stylesheet position into a diagnostic position.
+func toDiag(p css.Position) diag.Position {
+	return diag.Position{File: p.File, Line: p.Line, Col: p.Col}
+}
+
+// rulePos returns the source position of a rule.
+func rulePos(r css.Rule) diag.Position {
+	if r.Sheet == nil {
+		return diag.Position{}
 	}
-	if doc.Root != nil {
-		walk(doc.Root)
+	return toDiag(r.Sheet.Position(r.Offset))
+}
+
+// declPos returns the source position of a declaration.
+func declPos(d css.Declaration) diag.Position {
+	if d.Sheet == nil {
+		return diag.Position{}
 	}
-	return sh
+	return toDiag(d.Sheet.Position(d.Offset))
 }
 
 var fontFaceProperties = map[string]bool{
@@ -46,12 +38,19 @@ var fontFaceProperties = map[string]bool{
 }
 
 // Validate checks the document and its stylesheets against the profile.
-func Validate(doc *html.Document) diag.List {
+func Validate(doc *html.Document, opts Options) diag.List {
 	var out diag.List
-	sheet := ExtractStyleSheets(doc)
-	validateSheet(doc, sheet, &out)
+	sheets, sheetDiags := CollectStylesheets(doc, opts)
+	out = append(out, sheetDiags...)
+	for _, sheet := range sheets {
+		validateSheet(doc, sheet, &out)
+	}
 
 	walkElements(doc.Root, func(n *html.Node) {
+		if n.Tag == "script" {
+			out.Warnf("html/ignored-script", doc.Pos(n), n.Path(), "scripts are not executed and were ignored")
+			return
+		}
 		if !css.SupportedElements[n.Tag] {
 			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
 		}
@@ -61,6 +60,9 @@ func Validate(doc *html.Document) diag.List {
 	})
 
 	out.Sort()
+	if opts.Strict {
+		out.EscalateWarnings()
+	}
 	return out
 }
 
@@ -75,7 +77,7 @@ func walkElements(n *html.Node, fn func(*html.Node)) {
 
 func validateSheet(doc *html.Document, sh *css.Stylesheet, out *diag.List) {
 	for _, p := range sh.Problems {
-		out.Errorf("css/syntax", doc.Position(p.Offset), "", "%s", p.Message)
+		out.Errorf("css/syntax", toDiag(sh.Position(p.Offset)), "", "%s", p.Message)
 	}
 	validateRules(doc, sh.Rules, out)
 }
@@ -85,14 +87,14 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 		switch r.Kind {
 		case css.StyleRule:
 			if r.Err != nil {
-				out.Errorf("css/unsupported-selector", doc.Position(r.Offset), "", "selector %q: %v", r.SelectorText, r.Err)
+				out.Errorf("css/unsupported-selector", rulePos(r), "", "selector %q: %v", r.SelectorText, r.Err)
 				continue
 			}
 			if pseudo := r.Selector.PseudoElement(); pseudo != "" {
 				validateGeneratedContent(doc, r, pseudo, out)
 				continue
 			}
-			validateDeclarations(doc, doc.Position(r.Offset), "", r.Decls, out)
+			validateDeclarations(doc, rulePos(r), "", r.Decls, out)
 		case css.FontFaceRule:
 			validateFontFace(doc, r, out)
 		case css.PageRule:
@@ -102,12 +104,12 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 		case css.MediaRule:
 			name := strings.ToLower(strings.TrimSpace(r.Name))
 			if name != "print" && name != "all" {
-				out.Errorf("css/unsupported-media", doc.Position(r.Offset), "", "@media %q is not supported, only print and all", r.Name)
+				out.Errorf("css/unsupported-media", rulePos(r), "", "@media %q is not supported, only print and all", r.Name)
 				continue
 			}
 			validateRules(doc, r.Rules, out)
 		case css.UnknownAtRule:
-			out.Errorf("css/unsupported-at-rule", doc.Position(r.Offset), "", "@%s is not supported", r.Name)
+			out.Errorf("css/unsupported-at-rule", rulePos(r), "", "@%s is not supported", r.Name)
 		}
 	}
 }
@@ -115,7 +117,7 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 // validateGeneratedContent checks the single supported pseudo-element rule,
 // a::after with a content property.
 func validateGeneratedContent(doc *html.Document, r css.Rule, pseudo string, out *diag.List) {
-	pos := doc.Position(r.Offset)
+	pos := rulePos(r)
 	if pseudo != "after" {
 		out.Errorf("css/unsupported-selector", pos, "", "pseudo-element ::%s is not supported, only a::after", pseudo)
 		return
@@ -127,7 +129,7 @@ func validateGeneratedContent(doc *html.Document, r css.Rule, pseudo string, out
 		return
 	}
 	for _, d := range r.Decls {
-		declPos := doc.Position(d.Offset)
+		declPos := declPosOr(d, pos)
 		if d.Property != "content" {
 			out.Errorf("css/unsupported-property", declPos, "", "only content is allowed inside a::after, got %q", d.Property)
 			continue
@@ -140,17 +142,17 @@ func validateGeneratedContent(doc *html.Document, r css.Rule, pseudo string, out
 
 func validateDeclarations(doc *html.Document, pos diag.Position, elementPath string, decls []css.Declaration, out *diag.List) {
 	for _, d := range decls {
-		declPos := doc.Position(d.Offset)
-		if declPos.File == "" {
-			declPos = pos
+		pos := pos
+		if p := declPos(d); p.File != "" {
+			pos = p
 		}
 		if _, ok := css.Table[d.Property]; !ok {
-			out.Errorf("css/unsupported-property", declPos, elementPath, "property %q is not supported", d.Property)
+			out.Errorf("css/unsupported-property", pos, elementPath, "property %q is not supported", d.Property)
 			continue
 		}
 		st := css.DefaultStyle()
 		if err := css.ApplyDecl(st, d.Property, d.Value, 12000); err != nil {
-			out.Errorf("css/unsupported-value", declPos, elementPath, "%s: %v", d.Property, err)
+			out.Errorf("css/unsupported-value", pos, elementPath, "%s: %v", d.Property, err)
 		}
 	}
 }
@@ -158,7 +160,7 @@ func validateDeclarations(doc *html.Document, pos diag.Position, elementPath str
 func validateFontFace(doc *html.Document, r css.Rule, out *diag.List) {
 	hasFamily, hasSrc := false, false
 	for _, d := range r.Decls {
-		pos := doc.Position(d.Offset)
+		pos := declPosOr(d, rulePos(r))
 		if !fontFaceProperties[d.Property] {
 			out.Errorf("css/unsupported-property", pos, "", "property %q is not supported inside @font-face", d.Property)
 			continue
@@ -183,19 +185,19 @@ func validateFontFace(doc *html.Document, r css.Rule, out *diag.List) {
 		}
 	}
 	if !hasFamily || !hasSrc {
-		out.Errorf("css/incomplete-font-face", doc.Position(r.Offset), "", "@font-face requires font-family and src")
+		out.Errorf("css/incomplete-font-face", rulePos(r), "", "@font-face requires font-family and src")
 	}
 }
 
 func validatePageRule(doc *html.Document, r css.Rule, out *diag.List) {
 	if name := strings.TrimSpace(r.Name); name != "" {
-		out.Errorf("css/unsupported-page-selector", doc.Position(r.Offset), "", "@page %q selectors are not supported", name)
+		out.Errorf("css/unsupported-page-selector", rulePos(r), "", "@page %q selectors are not supported", name)
 	}
 	for _, d := range r.Decls {
-		pos := doc.Position(d.Offset)
+		pos := declPosOr(d, rulePos(r))
 		switch d.Property {
 		case "size":
-			if _, err := css.ParsePageSize(d.Value); err != nil {
+			if _, err := css.ParsePageSizeSpec(d.Value); err != nil {
 				out.Errorf("css/unsupported-value", pos, "", "size: %v", err)
 			}
 		case "margin":
@@ -210,11 +212,11 @@ func validatePageRule(doc *html.Document, r css.Rule, out *diag.List) {
 
 func validatePageMargin(doc *html.Document, r css.Rule, out *diag.List) {
 	if !css.MarginBoxNames[r.Name] {
-		out.Errorf("css/unsupported-margin-box", doc.Position(r.Offset), "", "margin box @%s is not supported", r.Name)
+		out.Errorf("css/unsupported-margin-box", rulePos(r), "", "margin box @%s is not supported", r.Name)
 		return
 	}
 	for _, d := range r.Decls {
-		pos := doc.Position(d.Offset)
+		pos := declPosOr(d, rulePos(r))
 		if d.Property != "content" {
 			out.Errorf("css/unsupported-property", pos, "", "property %q is not supported inside @%s", d.Property, r.Name)
 			continue
@@ -223,6 +225,15 @@ func validatePageMargin(doc *html.Document, r css.Rule, out *diag.List) {
 			out.Errorf("css/unsupported-value", pos, "", "content: %v", err)
 		}
 	}
+}
+
+// declPosOr prefers the declaration's own position and falls back to the
+// position of the enclosing rule or element.
+func declPosOr(d css.Declaration, fallback diag.Position) diag.Position {
+	if p := declPos(d); p.File != "" {
+		return p
+	}
+	return fallback
 }
 
 // Text renders the profile as human readable documentation, used by the CLI.

@@ -11,8 +11,10 @@ pdfgen validate -print-profile
 ```
 html head body div p h1 h2 h3 h4 h5 h6
 ul ol li table thead tbody tfoot tr td th
-img span br hr strong b em i a title meta style
+img span br hr strong b em i a title meta style link
 ```
+
+`<script>` допускается, но игнорируется с предупреждением `html/ignored-script`: код не исполняется и не рендерится. В строгом режиме (`-strict`) это ошибка.
 
 Неизвестный элемент — ошибка `html/unsupported-element`. Поддерживаются атрибуты `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (для `ol`), `name`/`content` (для `meta`).
 
@@ -62,9 +64,13 @@ a.toc::after { content: " →" target-counter(attr(href), page) }
 
 ```css
 @page {
-  size: A4;          /* A4, A5, Letter или два размера */
-  margin: 20mm 15mm; /* 1–4 длины */
+  size: A4;              /* A4, A5, Letter, два размера или landscape/portrait */
+  margin: 20mm 15mm;     /* 1–4 длины */
 }
+
+@page { size: A4 landscape }  /* 297 x 210 мм */
+@page { size: landscape }     /* ориентация на размер из -page (по умолчанию A4) */
+@page { size: portrait }
 
 @page {
   @top-center    { content: "Счёт № 42" }
@@ -75,6 +81,10 @@ a.toc::after { content: " →" target-counter(attr(href), page) }
   font-family: "PT Serif";
   src: url(fonts/pt-serif.ttf);  /* только локальный TrueType */
 }
+
+/* Внешняя таблица стилей: только локальный файл */
+<link rel="stylesheet" href="styles/print.css">
+<link rel="stylesheet" href="styles/screen.css" media="print">
 
 @media print { /* или @media all */ }
 ```
@@ -92,8 +102,21 @@ Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-cent
 | `hyphens: auto` | требует словарей переносов; в планах на v2 |
 | JavaScript | движок статический, документ не исполняется |
 | CFF/OTF и веб-шрифты по URL | см. `docs/fonts.md` |
+| внешний CSS по URL | движок не ходит в сеть; `<link>` принимает только локальный файл |
 | `table-layout: auto` | алгоритм авто-раскладки таблиц несоразмерен пользе |
+| `size: 210mm 297mm landscape` | грамматика CSS не разрешает ориентацию вместе с длинами |
 | прочие псевдоэлементы (`::before`, `::first-line`) | сгенерированное содержимое нужно только для оглавления |
+
+## Внешние таблицы стилей
+
+`<link rel="stylesheet">` подключает локальный файл. Правила:
+
+- путь разрешается относительно `BaseDir` запуска; при заданном `BaseDir` выход за его пределы запрещён;
+- `media` со значением `print`, `all` или пустым применяет лист, иное значение пропускает его без ошибки;
+- `rel`, отличный от `stylesheet` (`icon`, `canonical`), игнорируется молча;
+- `http(s)://` и `data:` отклоняются: удалённые стили не загружаются;
+- порядок каскада — порядок документа, поэтому `<style>`, `<link>`, `<style>` применяются именно в этой последовательности;
+- ошибка внутри подключённого файла указывает файл, строку и столбец в нём.
 
 ## Диагностика
 

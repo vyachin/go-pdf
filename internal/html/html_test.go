@@ -199,6 +199,19 @@ func TestParseTree(t *testing.T) {
 `,
 		},
 		{
+			name:  "script text stays inside the script",
+			input: `<script>var x = 1</script><p>a</p>`,
+			want: `#document
+  <html>
+    <head>
+      <script>
+        "var x = 1"
+    <body>
+      <p>
+        "a"
+`,
+		},
+		{
 			name:  "explicit head and body",
 			input: `<html><head><title>T</title></head><body class="b"><h1>H</h1></body></html>`,
 			want: `#document

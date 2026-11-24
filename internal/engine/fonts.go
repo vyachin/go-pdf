@@ -30,10 +30,13 @@ type fontRegistry struct {
 	cache    map[string]*layout.FontFace
 }
 
-func newFontRegistry(sheet *css.Stylesheet, opts Options) (*fontRegistry, error) {
+func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
 	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
 	seen := map[string]bool{}
-	if sheet != nil {
+	for _, sheet := range sheets {
+		if sheet == nil {
+			continue
+		}
 		for _, rule := range sheet.Rules {
 			if rule.Kind != css.FontFaceRule {
 				continue

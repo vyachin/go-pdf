@@ -63,6 +63,7 @@ type Box struct {
 	startPage     int
 	fragStartY    int32
 	fragStartPage int
+	fragOpStart   int
 	fragments     int
 	listMarkerY   int32
 	contentTopY   int32

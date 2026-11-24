@@ -505,7 +505,7 @@ var SupportedElements = map[string]bool{
 	"tr": true, "td": true, "th": true,
 	"img": true, "span": true, "br": true, "hr": true,
 	"strong": true, "b": true, "em": true, "i": true, "a": true,
-	"title": true, "meta": true, "style": true,
+	"title": true, "meta": true, "style": true, "link": true,
 }
 
 // ElementOrder returns supported elements in a stable order.

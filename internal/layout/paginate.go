@@ -162,6 +162,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
 		b.entered = true
 		b.fragStartY = f.y
 		b.fragStartPage = f.pageNum
+		b.fragOpStart = len(f.page.Ops)
 		if b.Node != nil {
 			if id := b.Node.ID(); id != "" {
 				if _, ok := l.anchors[id]; !ok {
@@ -183,6 +184,13 @@ func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
 			b.listMarkerY = f.y
 			l.paintListMarker(f, b)
 		}
+	}
+	if b.fragStartPage != f.pageNum {
+		// A continuation on a new page: the fragment starts here, with no top
+		// border and padding.
+		b.fragStartPage = f.pageNum
+		b.fragStartY = f.y
+		b.fragOpStart = len(f.page.Ops)
 	}
 	f.empty = false
 

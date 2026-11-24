@@ -39,6 +39,8 @@ type Options struct {
 	// FallbackFont is a TrueType font used for families that are not declared
 	// with @font-face. When empty, a small list of system fonts is tried.
 	FallbackFont string
+	// Strict turns profile warnings into errors.
+	Strict bool
 }
 
 // Result is the outcome of a successful conversion.
@@ -64,7 +66,9 @@ func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) 
 	if err != nil {
 		return nil, err
 	}
-	return profile.Validate(doc), nil
+	diags := profile.Validate(doc, profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict})
+	diags.Sort()
+	return diags, nil
 }
 
 func sourceName(opts Options) string {
