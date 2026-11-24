@@ -144,7 +144,13 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, d.String())
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+		// The diagnostics above already carry the details; printing err would
+		// repeat every line, because the engine's error joins the same list.
+		if res.Diagnostics.HasErrors() {
+			fmt.Fprintln(stderr, "pdfgen convert: template is invalid")
+		} else {
+			fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+		}
 		return exitFailure
 	}
 	if err := writeFileAtomic(out, res.PDF); err != nil {

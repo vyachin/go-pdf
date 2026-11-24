@@ -168,7 +168,7 @@
   **Воспроизведение:** `pdfgen validate` на `<div style="display:inline-block">x</div>` → `css/unsupported-value: display: inline-block is not supported`.
   **Исправление / приёмка:** убрать значение из таблицы (предпочтительно) либо поддержать; тест согласованности строки `display` с валидатором.
 
-- [ ] **RV2-26 · P3: не печатать error-диагностики дважды в `pdfgen convert`.**
+- [x] **RV2-26 · P3: не печатать error-диагностики дважды в `pdfgen convert`.**
 
   **Код:** цикл печати диагностик и затем `err.Error()` в `cmd/pdfgen/main.go` (около :143–147).
   **Воспроизведение:** `pdfgen convert -o out.pdf bad.html` печатает каждую ошибку дважды: две строки диагностик, затем те же две в `pdfgen convert: …`.

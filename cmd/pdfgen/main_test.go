@@ -241,3 +241,29 @@ func TestConvertAcceptsSharedPageUnit(t *testing.T) {
 		t.Fatal("the shared-unit page size did not reach the PDF")
 	}
 }
+
+// TestConvertPrintsEachDiagnosticOnce guards RV2-26: convert printed every
+// error diagnostic and then the engine error, which joins the same lines, so
+// each problem appeared twice on stderr.
+func TestConvertPrintsEachDiagnosticOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.html")
+	if err := os.WriteFile(path, []byte(`<p style="flex:1">x</p><p style="color:notacolour">y</p>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "convert", "-o", filepath.Join(t.TempDir(), "out.pdf"), path)
+	if code != exitFailure {
+		t.Fatalf("exit code = %d, want %d", code, exitFailure)
+	}
+	if got := strings.Count(stderr, "flex"); got != 1 {
+		t.Fatalf("the flex diagnostic appears %d times:\n%s", got, stderr)
+	}
+	if got := strings.Count(stderr, "notacolour"); got != 1 {
+		t.Fatalf("the colour diagnostic appears %d times:\n%s", got, stderr)
+	}
+	if lines := strings.Count(strings.TrimSpace(stderr), "\n") + 1; lines != 3 {
+		t.Fatalf("stderr has %d lines, want 3 (two diagnostics and one summary):\n%s", lines, stderr)
+	}
+	if !strings.Contains(stderr, "template is invalid") {
+		t.Fatalf("the summary line is missing:\n%s", stderr)
+	}
+}
