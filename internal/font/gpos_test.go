@@ -102,7 +102,12 @@ func coverageFormat2Test(ranges [][2]uint16) []byte {
 // pairPosFormat2Test builds a class-based subtable with one class-0 record and
 // the given Coverage.
 func pairPosFormat2Test(coverage []byte) []byte {
-	classDef := classDefFormat1Test(0, []uint16{0})
+	return pairPosFormat2WithClassDefs(coverage, classDefFormat1Test(0, []uint16{0}), classDefFormat1Test(0, []uint16{0}))
+}
+
+func pairPosFormat2WithClassDefs(coverage, class1, class2 []byte) []byte {
+	classDef := class1
+	classDef2 := class2
 	header := make([]byte, 18)
 	binary.BigEndian.PutUint16(header[0:2], 2)   // format
 	binary.BigEndian.PutUint16(header[4:6], 4)   // valueFormat1: XAdvance
@@ -114,8 +119,26 @@ func pairPosFormat2Test(coverage []byte) []byte {
 	body := append([]byte{}, header...)
 	body = append(body, coverage...)
 	body = append(body, classDef...)
-	body = append(body, classDef...)
+	body = append(body, classDef2...)
 	return body
+}
+
+func TestClassDefExpansionIsBoundedThroughPairPos(t *testing.T) {
+	// Four overlapping full-space ranges describe 262,144 glyph ids, more than
+	// the shared budget. parsePairPos must stop before building the map.
+	classDef := []byte{0, 2, 0, 4}
+	for i := 0; i < 4; i++ {
+		classDef = append(classDef, 0, 0, 0xFF, 0xFF, 0, 1)
+	}
+	body := pairPosFormat2WithClassDefs(coverageFormat1Test([]uint16{0}), classDef, classDefFormat1Test(0, []uint16{0}))
+	k := &kerning{pairs: map[uint32]int16{}}
+	k.parsePairPos(body, 0)
+	if k.records != nil || k.class1 != nil {
+		t.Fatal("an over-budget class definition was expanded")
+	}
+	if k.coverGlyphs > maxKerningGlyphs {
+		t.Fatalf("the coverage budget was exceeded: %d", k.coverGlyphs)
+	}
 }
 
 func TestCoverageFormat2ExpansionIsBounded(t *testing.T) {
@@ -191,13 +214,8 @@ func replaceTable(t *testing.T, data []byte, tag string, table []byte) []byte {
 	return nil
 }
 
-func TestFullFontParseRejectsOversizedCoverage(t *testing.T) {
-	f := testFont(t)
-	ranges := make([][2]uint16, 16)
-	for i := range ranges {
-		ranges[i] = [2]uint16{0, 65535}
-	}
-	subtable := pairPosFormat2Test(coverageFormat2Test(ranges))
+// gposWithPairPos wraps one PairPos subtable in a minimal GPOS table.
+func gposWithPairPos(subtable []byte) []byte {
 	// GPOS header (10), LookupList at 10, one Lookup at 14, one subtable at 22.
 	gpos := make([]byte, 22)
 	binary.BigEndian.PutUint32(gpos[0:4], 0x00010000)
@@ -207,8 +225,16 @@ func TestFullFontParseRejectsOversizedCoverage(t *testing.T) {
 	binary.BigEndian.PutUint16(gpos[14:16], 2) // lookup type 2
 	binary.BigEndian.PutUint16(gpos[18:20], 1) // subtable count
 	binary.BigEndian.PutUint16(gpos[20:22], 8) // subtable offset from Lookup
-	gpos = append(gpos, subtable...)
+	return append(gpos, subtable...)
+}
 
+func TestFullFontParseRejectsOversizedCoverage(t *testing.T) {
+	f := testFont(t)
+	ranges := make([][2]uint16, 16)
+	for i := range ranges {
+		ranges[i] = [2]uint16{0, 65535}
+	}
+	gpos := gposWithPairPos(pairPosFormat2Test(coverageFormat2Test(ranges)))
 	data := replaceTable(t, f.data, "GPOS", gpos)
 	parsed, err := Parse(data)
 	if err != nil {

@@ -211,7 +211,7 @@
   **Код:** [internal/css/props.go](/Users/vyachin/Projects/go-pdf/internal/css/props.go), `parseInteger`, `parseSingleLength`, `parseBoxShorthand`.
   Проверка показала, что `orphans:1.5` и `widows:1.5` принимаются с усечением до 1. Один parser длины также допускает отрицательные padding/width и `auto` в местах с другой грамматикой: `<div style="padding:-10pt;border:-2pt solid red;width:-5pt">A</div>` проходит профиль и выводит текст левее page margin. Добавить ограничения конкретного свойства после общего разбора, сохранив разрешённые отрицательные margin/text-indent. Возвращать ошибку значения вместо неявного усечения.
 
-- [ ] **REV-33 · P3: сделать тесты бюджетов шрифтов проверками реальных защищаемых путей.**
+- [x] **REV-33 · P3: сделать тесты бюджетов шрифтов проверками реальных защищаемых путей.**
 
   **Код:** [internal/font/gpos_test.go:65](/Users/vyachin/Projects/go-pdf/internal/font/gpos_test.go:65), `TestClassDefRangeIsBounded`; [internal/font/font_test.go:166](/Users/vyachin/Projects/go-pdf/internal/font/font_test.go:166), `FuzzParse`.
   `TestClassDefRangeIsBounded` разбирает ClassDef и вызывает Kerning пустой таблицы, но **не вызывает `parsePairPos` с его защитой**. Такой тест проходит после удаления соответствующего guard и не обнаруживает REV-01. Добавить валидные seed-шрифты с мутациями directory/GPOS/cmap, контролируемый бюджет и полный `Font.Parse → Shape → Subset`. Тест бюджета должен падать при удалении проверяемого ограничения.

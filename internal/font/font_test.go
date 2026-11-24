@@ -164,12 +164,79 @@ func TestRejectCFF(t *testing.T) {
 	}
 }
 
+// renameTableBytes changes a table tag in the sfnt directory and returns nil
+// when the tag is absent.
+func renameTableBytes(data []byte, from, to string) []byte {
+	if len(data) < 12 {
+		return nil
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if rec+16 > len(data) || string(data[rec:rec+4]) != from {
+			continue
+		}
+		out := append([]byte(nil), data...)
+		copy(out[rec:rec+4], to)
+		return out
+	}
+	return nil
+}
+
+// replaceTableBytes writes a crafted table over an existing one and returns nil
+// when the tag is absent or the new table does not fit.
+func replaceTableBytes(data []byte, tag string, table []byte) []byte {
+	if len(data) < 12 {
+		return nil
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if rec+16 > len(data) || string(data[rec:rec+4]) != tag {
+			continue
+		}
+		off := int(binary.BigEndian.Uint32(data[rec+8 : rec+12]))
+		length := int(binary.BigEndian.Uint32(data[rec+12 : rec+16]))
+		if off < 0 || length < 0 || off+length > len(data) || len(table) > length {
+			return nil
+		}
+		out := append([]byte(nil), data...)
+		copy(out[off:off+len(table)], table)
+		binary.BigEndian.PutUint32(out[rec+12:rec+16], uint32(len(table)))
+		return out
+	}
+	return nil
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add([]byte{0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-	ff := testFont
-	_ = ff
+	// Real seeds keep the fuzzer on the paths the parser actually ships: a
+	// valid font and the same font with a mutated directory, GPOS and cmap.
+	base, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		return
+	}
+	f.Add(base)
+	if mutated := renameTableBytes(base, "glyf", "gone"); mutated != nil {
+		f.Add(mutated)
+	}
+	if mutated := replaceTableBytes(base, "GPOS", gposWithPairPos(pairPosFormat2Test(coverageFormat2Test([][2]uint16{{0, 65534}})))); mutated != nil {
+		f.Add(mutated)
+	}
+	if mutated := replaceTableBytes(base, "cmap", cmap12Test([3]uint32{'A', 'A', 70000})); mutated != nil {
+		f.Add(mutated)
+	}
 	f.Fuzz(func(t *testing.T, b []byte) {
-		_, _ = Parse(b)
+		fnt, err := Parse(b)
+		if err != nil || fnt == nil {
+			return
+		}
+		// Exercise the parsed font through the full pipeline. A corrupt optional
+		// table must not panic here.
+		if gid, ok := fnt.GlyphIndex('A'); ok {
+			_ = fnt.GlyphPath(gid)
+			_, _ = fnt.Subset(map[uint16]bool{gid: true})
+		}
 	})
 }
 
