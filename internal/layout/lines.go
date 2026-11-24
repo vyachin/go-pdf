@@ -113,6 +113,13 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 				}
 			}
 		case Image:
+			// An id on the image itself is an anchor like any other inline id;
+			// without it a table of contents points at page 0.
+			if c.Node != nil {
+				if id := c.Node.ID(); id != "" {
+					*out = append(*out, piece{kind: anchorPiece, style: c.Style, anchor: id})
+				}
+			}
 			*out = append(*out, piece{kind: imagePiece, style: c.Style, image: c.Image})
 		default:
 			if c.Node != nil {

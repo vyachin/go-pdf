@@ -1392,3 +1392,34 @@ func TestTablePaddingShiftsRows(t *testing.T) {
 		}
 	}
 }
+
+// TestInlineImageAnchorIsRegistered guards RV2-19: an id on an inline image was
+// not recorded as an anchor, so a target-counter in the table of contents
+// printed 0 and validation warned about an unknown id.
+func TestInlineImageAnchorIsRegistered(t *testing.T) {
+	h := newHarness(t)
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	path := filepath.Join(h.images.dir, "fig.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	doc, diags := h.runRaw(`<style>p{margin:0}</style>
+	<a href="#fig">Figure page </a><p><img id="fig" src="fig.png" style="width:20pt;height:20pt"></p>`,
+		css.PageSize{Width: 200000, Height: 200000}, [4]int32{10000, 10000, 10000, 10000})
+	if hasWarning(doc, "pagination/unknown-target") || hasError(diags, "pagination/unknown-target") {
+		t.Fatalf("the image anchor was reported as unknown: %v", diags.Lines())
+	}
+	anchor, ok := doc.Anchors["fig"]
+	if !ok {
+		t.Fatalf("the image id was not registered as an anchor: %v", doc.Anchors)
+	}
+	if anchor.Page != 1 {
+		t.Fatalf("the image anchor points at page %d, want 1", anchor.Page)
+	}
+}

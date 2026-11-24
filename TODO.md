@@ -124,7 +124,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-5/main.go`: `table{width:100pt;padding:0 0 0 20pt;border:1pt solid red}` — текст `A` X=1000, хотя content box начинается с 21000; контрольный `div` даёт X=21000.
   **Исправление / приёмка:** `startX += padLeft`, ширина колонок — content width. Приёмка: текст и фон ячейки начинаются с border+padding, правый край последней колонки = content right; для двух колонок и `background-color` на `tr/td`.
 
-- [ ] **RV2-19 · P2: регистрировать якорь у строчной картинки с `id`.**
+- [x] **RV2-19 · P2: регистрировать якорь у строчной картинки с `id`.**
 
   **Код:** [internal/layout/lines.go:114](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:114): ветка `case Image:` не добавляет якорь, хотя для остальных inline-боксов он есть в [:117](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:117).
   **Воспроизведение:** `go run ./testdata/probe/layout-6/main.go`: `<a href="#fig">Figure page </a><p><img id="fig" src="fig.png" style="width:20pt;height:20pt"></p>` → `anchors=map[]`, текст `"Figure page 0"`, `warning[pagination/unknown-target]`; блочная картинка якорь регистрирует.
