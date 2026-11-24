@@ -338,6 +338,20 @@ side effect of the suite. A failing step uploads `produced`, `expected` and
 The `test` job must be a required check in branch protection; that is a
 repository setting, not a file in this repository.
 
+Action versions are kept current by Dependabot, configured in
+`.github/dependabot.yml`. It checks weekly and opens one pull request for minor
+and patch bumps and a separate one for a major. Nothing merges automatically: a
+dependency pull request goes through the same review and the same required
+checks as any other change, and a major bump is read against its release notes
+rather than merged on a green build alone.
+
+The remaining inputs stay manual, because every bump of them is a decision
+rather than a refresh: the `ubuntu-24.04` runner and its poppler, which
+determine the golden rasters; `pdfcpu`, whose version is coupled to the Go
+minimum in `go.mod`; the pinned `golangci-lint` version below; and the `go`
+directive itself. A change that moves one of them without the matching
+regeneration or version move does not belong to the automated path.
+
 ## Formatting and linting
 
 The source is formatted with `gofmt` and checked by `golangci-lint` using the
