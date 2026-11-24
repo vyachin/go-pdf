@@ -1,6 +1,206 @@
 # TODO по результатам code review
 
-## Актуальное ревью — 24 ноября 2026 года
+## Второй проход — 24 ноября 2026 года
+
+Проверен снимок `12b26c4`. Каждый пункт ниже воспроизведён запуском на этом снимке; пробники лежат локально в `testdata/probe/` и не входят в репозиторий — при исправлении сценарий переносится в постоянный regression-тест. **Открыто 30 задач: 5 P1, 18 P2, 7 P3.**
+
+Области: HTML/CSS-парсеры и каскад, шрифты и текст, layout и пагинация, PDF-writer, публичный API и CLI. Метрики геометрии в millipoints (mp), 1 pt = 1000 mp.
+
+### P1 — доступность и целостность
+
+- [ ] **RV2-01 · P1: убрать квадратичные копии остатка входа в HTML-токенизаторе.**
+
+  **Код:** [internal/html/token.go:284](/Users/vyachin/Projects/go-pdf/internal/html/token.go:284), `indexFold`; вызовы в `readText`, `readBogusComment`, `readDoctype`, `readRawText`.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-1/main.go`. Документ из N комментариев `<!--x-->`: 32 КиБ — 12 мс, 64 КиБ — 51 мс, 128 КиБ — 188 мс, 256 КиБ — 604 мс (рост ×4 на удвоение). `<style>x</style>` × 16 384: 256 КиБ — 2,0 с. `engine.Validate` на 256 КиБ комментариев — 4,5 с, `err=nil`, 32 769 операций из 20 000 000.
+  **Исправление / приёмка:** `strings.ToLower(string(b))` и `string(z.src[z.pos:])` копируют весь остаток входа на каждый комментарий/doctype/raw-text. Искать закрывающую последовательность по исходному срезу (регистронезависимо без аллокации) либо один раз. Время и аллокации должны быть O(n); regression-тест на 64/256 КиБ комментариев падает при возврате копирования.
+
+- [ ] **RV2-02 · P1: ограничить сопоставление descendant-селектора бюджетом и убрать экспоненциальный перебор.**
+
+  **Код:** [internal/css/selector.go:73](/Users/vyachin/Projects/go-pdf/internal/css/selector.go:73), `matchFrom`; вызов `Compute` не получает `budget.Guard`.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-3/main.go` и `css-html-9/main.go`. Документ из d вложенных `<div>` и правило `table div div … div`: depth 21 — 17 мс, 25 — 191 мс, 29 — 2,9 с; depth 41/20 компаундов (HTML 206 Б, CSS 96 Б) не завершается за 10 с, бюджет 20 000 000 не тронут.
+  **Исправление / приёмка:** число путей C(40,20) ≈ 1,4·10¹¹. Мемоизировать пары (узел, индекс компаунда) или передать бюджет/отмену в каскад и учитывать каждую проверку. Корректность `div p`, `div > p` и списков сохранить; regression-тест на depth 41 обязан завершаться за фиксированное время либо давать `resource/limit`.
+
+- [ ] **RV2-03 · P1: писать `/SMask` полноценным image XObject.**
+
+  **Код:** [internal/pdf/writer.go:591](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:591), вызов `alloc(alpha)`; `imageStream` в [:639](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:639) не применяется к маске.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-2/main.go` (PNG 2×2 с alpha в `<div style="background-color:blue">`), затем `HOME=$PWD/.cache/home /tmp/gobin/pdfcpu validate -m strict .cache/cli/alpha.pdf`. Маска — `7 0 obj << /Length 4 >> stream … endstream`, без `/Width`. pdfcpu: `xObject Image stream dict … required entry=Width missing`; relaxed-режим проходит, поэтому существующий тест молчит.
+  **Исправление / приёмка:** маска обязана иметь `/Type /XObject /Subtype /Image /Width /Height /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`. Приёмка: strict pdfcpu на alpha-PNG; отдельная проверка словаря маски; opaque PNG без `/SMask`.
+
+- [ ] **RV2-04 · P1: ограничить разворачивание composite-глифов до аллокации.**
+
+  **Код:** [internal/font/glyph.go:20](/Users/vyachin/Projects/go-pdf/internal/font/glyph.go:20), `glyphPath` рекурсивно разворачивает каждый компонент с пределом только `depth > 8`.
+  **Воспроизведение:** `go run ./testdata/probe/font-text-23/main.go`: синтетический TTF **820 байт**, каждая composite-глифа содержит 16 компонентов. chain=5 → 65 536 контуров и +38 МБ; chain=6 → **1 048 576 контуров и +787,8 МБ** за 220 мс. При 16 компонентах и пределе 8 возможно 16⁸ ≈ 4,3·10⁹ контуров. Путь вызова — debug `-render-png` ([internal/backend/raster/raster.go:169](/Users/vyachin/Projects/go-pdf/internal/backend/raster/raster.go:169)) и `FuzzParse`.
+  **Исправление / приёмка:** мемоизировать путь по gid (как дедупликация `need[gid]` в `subset.go`) либо ограничить суммарное число компонентов/контуров и вернуть ошибку до роста памяти. Шрифт <1 КБ не должен давать сотни мегабайт; regression-тест с цепочкой композитов падает при снятии лимита.
+
+- [ ] **RV2-05 · P1: не размножать страницы, если повторённая шапка таблицы делает строку невместимой.**
+
+  **Код:** [internal/layout/table.go:181](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:181), ветка «строка выше страницы» требует `len(f.page.Ops) == 0`, но `paintRepeatedHeaders` ([:197](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:197)) уже нарисовал шапку.
+  **Воспроизведение:** `go run ./testdata/probe/layout-1/main.go`:
+  ```html
+  <style>@page{size:200pt 100pt;margin:0} table{width:180pt} td,th{padding:1mm;border:0}</style>
+  <table><thead><tr><th>HEAD</th></tr></thead>
+  <tbody><tr><td><div style="height:200pt">BODY</div></td></tr></tbody></table>
+  ```
+  Наблюдается **5001 страница**, на каждой только `HEAD`, `BODY` не нарисован ни разу, `error[layout/loop]`, через публичный API `error[resource/limit]: the document needs more than 5000 pages`. Контроль без `thead` — 1 страница, `warning[layout/overflow]`, текст `BODY`.
+  **Исправление / приёмка:** различать «страница пуста» и «на странице только повторённая шапка». Приёмка: ≤2 страниц, `BODY` ровно один раз, одно предупреждение overflow, нет `layout/loop`/`resource/limit` (включая `MaxPages:10`).
+
+### P2 — неверное поведение поддерживаемых функций
+
+- [ ] **RV2-06 · P2: не выносить содержимое `display:none` блока из таблицы через foster parenting.**
+
+  **Код:** [internal/html/parse.go:369](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:369), `inTable`; используется в `appendText` ([:209](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:209)) и `insertElement` ([:307](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:307)).
+  **Воспроизведение:** `go run ./testdata/probe/css-html-8/main.go`. `<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>` даёт пустой `div` и текстовый узел `SECRET` рядом; PDF text `"SECRETCELL"`, диагностик нет. Аналогично `<b>` выносится из `div`.
+  **Исправление / приёмка:** уже foster-parented элемент обязан быть границей для своего содержимого. Приёмка: golden-дерево (текст — ребёнок `div`), в PDF нет `SECRET`; проверить вложенный `<b>`.
+
+- [ ] **RV2-07 · P2: убрать O(n²) во foster parenting.**
+
+  **Код:** [internal/html/parse.go:383](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:383), `foster`; [internal/html/node.go:144](/Users/vyachin/Projects/go-pdf/internal/html/node.go:144), `InsertBefore` сканирует детей с начала и сдвигает срез.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-2/main.go`, `<table>` + N × `<div>A</div>`: 8 000 (96 КБ) — 48 мс, 32 000 (384 КБ) — 613 мс, 64 000 (768 КБ) — **2,44 с** при 192 003 операций из 20M.
+  **Исправление / приёмка:** вставлять в известную позицию (индекс/один раз) вместо линейного поиска на каждого потомка. Бенчмарк 8k/16k/32k/64k: рост линейный; тест падает при возврате `InsertBefore`.
+
+- [ ] **RV2-08 · P2: не терять содержимое вложенной таблицы.**
+
+  **Код:** [internal/html/parse.go:309](/Users/vyachin/Projects/go-pdf/internal/html/parse.go:309), `tableAllowed` ([:34]) разрешает `table`, поэтому вложенная таблица становится ребёнком внешней `tr/td`.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-5/main.go`: `<p>BEFORE</p><table><tr><td>A</td></tr><table><tr><td>B</td></tr></table></table><p>AFTER</p>` → `"BEFOREAAFTER"`, `B` потерян, диагностик нет.
+  **Исправление / приёмка:** старт `table` в режиме «in table» закрывает внешнюю таблицу (сиблинг после `</table>`), как в HTML-спеке; либо явная диагностика о неподдерживаемой вложенности вместо потери. Приёмка: golden-дерево и текст `"BEFOREABAFTER"`; проверить `<table><tr><table>`.
+
+- [ ] **RV2-09 · P2: складывать все class-based PairPos-сабтаблицы GPOS, а не хранить последнюю.**
+
+  **Код:** [internal/font/gpos.go:151](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:151), `parsePairPos` перезаписывает `k.records`, `k.class1`, `k.covered`; `Kerning` ([:327](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:327)) читает единственную.
+  **Воспроизведение:** `go run ./testdata/probe/font-text-19/main.go`. В DejaVu Sans два kern-lookup: 97 покрытых глифов и **1832 ненулевые пары**, затем 20 глифов и 0 пар. Остаётся второй: `Kerning('T','o') = 0` вместо −348 units; «To» при 12 pt — 14672 mp вместо 12633 mp (разница 2039 mp). `TestKerning` маскирует дефект через `t.Skip` при нуле.
+  **Исправление / приёмка:** суммировать применимые lookup'ы (несколько сабтаблиц на lookup тоже). Приёмка: `Kerning('T','o') == -348` для DejaVu, `Shape("To")` 12 pt = 12633 mp; существующий тест должен требовать ненулевое значение, а не пропускать.
+
+- [ ] **RV2-10 · P2: поддержать GPOS ExtensionPos (lookup type 9).**
+
+  **Код:** [internal/font/gpos.go:51](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:51): `if lookupType != 2 { continue }`, extension-сабтаблица не разворачивается.
+  **Воспроизведение:** `go run ./testdata/probe/font-text-16/main.go` на `/System/Library/Fonts/SFNS.ttf`: все PairPos за type 9, `Kerning` = 0 для A/V, T/o, A/T, Y/o, P/., А/Т, Т/о при ожидаемых −140…−270 units (A/V при 12 pt — 938 mp). Из системных шрифтов type 9 используют SFNS, SFCompact*, SFNS*, KefaIII.
+  **Исправление / приёмка:** разворачивать extension (extensionLookupType=2) до разбора PairPos format 1/2. Приёмка: SFNS даёт ненулевой `Kerning` и TJ-корректировку в PDF; покрыть обе формы сабтаблиц.
+
+- [ ] **RV2-11 · P2: переносить строку после дефиса.**
+
+  **Код:** [internal/text/normalize.go:164](/Users/vyachin/Projects/go-pdf/internal/text/normalize.go:164), `Split` завершает слово после `-`, но [internal/layout/lines.go:325](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:325) после `wordPiece` ставит `canWrap = false`; `ItemKind` не выражает «перенос после дефиса».
+  **Воспроизведение:** `go run ./testdata/probe/font-text-7/main.go`: `<p style="width:60pt">слово-слово</p>` — одна строка шириной 76378 mp при content width 60000 mp, правый край 104,72 pt против 88,35 pt, диагностик нет. «слово слово» переносится.
+  **Исправление / приёмка:** добавить точку переноса после дефиса (и/или `&shy;`) в модель piece. Приёмка: две строки, вторая начинается с «слово», `Natural` первой ≤ ширины; граница inline-узла по-прежнему не создаёт перенос (REV-25).
+
+- [ ] **RV2-12 · P2: собрать каноническую композицию для остальных диакритик.**
+
+  **Код:** [internal/text/normalize.go:9](/Users/vyachin/Projects/go-pdf/internal/text/normalize.go:9), таблица из ~30 пар; `HasCombiningMark` ([:77](/Users/vyachin/Projects/go-pdf/internal/text/normalize.go:77)) нигде не вызывается.
+  **Воспроизведение:** `go run ./testdata/probe/font-text-13/main.go`: `Normalize("и\u0300")` — 2 руны, `Shape` — 2 глифа; в PDF две кодовые точки `[U+0438 U+0300]`. Ожидается `ѝ` (gid 1010), `ѐ` (gid 997), `ā` (gid 195); `й`, `ё`, `á` собираются.
+  **Исправление / приёмка:** полная каноническая композиция (сгенерированная таблица Unicode) вместо ручного списка; остаточные несобранные метки — диагностика. Приёмка: кириллические `Ѐ/ѐ`, `Ѝ/ѝ`, `Ў/ў`, `Ѓ/ѓ`, `Ќ/ќ`, латинские `ā/ă/ą` собираются в один глиф и одну кодовую точку ToUnicode.
+
+- [ ] **RV2-13 · P2: не принимать `margin: auto`, превращая его в 0.**
+
+  **Код:** [internal/css/props.go:51](/Users/vyachin/Projects/go-pdf/internal/css/props.go:51), `margin` → `parseBoxShorthand`; [internal/css/value.go:162](/Users/vyachin/Projects/go-pdf/internal/css/value.go:162) принимает `auto`.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-7/main.go`: `<div style="width:100mm;height:10mm;margin:0 auto;background-color:#ff0000">A</div>` → `Validate: err=nil, diags=[]`, красный прямоугольник в PNG x=0..377 при ширине страницы 793 px; ожидается центрирование (208..585) либо ошибка профиля.
+  **Исправление / приёмка:** либо центрировать блок при `auto`, либо отклонять `auto` для margin/padding/text-indent/line-height с `css/unsupported-value`. Приёмка: тест валидации и/или геометрии (левая граница = (страница − 100 мм)/2).
+
+- [ ] **RV2-14 · P2: учитывать атрибут `media` у `<style>`.**
+
+  **Код:** [internal/profile/styles.go:129](/Users/vyachin/Projects/go-pdf/internal/profile/styles.go:129): media обрабатывается только у `<link>`, у `<style>` атрибут игнорируется.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-4/main.go`: `<style media="screen">p{display:none}</style><p>VISIBLE</p>` → текст пуст, то есть экранная таблица применена к печати. `<style media="print">` ведёт себя так же, как без media.
+  **Исправление / приёмка:** применять к печати только `print`/`all` (как у `@media`), `screen` игнорировать; неверное значение — диагностика. Приёмка: три случая (`screen` — текст виден, `print` — скрыт, без media — скрыт) в Validate и Convert.
+
+- [ ] **RV2-15 · P2: применять ширину и горизонтальные margin блока внутри ячейки при расчёте высоты строки.**
+
+  **Код:** [internal/layout/paginate.go:483](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:483), `measure` строит строки по ширине ячейки; [internal/layout/table.go:305](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:305) запускает его до отрисовки, затем `b.built` мешает перестройке.
+  **Воспроизведение:** `go run ./testdata/probe/layout-2/main.go`: `<table><tr><td><p style="width:40pt;margin:0;font-size:10pt;line-height:12pt">AAAAA BBBBB</p></td></tr></table>` — в ячейке одна строка, `BBBBB` X=57384..91684 при content box [20000,60000], переполнение 31684 mp; контроль вне ячейки — две строки.
+  **Исправление / приёмка:** использовать ту же used-геометрию (width, margin), что и `placeBlock`. Приёмка: две базовые линии 29282/41282, `BBBBB` X=20000, правые границы ≤60000, высота строки таблицы 24000.
+
+- [ ] **RV2-16 · P2: реально схлопывать границы при `border-collapse: collapse`.**
+
+  **Код:** [internal/layout/table.go:279](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:279), `paintCell` в collapse-режиме; рамка таблицы рисуется отдельно в [internal/layout/paint.go:56](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:56).
+  **Воспроизведение:** `go run ./testdata/probe/layout-4/main.go`: `table{border:2pt solid red;border-collapse:collapse} td{border:2pt solid blue;padding:0}` — внешняя кромка 4000 mp (красная 2000 + синяя 2000) с обеих сторон, как в `separate`; между ячейками зазор `[52000,54000]` не закрашен, текст `B` начинается с X=54000.
+  **Исправление / приёмка:** одна линия на общей кромке, приоритет границы ячейки/таблицы, отсутствие пустого резерва. Приёмка: внешняя кромка ровно 2000 mp, внутренняя — один fill, collapse отличается от separate.
+
+- [ ] **RV2-17 · P2: применять `vertical-align` к строчным боксам.**
+
+  **Код:** [internal/layout/paint.go:140](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:140): все runs ставятся на `y + line.Ascent`; `VerticalAlign` читается только для ячеек.
+  **Воспроизведение:** `go run ./testdata/probe/layout-3/main.go`: `<p>AA<span style="vertical-align:top">T</span><span style="vertical-align:middle">M</span><span style="vertical-align:bottom">D</span></p>` — все runs Y=28564, top/middle/bottom неотличимы от baseline.
+  **Исправление / приёмка:** top/middle/bottom для inline и inline-картинок по правилам строчного бокса. Приёмка: четыре разные базовые линии в порядке top < middle < baseline < bottom с ожидаемыми смещениями.
+
+- [ ] **RV2-18 · P2: учитывать padding таблицы при размещении строк.**
+
+  **Код:** [internal/layout/table.go:218](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:218): `startX := t.x + t.borderLeft()`, `padLeft` не учитывается, хотя ширина уже сужена.
+  **Воспроизведение:** `go run ./testdata/probe/layout-5/main.go`: `table{width:100pt;padding:0 0 0 20pt;border:1pt solid red}` — текст `A` X=1000, хотя content box начинается с 21000; контрольный `div` даёт X=21000.
+  **Исправление / приёмка:** `startX += padLeft`, ширина колонок — content width. Приёмка: текст и фон ячейки начинаются с border+padding, правый край последней колонки = content right; для двух колонок и `background-color` на `tr/td`.
+
+- [ ] **RV2-19 · P2: регистрировать якорь у строчной картинки с `id`.**
+
+  **Код:** [internal/layout/lines.go:114](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:114): ветка `case Image:` не добавляет якорь, хотя для остальных inline-боксов он есть в [:117](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:117).
+  **Воспроизведение:** `go run ./testdata/probe/layout-6/main.go`: `<a href="#fig">Figure page </a><p><img id="fig" src="fig.png" style="width:20pt;height:20pt"></p>` → `anchors=map[]`, текст `"Figure page 0"`, `warning[pagination/unknown-target]`; блочная картинка якорь регистрирует.
+  **Исправление / приёмка:** учитывать `id` в imagePiece как в текстовой ветке. Приёмка: `anchors["fig"].Page==1`, текст `"Figure page 1"`, нет unknown-target; проверить `<img id>` внутри `span` и рядом с текстом.
+
+- [ ] **RV2-20 · P2: проверять переполнение при сложении длин геометрии.**
+
+  **Код:** суммы margin/размеров в `internal/layout` приводятся к `int32` без проверки; пример — `placeBlock`/`measure` в [internal/layout/paginate.go](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go).
+  **Воспроизведение:** `go run ./testdata/probe/layout-8/main.go`: два блока `margin-top:2000000pt` → Y второго run = **−294931757 mp**, диагностик нет.
+  **Исправление / приёмка:** общий helper сложения с насыщением/ошибкой `css/unsupported-value` или `layout/overflow`. Приёмка: документ с суммами > int32 не даёт отрицательных координат и невалидного PDF; regression-тест на границах.
+
+- [ ] **RV2-21 · P2: не подменять `context.Canceled` ошибкой шаблона в `pdfgen.Convert`.**
+
+  **Код:** [pdfgen/pdfgen.go:253](/Users/vyachin/Projects/go-pdf/pdfgen/pdfgen.go:253): при `err != nil` сначала возвращается `out.Diagnostics.Err()`, исходная ошибка теряется.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-6/main.go`: 20000 `<p style="flex:1">x</p>`, отмена через 20 мс → `errKind=*pdfgen.Error`, `errorsIs=false`, 20000 диагностик; `Validate` в той же точке возвращает `context canceled`.
+  **Исправление / приёмка:** если `ctx.Err() != nil` — возвращать ошибку контекста (в порядке приоритета), затем ошибку шаблона. Приёмка: `errors.Is(err, context.Canceled)` для отмены на шаблоне с ошибками, невалидный шаблон без отмены — по-прежнему `*pdfgen.Error`.
+
+- [ ] **RV2-22 · P2: `Validate` обязан отвергать повреждённый PNG, который не встраивается.**
+
+  **Код:** [internal/engine/images.go:89](/Users/vyachin/Projects/go-pdf/internal/engine/images.go:89): проверяется только `png.DecodeConfig`; полное декодирование — позже, в `internal/pdf/writer.go`.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-1/main.go`, секция `truncated PNG`: `Validate: err=nil, diags=[]`, затем `Convert: error[pdf/write]: png: invalid format: not enough pixel data`.
+  **Исправление / приёмка:** декодировать (или проверять IDAT/CRC) на этапе подготовки, общем для Validate и Convert, не выходя за лимиты пикселей/байт. Приёмка: одинаковые диагностики обоих entry point; целый PNG по-прежнему проходит.
+
+- [ ] **RV2-23 · P2: не подставлять первый `@font-face` для необъявленного семейства.**
+
+  **Код:** [internal/engine/fonts.go:211](/Users/vyachin/Projects/go-pdf/internal/engine/fonts.go:211): `pick` возвращает `r.faces[0].font`; системный fallback загружается только при `len(r.faces)==0`.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-1/main.go`, секция `undeclared font family`: `@font-face{font-family:"PT Serif"} body{font-family:"Arial"}` → `err=nil`, PDF с `/BaseFont /DejaVu-Sans-Book`, хотя Arial есть в системе.
+  **Исправление / приёмка:** порядок из `docs/fonts.md`: `@font-face` (точное семейство) → `Options.FallbackFont` → системные → `font/unavailable`. Приёмка: постороннее семейство даёт `font/unavailable` без FallbackFont и именно FallbackFont с ним; `faces[0]` не подставляется.
+
+### P3 — сопровождение и полнота проверок
+
+- [ ] **RV2-24 · P3: код `resource/limit` для превышения `MaxImagePixels`.**
+
+  **Код:** [internal/engine/images.go:94](/Users/vyachin/Projects/go-pdf/internal/engine/images.go:94): ошибка не обёрнута в `budget.ErrExceeded`, `layout.buildImage` классифицирует её как `img/load`.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-4/main.go`, секция `pixels`: `Limits{MaxImagePixels:5000}` → `error[img/load]: 10000 pixels exceed the limit of 5000`; `MaxImageBytes` в том же пробнике даёт `resource/limit`.
+  **Исправление / приёмка:** тот же код и путь, что у остальных бюджетов, в Validate и Convert.
+
+- [ ] **RV2-25 · P3: привести `docs/profile.md` в соответствие с валидатором.**
+
+  **Код:** [docs/profile.md:25](/Users/vyachin/Projects/go-pdf/docs/profile.md:25) обещает `display: inline-block`, [internal/profile/profile.go:208](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go:208) его отклоняет.
+  **Воспроизведение:** `pdfgen validate` на `<div style="display:inline-block">x</div>` → `css/unsupported-value: display: inline-block is not supported`.
+  **Исправление / приёмка:** убрать значение из таблицы (предпочтительно) либо поддержать; тест согласованности строки `display` с валидатором.
+
+- [ ] **RV2-26 · P3: не печатать error-диагностики дважды в `pdfgen convert`.**
+
+  **Код:** цикл печати диагностик и затем `err.Error()` в `cmd/pdfgen/main.go` (около :143–147).
+  **Воспроизведение:** `pdfgen convert -o out.pdf bad.html` печатает каждую ошибку дважды: две строки диагностик, затем те же две в `pdfgen convert: …`.
+  **Исправление / приёмка:** печатать диагностики один раз (оставив итоговую строку без повтора); тест CLI сравнивает число строк.
+
+- [ ] **RV2-27 · P3: не подменять U+2010 дефисом и не рисовать U+00AD в неразрывном слове.**
+
+  **Код:** [internal/text/normalize.go:164](/Users/vyachin/Projects/go-pdf/internal/text/normalize.go:164): `b.WriteRune('-')` для `-` и U+2010; U+00AD отдельной ветки не имеет.
+  **Воспроизведение:** `go run ./testdata/probe/font-text-21/main.go` и `-22/main.go`: `a&#8208;b` извлекается из PDF как `a-b` (в Apple Symbols advance отличается на 396 units); `a&#173;b` рисует видимый дефис (gid 111, 4 точки контура).
+  **Исправление / приёмка:** U+2010 сохраняет свой глиф и код в ToUnicode; U+00AD невидим, пока не выбран перенос (связано с RV2-11).
+
+- [ ] **RV2-28 · P3: учитывать rowspan при подсчёте `MaxTableCells` и бюджете сетки.**
+
+  **Код:** [internal/layout/box.go:536](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:536): колонки = максимум суммы colspan по строке, сдвиг от rowspan не учитывается; `buildGrid` не вызывает `budget.Add`.
+  **Воспроизведение:** `go run ./testdata/probe/pdf-api-7/main.go`: 5 строк × 10 ячеек с `rowspan=100`, `MaxTableCells=50` → успех, 50 различных x-позиций (сетка 50×5 = 250 ячеек).
+  **Исправление / приёмка:** считать фактическую ширину сетки с учётом занятых rowspan-ом колонок, учитывать работу в бюджете; приёмка — `resource/limit` при превышении.
+
+- [ ] **RV2-29 · P3: не принимать `break-before/after: page` на `tr` и молча его игнорировать.**
+
+  **Код:** валидатор разрешает свойство на `tr` ([internal/profile](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go)), layout его не применяет.
+  **Воспроизведение:** `go run ./testdata/probe/layout-7/main.go`: `<tr style="break-before:page">` → 1 страница вместо 2, диагностик нет.
+  **Исправление / приёмка:** либо реализовать разрыв перед строкой, либо отклонять свойство на `tr` с диагностикой.
+
+- [ ] **RV2-30 · P3: закрывать `h1`–`h6` при старте следующего заголовка.**
+
+  **Код:** [internal/html/parse.go](/Users/vyachin/Projects/go-pdf/internal/html/parse.go), `insertElement`: нет неявного закрытия для заголовков.
+  **Воспроизведение:** `go run ./testdata/probe/css-html-6/main.go`: `<h1>Head<h2>Sub` даёт `h2` ребёнком `h1` (путь `body > h1 > h2`).
+  **Исправление / приёмка:** golden-дерево: `h2` — сиблинг `h1`; проверить все уровни и `</h1>`.
+
+---
+
+## Предыдущий проход — 24 ноября 2026 года
 
 Проверен весь проект: CLI, публичный пакет `pdfgen`, HTML/CSS, профиль, чтение ресурсов, шрифты, текст, layout и пагинация, PDF, debug raster, тесты, документация, OpenSpec и CI. Начальный снимок [60acb04](https://github.com/vyachin/go-pdf/commit/60acb0471f2a8725c006a03467ee25af92c52f73) совпадал с GitHub `main`. Во время работы появились коммиты с очисткой прежнего TODO и публичным API; окончательные проверки выполнены на отдельном снимке [ef0e0d4](https://github.com/vyachin/go-pdf/commit/ef0e0d4c77296d401453a0333a3ef4aceaec1271). Изменения других работ сохранены. В рамках этого ревью изменён только `TODO.md`.
 
