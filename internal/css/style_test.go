@@ -102,7 +102,7 @@ func TestBackgroundImageRejectsUnsupportedSources(t *testing.T) {
 	invalid := []struct{ property, value string }{
 		{"background-image", "linear-gradient(#000, #fff)"},
 		{"background-image", "url(https://example.com/cover.jpg)"},
-		{"background-image", `url("data:image/png;base64,AAAA")`},
+		{"background-image", `url("data:text/plain;base64,AAAA")`},
 		{"background-image", "none"},
 		{"background-image", "url()"},
 		{"background-size", "contain"},
@@ -114,6 +114,21 @@ func TestBackgroundImageRejectsUnsupportedSources(t *testing.T) {
 		st := DefaultStyle()
 		if err := ApplyDecl(st, tc.property, Tokenize([]byte(tc.value)), 12000); err == nil {
 			t.Errorf("%s: %s was accepted", tc.property, tc.value)
+		}
+	}
+}
+
+func TestDataURIBackgroundIsAccepted(t *testing.T) {
+	for _, value := range []string{
+		`url("data:image/png;base64,AAAA")`,
+		"url('data:image/jpeg;base64,AAAA')",
+	} {
+		st := DefaultStyle()
+		if err := ApplyDecl(st, "background-image", Tokenize([]byte(value)), 12000); err != nil {
+			t.Fatalf("%s: %v", value, err)
+		}
+		if st.BackgroundImage == "" {
+			t.Fatalf("%s: the URL was not stored", value)
 		}
 	}
 }

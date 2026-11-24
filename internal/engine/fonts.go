@@ -30,8 +30,11 @@ type registeredFace struct {
 type fontRegistry struct {
 	faces    []*registeredFace
 	fallback *font.Font
-	mu       sync.Mutex
-	cache    map[string]*layout.FontFace
+	// fallbackFaces is the lazily loaded system family: the first available
+	// DefaultFallbackFonts entry plus its bold and italic siblings.
+	fallbackFaces []*registeredFace
+	mu            sync.Mutex
+	cache         map[string]*layout.FontFace
 	// maxFontBytes and guard let the registry load a system fallback lazily,
 	// only when a document really asks for a family it does not declare.
 	maxFontBytes int
@@ -189,40 +192,57 @@ func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Fo
 		if len(candidates) == 0 {
 			continue
 		}
-		var best *registeredFace
-		bestRank := 0
-		bestItalic := false
-		for _, c := range candidates {
-			rank := weightRank(c.weight, weight)
-			italicMatch := c.italic == italic
-			if best == nil || rank < bestRank || (rank == bestRank && italicMatch && !bestItalic) {
-				best, bestRank, bestItalic = c, rank, italicMatch
-			}
+		if best := bestFace(candidates, weight, italic); best != nil {
+			return best
 		}
-		return best.font
 	}
-	if f := r.systemFallback(); f != nil {
-		return f
+	// An explicit Options.FallbackFont is step two of the documented order and
+	// always wins over a system font.
+	if r.fallback != nil {
+		return r.fallback
+	}
+	// Step three: the first available system family, including the bold and
+	// italic faces that sit next to its regular file. Without the siblings a
+	// certificate is printed with a regular title where the source asks for
+	// 700.
+	if best := bestFace(r.systemFaces(), weight, italic); best != nil {
+		return best
 	}
 	// Never guess: substituting the first declared face would print an
 	// undeclared family in a font the document did not ask for.
 	return nil
 }
 
-// systemFallback loads the first available system font once, so a document
+// bestFace picks the closest weight and slant from a family.
+func bestFace(candidates []*registeredFace, weight int, italic bool) *font.Font {
+	var best *registeredFace
+	bestRank := 0
+	bestItalic := false
+	for _, c := range candidates {
+		rank := weightRank(c.weight, weight)
+		italicMatch := c.italic == italic
+		if best == nil || rank < bestRank || (rank == bestRank && italicMatch && !bestItalic) {
+			best, bestRank, bestItalic = c, rank, italicMatch
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	return best.font
+}
+
+// systemFaces loads the first available system family once, so a document
 // without @font-face still renders while a declared but unrelated family is not
 // silently replaced by another declaration.
-func (r *fontRegistry) systemFallback() *font.Font {
+func (r *fontRegistry) systemFaces() []*registeredFace {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// An explicit Options.FallbackFont is step two of the documented order and
-	// always wins over a system font.
-	if r.fallback != nil || r.systemTried {
-		return r.fallback
+	if r.systemTried {
+		return r.fallbackFaces
 	}
 	r.systemTried = true
-	r.fallback = loadSystemFallback(r.maxFontBytes, r.guard)
-	return r.fallback
+	r.fallbackFaces = loadSystemFamily(r.maxFontBytes, r.guard)
+	return r.fallbackFaces
 }
 
 // weightRank orders an available weight against the requested one, following
@@ -282,24 +302,71 @@ var DefaultFallbackFonts = []string{
 	"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
 }
 
-func loadSystemFallback(maxBytes int, guard *budget.Guard) *font.Font {
-	candidates := append([]string{}, DefaultFallbackFonts...)
-	if env := os.Getenv("PDFTEST_FONT"); env != "" {
-		candidates = append([]string{env}, candidates...)
+func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
+	if guard.Err() != nil {
+		return nil
 	}
-	for _, path := range candidates {
+	// PDFTEST_FONT is an explicit override: use exactly that face and do not
+	// guess variants next to it, so tests stay reproducible.
+	if env := os.Getenv("PDFTEST_FONT"); env != "" {
+		if f := loadFontFile(env, maxBytes); f != nil {
+			return []*registeredFace{{weight: 400, font: f}}
+		}
+	}
+	for _, path := range DefaultFallbackFonts {
 		if guard.Err() != nil {
 			return nil
 		}
-		data, err := fsx.ReadFileLimit(path, maxBytes)
-		if err != nil {
+		regular := loadFontFile(path, maxBytes)
+		if regular == nil {
 			continue
 		}
-		f, err := font.Parse(data)
-		if err != nil {
-			continue
+		faces := []*registeredFace{{weight: 400, font: regular}}
+		for _, variant := range variantPaths(path) {
+			f := loadFontFile(variant, maxBytes)
+			if f == nil {
+				continue
+			}
+			weight, italic := variantStyle(variant)
+			faces = append(faces, &registeredFace{weight: weight, italic: italic, font: f})
 		}
-		return f
+		return faces
 	}
 	return nil
+}
+
+func loadFontFile(path string, maxBytes int) *font.Font {
+	data, err := fsx.ReadFileLimit(path, maxBytes)
+	if err != nil {
+		return nil
+	}
+	f, err := font.Parse(data)
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// variantPaths lists the conventional bold and italic file names next to a
+// regular face: "Arial Bold.ttf" and "DejaVuSans-Bold.ttf" styles.
+func variantPaths(path string) []string {
+	dir := filepath.Dir(path)
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(filepath.Base(path), ext)
+	base := strings.TrimSuffix(stem, "-Regular")
+	var out []string
+	for _, suffix := range []string{" Bold", "-Bold", " Italic", "-Italic", " Oblique", "-Oblique", " Bold Italic", "-BoldItalic", "-BoldOblique"} {
+		out = append(out, filepath.Join(dir, base+suffix+ext))
+	}
+	return out
+}
+
+func variantStyle(path string) (int, bool) {
+	lower := strings.ToLower(path)
+	weight := 400
+	if strings.Contains(lower, "bold") {
+		weight = 700
+	}
+	italic := strings.Contains(lower, "italic") || strings.Contains(lower, "oblique")
+	return weight, italic
 }

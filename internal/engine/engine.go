@@ -41,6 +41,12 @@ type Options struct {
 	FallbackFont string
 	// Strict turns profile warnings into errors.
 	Strict bool
+	// ImportBrowser enables the browser compatibility layer: a document that
+	// uses browser-only CSS (flexbox, absolute positioning, rem, CSS variables,
+	// data: URIs) is lowered to the profile before validation. Every
+	// transformation is reported as a warning. Off by default so that the
+	// library keeps the strict profile contract unless the caller opts in.
+	ImportBrowser bool
 	// Limits bounds the work a single conversion may do. Zero means the
 	// defaults documented on Limits.
 	Limits Limits

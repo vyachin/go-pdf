@@ -110,6 +110,39 @@ func TestConvertWritesPDF(t *testing.T) {
 	}
 }
 
+func TestConvertBrowserCertificate(t *testing.T) {
+	requireFont(t)
+	src := filepath.Join("..", "..", "testdata", "browser", "certificate.html")
+	if _, err := os.Stat(src); err != nil {
+		t.Fatalf("browser fixture is missing: %v", err)
+	}
+	dir := t.TempDir()
+	out := filepath.Join(dir, "certificate.pdf")
+	code, stdout, stderr := runCLI(t, "convert", "-o", out, src)
+	if code != exitOK {
+		t.Fatalf("convert of a browser document = %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("the PDF was not written: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Fatalf("output is not a PDF: %q", data[:min(8, len(data))])
+	}
+	if !strings.Contains(stderr, "browser/flex") || !strings.Contains(stderr, "browser/background") {
+		t.Fatalf("stderr does not report the lowering:\n%s", stderr)
+	}
+
+	strictOut := filepath.Join(dir, "strict.pdf")
+	code, _, _ = runCLI(t, "convert", "-strict", "-o", strictOut, src)
+	if code != exitFailure {
+		t.Fatalf("strict convert of a browser document = %d, want %d", code, exitFailure)
+	}
+	if _, err := os.Stat(strictOut); err == nil {
+		t.Fatal("strict mode must not write a PDF for a browser document")
+	}
+}
+
 func TestConvertFailsOnInvalidTemplate(t *testing.T) {
 	dir := t.TempDir()
 	in := filepath.Join(dir, "bad.html")

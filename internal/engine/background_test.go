@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"image"
 	"image/color"
 	"image/png"
@@ -93,6 +94,75 @@ func TestBackgroundImageErrors(t *testing.T) {
 			msg := err.Error() + "\n" + strings.Join(res.Diagnostics.Lines(), "\n")
 			if !strings.Contains(msg, tc.want) {
 				t.Fatalf("%s: %q does not name %q", tc.name, msg, tc.want)
+			}
+		})
+	}
+}
+
+// dataURIPNG builds a small in-memory PNG and returns it as a data: URI.
+func dataURIPNG(t *testing.T) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 6, 4))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = 90, 140, 190, 255
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+func TestDataURIImageIsEmbedded(t *testing.T) {
+	uri := dataURIPNG(t)
+	src := `<div style="width:60pt;height:30pt;background-image:url('` + uri + `')">bg</div>` +
+		`<p><img src="` + uri + `"></p>`
+	res, err := Convert(context.Background(), []byte(src), Options{
+		File:         "data-uri.html",
+		FallbackFont: testFontPath(t),
+	})
+	if err != nil {
+		t.Fatalf("conversion failed: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Contains(res.PDF, []byte("/Subtype /Image")) {
+		t.Fatal("the data: URI image was not embedded in the PDF")
+	}
+	if n := strings.Count(string(res.PDF), "/Subtype /Image"); n != 1 {
+		t.Fatalf("the same data: URI was embedded %d times, want 1", n)
+	}
+	again, err := Convert(context.Background(), []byte(src), Options{
+		File:         "data-uri.html",
+		FallbackFont: testFontPath(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(res.PDF, again.PDF) {
+		t.Fatal("two conversions of the same data: URI document differ")
+	}
+}
+
+func TestDataURIRejectsUnsupportedPayloads(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"svg", `<img src="data:image/svg+xml;base64,PHN2Zy8+">`},
+		{"not-base64", `<img src="data:image/png,raw">`},
+		{"broken-base64", `<img src="data:image/png;base64,@@@@">`},
+		{"not-an-image", `<img src="data:text/plain;base64,aGk=">`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Convert(context.Background(), []byte(tc.src), Options{
+				File:         tc.name + ".html",
+				FallbackFont: testFontPath(t),
+			})
+			if err == nil {
+				t.Fatal("expected a diagnostic for the unsupported data: URI")
+			}
+			if len(res.Diagnostics) == 0 {
+				t.Fatal("rejected without diagnostics")
 			}
 		})
 	}

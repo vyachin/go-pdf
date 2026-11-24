@@ -70,6 +70,11 @@ type Options struct {
 	// Strict turns profile warnings into errors, so a document that renders
 	// with warnings fails the build.
 	Strict bool
+	// ImportBrowser enables the browser compatibility layer. A document that
+	// uses browser-only CSS (flexbox, absolute positioning, rem, CSS
+	// variables, data: URIs, screen media rules) is lowered to the profile
+	// before validation, and every approximation is reported as a warning.
+	ImportBrowser bool
 	// Limits bounds the work a single conversion may do. Zero fields mean the
 	// defaults.
 	Limits Limits
@@ -291,16 +296,17 @@ func Validate(ctx context.Context, src []byte, opts Options) (Diagnostics, error
 
 func (o Options) toEngine() engine.Options {
 	return engine.Options{
-		PageSize:     o.PageSize,
-		Margin:       o.Margin,
-		FontDir:      o.FontDir,
-		BaseDir:      o.BaseDir,
-		Date:         o.Date,
-		Title:        o.Title,
-		RenderPNG:    o.RenderPNG,
-		File:         o.File,
-		FallbackFont: o.FallbackFont,
-		Strict:       o.Strict,
+		PageSize:      o.PageSize,
+		Margin:        o.Margin,
+		FontDir:       o.FontDir,
+		BaseDir:       o.BaseDir,
+		Date:          o.Date,
+		Title:         o.Title,
+		RenderPNG:     o.RenderPNG,
+		File:          o.File,
+		FallbackFont:  o.FallbackFont,
+		Strict:        o.Strict,
+		ImportBrowser: o.ImportBrowser,
 		Limits: engine.Limits{
 			MaxInputBytes:      o.Limits.MaxInputBytes,
 			MaxStylesheetBytes: o.Limits.MaxStylesheetBytes,

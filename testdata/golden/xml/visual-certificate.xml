@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Электронный сертификат 9NZ22W6P"/>
+  <page width="595.276pt" height="841.89pt" margin-top="0pt" margin-right="0pt" margin-bottom="0pt" margin-left="0pt"/>
+  <font-face family="DejaVu Sans" src="DejaVuSans.ttf" weight="400" style="normal"/>
+  <font-face family="DejaVu Sans" src="DejaVuSans-Bold.ttf" weight="700" style="normal"/>
+  <html display="block">
+    <body color="#000000" display="block" font-family="DejaVu Sans" font-size="24pt">
+      <main background-color="#ececec" background-image="url(certificate/background.jpg)" background-size="cover" class="certificate" display="block" height="841.89pt" text-align="center" width="595.276pt">
+        <div class="certificate__logo" display="block" padding-top="60pt">
+          <img width="217.5pt"/>
+        </div>
+        <h1 class="certificate__title" color="#259dff" display="block" font-size="48pt" font-weight="700" line-height="1.15" padding-top="54pt">ПОДАРОЧНЫЙ СЕРТИФИКАТ</h1>
+        <p class="certificate__field" display="block" padding-top="36pt">Номер: <b font-weight="700">9NZ22W6P</b></p>
+        <p class="certificate__field certificate__field--visits" display="block" padding-top="15pt">Количество посещений: <b font-weight="700">0</b></p>
+        <div class="certificate__qr" display="block" padding-top="36pt">
+          <img height="120pt" width="120pt"/>
+        </div>
+      </main>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

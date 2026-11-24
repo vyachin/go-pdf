@@ -21,7 +21,9 @@ type PropSpec struct {
 var PropOrder = []string{
 	"display",
 	"width", "height",
-	"margin", "padding", "border", "border-collapse",
+	"margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+	"padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+	"border", "border-collapse",
 	"background-color", "background-image", "background-size", "color",
 	"font-family", "font-size", "font-weight", "font-style", "line-height",
 	"text-align", "text-indent", "white-space", "vertical-align",
@@ -56,6 +58,14 @@ var Table = map[string]PropSpec{
 		s.Padding = v.Box
 		return nil
 	}},
+	"margin-top":     {Name: "margin-top", Parse: parseMarginSide, Set: setSide(func(s *Style) *[4]Length { return &s.Margin }, 0)},
+	"margin-right":   {Name: "margin-right", Parse: parseMarginSide, Set: setSide(func(s *Style) *[4]Length { return &s.Margin }, 1)},
+	"margin-bottom":  {Name: "margin-bottom", Parse: parseMarginSide, Set: setSide(func(s *Style) *[4]Length { return &s.Margin }, 2)},
+	"margin-left":    {Name: "margin-left", Parse: parseMarginSide, Set: setSide(func(s *Style) *[4]Length { return &s.Margin }, 3)},
+	"padding-top":    {Name: "padding-top", Parse: parsePaddingSide, Set: setSide(func(s *Style) *[4]Length { return &s.Padding }, 0)},
+	"padding-right":  {Name: "padding-right", Parse: parsePaddingSide, Set: setSide(func(s *Style) *[4]Length { return &s.Padding }, 1)},
+	"padding-bottom": {Name: "padding-bottom", Parse: parsePaddingSide, Set: setSide(func(s *Style) *[4]Length { return &s.Padding }, 2)},
+	"padding-left":   {Name: "padding-left", Parse: parsePaddingSide, Set: setSide(func(s *Style) *[4]Length { return &s.Padding }, 3)},
 	"border": {Name: "border", Parse: parseBorderShorthand, Set: func(s *Style, v Value, _ int32) error {
 		s.Border = v.Borders
 		return nil
@@ -376,7 +386,10 @@ func parseBackgroundImage(toks []Token) (Value, error) {
 		return Value{}, fmt.Errorf("remote background images are not supported: %q", src)
 	}
 	if strings.HasPrefix(strings.ToLower(src), "data:") {
-		return Value{}, fmt.Errorf("data: background images are not supported")
+		if !strings.HasPrefix(strings.ToLower(src), "data:image/") {
+			return Value{}, fmt.Errorf("background-image: only image data: URIs are supported")
+		}
+		return Value{Kind: "url", URL: src}, nil
 	}
 	return Value{Kind: "url", URL: src}, nil
 }
@@ -433,6 +446,42 @@ func parseMarginShorthand(toks []Token) (Value, error) {
 }
 
 // parseTextIndent parses text-indent: one length, and no keyword.
+// parseMarginSide parses one physical margin longhand.
+func parseMarginSide(toks []Token) (Value, error) {
+	v, err := parseSingleLength(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	if v.Length.Kind == Auto {
+		return Value{}, fmt.Errorf("margin must not be auto, use an explicit length")
+	}
+	return v, nil
+}
+
+// parsePaddingSide parses one physical padding longhand.
+func parsePaddingSide(toks []Token) (Value, error) {
+	v, err := parseSingleLength(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	if v.Length.Kind == Auto {
+		return Value{}, fmt.Errorf("padding must not be auto")
+	}
+	if v.Length.Value < 0 {
+		return Value{}, fmt.Errorf("padding must not be negative")
+	}
+	return v, nil
+}
+
+// setSide returns a Set function that stores a single side of a box property.
+func setSide(box func(*Style) *[4]Length, side int) func(*Style, Value, int32) error {
+	return func(s *Style, v Value, _ int32) error {
+		b := box(s)
+		b[side] = v.Length
+		return nil
+	}
+}
+
 func parseTextIndent(toks []Token) (Value, error) {
 	f := filterWhitespace(toks)
 	if len(f) == 1 && f[0].Kind == IdentToken {
@@ -649,7 +698,7 @@ func ApplyDecl(s *Style, name string, toks []Token, parentFontSize int32) error 
 
 // SupportedElements is the white list of element names in the profile.
 var SupportedElements = map[string]bool{
-	"html": true, "head": true, "body": true, "div": true, "p": true,
+	"html": true, "head": true, "body": true, "main": true, "div": true, "p": true,
 	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 	"ul": true, "ol": true, "li": true,
 	"table": true, "thead": true, "tbody": true, "tfoot": true,
