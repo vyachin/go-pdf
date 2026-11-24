@@ -54,7 +54,7 @@
 
 ### Валидация и шрифты
 
-- [ ] **REV-08 · P2: не сообщать успешную полную валидацию для отсутствующих изображений и глифов.**
+- [x] **REV-08 · P2: не сообщать успешную полную валидацию для отсутствующих изображений и глифов.**
 
   **Код:** [internal/engine/engine.go:94](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go:94), `Validate`; [internal/engine/convert.go:35](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:35), `prepare`; [pdfgen/pdfgen.go:20](/Users/vyachin/Projects/go-pdf/pdfgen/pdfgen.go:20).
   **Воспроизведение:** `<p>A</p><img src="missing.png">` и `<p>&#x10ffff;</p>` с комплектным шрифтом дают `Validate: err=nil, diagnostics=[]`, затем `Convert` возвращает соответственно `img/load` и `text/glyph`. Проблема подтверждена и через публичный API. Это противоречит обещанию одинаковых ошибок Validate/Convert.

@@ -127,21 +127,13 @@ func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
 	return true, err
 }
 
-func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
+// layoutDocument runs the layout passes, including the target-counter passes,
+// and appends every layout diagnostic to diags. A cancelled context is returned
+// as an error; budget and layout failures stay in diags. Both Convert and
+// Validate use it, so the two entry points report the same problems before the
+// PDF is written.
+func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.List) (*layout.Document, error) {
 	limits := opts.Limits.resolved()
-	p, diags, err := prepare(ctx, src, opts)
-	if err != nil {
-		return Result{Diagnostics: diags}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{Diagnostics: diags}, err
-	}
-	if diags.HasErrors() {
-		return Result{Diagnostics: diags}, diags.Error()
-	}
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
 	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes}
 	defer images.Close()
@@ -154,7 +146,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	const maxPasses = 4
 	for pass := 0; pass < maxPasses; pass++ {
 		if err := ctx.Err(); err != nil {
-			return Result{Diagnostics: diags}, err
+			return nil, err
 		}
 		pages, layoutDiags = layout.Run(doc, layout.Context{
 			Ctx:           ctx,
@@ -170,10 +162,10 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			TargetPages:   targets,
 		})
 		if err := ctx.Err(); err != nil {
-			return Result{Diagnostics: diags}, err
+			return nil, err
 		}
-		if err := stageFailure(p.guard, &layoutDiags, &diags); err != nil {
-			return Result{Diagnostics: diags}, err
+		if err := stageFailure(p.guard, &layoutDiags, diags); err != nil {
+			return nil, err
 		}
 		if layoutDiags.HasErrors() {
 			break
@@ -193,15 +185,41 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			diags.Warnf("pagination/unknown-target", diag.Position{}, "", "no element with id %q, the table of contents shows 0", id)
 		}
 	}
-	diags = append(diags, layoutDiags...)
+	*diags = append(*diags, layoutDiags...)
 	if opts.Strict {
 		diags.EscalateWarnings()
+	}
+	return pages, nil
+}
+
+func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	limits := opts.Limits.resolved()
+	p, diags, err := prepare(ctx, src, opts)
+	if err != nil {
+		return Result{Diagnostics: diags}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{Diagnostics: diags}, err
+	}
+	if diags.HasErrors() {
+		return Result{Diagnostics: diags}, diags.Error()
+	}
+	pages, err := layoutDocument(ctx, p, opts, &diags)
+	if err != nil {
+		return Result{Diagnostics: diags}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{Diagnostics: diags}, err
 	}
 	if diags.HasErrors() {
 		diags.Sort()
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 
+	doc := p.doc
 	writer := pdf.New(pdf.Options{
 		Title:        documentTitle(doc, opts),
 		Author:       metaContent(doc, "author"),

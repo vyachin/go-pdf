@@ -56,7 +56,7 @@ Usage:
 
 Commands:
   convert   render the template to a PDF file
-  validate  check the template against the CSS profile without rendering
+  validate  check the template and its layout without writing a PDF
 
 Run "pdfgen convert -h" for the flags of a command.
 `)

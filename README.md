@@ -74,7 +74,7 @@ Exit codes: `0` success, `1` validation or rendering error, `2` usage error.
 # Show the profile the engine understands
 pdfgen validate -print-profile
 
-# Validate without rendering (useful in CI)
+# Validate without writing a PDF (useful in CI)
 pdfgen validate invoice.html && pdfgen convert -o invoice.pdf invoice.html
 
 # Strict mode: warnings (for example about an ignored <script>) fail the build
@@ -134,10 +134,10 @@ func main() {
 }
 ```
 
-The same call shape works for validation. `Validate` runs the cheap half of the
-pipeline — parsing, cascade and profile — and reports the same diagnostics
-without paying for layout, which is what a CI check or a "preview" endpoint
-needs:
+The same call shape works for validation. `Validate` runs the same preparation
+and layout as `Convert` and reports the same diagnostics without writing a PDF,
+so a missing image, an unsupported colour space or a character without a glyph
+is caught in CI instead of at render time:
 
 ```go
 diags, err := pdfgen.Validate(ctx, src, opts)

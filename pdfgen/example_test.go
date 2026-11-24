@@ -47,8 +47,8 @@ func Example() {
 	}
 }
 
-// ExampleValidate shows the cheap half of the pipeline: the same diagnostics as
-// Convert without layout, which is what a CI check needs.
+// ExampleValidate shows the same diagnostics as Convert without writing a PDF,
+// which is what a CI check needs.
 func ExampleValidate() {
 	src, err := os.ReadFile("invoice.html")
 	if err != nil {

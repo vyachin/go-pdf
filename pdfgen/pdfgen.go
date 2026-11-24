@@ -258,9 +258,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	return out, nil
 }
 
-// Validate parses and checks a template without rendering it. It is the cheap
-// half of Convert and reports the same problems, so it belongs in a CI check or
-// in a "preview" endpoint that must not pay for layout.
+// Validate parses, lays out and checks a template without writing a PDF. It
+// reports the same problems as Convert, including a missing image and a
+// character without a glyph, so it belongs in a CI check.
 //
 // Like Convert it returns an *Error when the template is invalid and the
 // context error when ctx is done.

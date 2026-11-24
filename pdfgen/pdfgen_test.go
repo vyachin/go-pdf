@@ -215,3 +215,16 @@ func TestValidationHonoursCancellationAfterStart(t *testing.T) {
 		t.Fatalf("Validate returned %v, want context.Canceled", err)
 	}
 }
+
+func TestValidateReportsMissingImages(t *testing.T) {
+	opts := testOptions(t)
+	opts.BaseDir = t.TempDir()
+	_, err := pdfgen.Validate(context.Background(), []byte(`<p>A</p><img src="missing.png">`), opts)
+	var verr *pdfgen.Error
+	if !errors.As(err, &verr) {
+		t.Fatalf("Validate returned %v, want *pdfgen.Error for a missing image", err)
+	}
+	if verr.Diagnostics[0].Code != "img/load" {
+		t.Fatalf("diagnostic code is %q, want img/load", verr.Diagnostics[0].Code)
+	}
+}

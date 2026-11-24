@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"path/filepath"
@@ -104,6 +105,11 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if cfg.ColorModel == color.CMYKModel {
+			// The writer has no colour space for CMYK, and Validate must find
+			// this at image load time just like Convert does.
+			return nil, fmt.Errorf("pdf: CMYK JPEG images are not supported")
 		}
 		if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 			return nil, fmt.Errorf("%s: %d pixels exceed the limit of %d", path, cfg.Width*cfg.Height, l.maxPixels)

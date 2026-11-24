@@ -130,18 +130,31 @@ type Result struct {
 // ErrNotImplemented is returned by pipeline stages that are not wired up yet.
 var ErrNotImplemented = errors.New("engine: not implemented")
 
-// Validate parses and checks a template without rendering it.
+// Validate parses and checks a template without writing a PDF. It runs the same
+// preparation and layout as Convert, so it reports the same problems: a missing
+// image, an unsupported colour space or a character without a glyph fails here
+// exactly as it fails in Convert.
 func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	_, diags, err := prepare(ctx, src, opts)
+	p, diags, err := prepare(ctx, src, opts)
 	if err != nil {
 		return diags, err
 	}
 	if err := ctx.Err(); err != nil {
 		return diags, err
 	}
+	if diags.HasErrors() {
+		return diags, nil
+	}
+	if _, err := layoutDocument(ctx, p, opts, &diags); err != nil {
+		return diags, err
+	}
+	if err := ctx.Err(); err != nil {
+		return diags, err
+	}
+	diags.Sort()
 	return diags, nil
 }
 

@@ -1206,3 +1206,68 @@ func TestFallbackAndImageByteLimits(t *testing.T) {
 		t.Fatalf("image byte limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
 }
+
+// diagSignature renders a diagnostic list as comparable strings.
+func diagSignature(l diag.List) []string { return l.Lines() }
+
+func TestValidateMatchesConvertOnAssetsAndGlyphs(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "broken.png"), []byte("not a png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name    string
+		src     string
+		baseDir string
+	}{
+		{"missing image", `<p>A</p><img src="missing.png">`, dir},
+		{"corrupt image", `<p>A</p><img src="broken.png">`, dir},
+		{"missing glyph", `<p>&#x10ffff;</p>`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{FallbackFont: fontPath, BaseDir: tc.baseDir, File: tc.name + ".html"}
+			converted, convertErr := Convert(context.Background(), []byte(tc.src), opts)
+			if convertErr == nil {
+				t.Fatalf("%s: Convert unexpectedly succeeded", tc.name)
+			}
+			validated, validateErr := Validate(context.Background(), []byte(tc.src), opts)
+			if validateErr != nil {
+				t.Fatalf("%s: Validate returned a context error: %v", tc.name, validateErr)
+			}
+			if !validated.HasErrors() {
+				t.Fatalf("%s: Validate reported success for a document Convert rejects", tc.name)
+			}
+			got, want := diagSignature(validated), diagSignature(converted.Diagnostics)
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Fatalf("%s: Validate diagnostics differ from Convert\n got: %v\nwant: %v", tc.name, got, want)
+			}
+		})
+	}
+}
+
+func TestValidateMatchesConvertOnCMYK(t *testing.T) {
+	fixture := filepath.Join(runtime.GOROOT(), "src", "image", "testdata", "video-001.cmyk.jpeg")
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cmyk.jpg"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := []byte(`<p><img src="cmyk.jpg"></p>`)
+	opts := Options{FallbackFont: testFontPath(t), BaseDir: dir, File: "cmyk.html"}
+	converted, convertErr := Convert(context.Background(), src, opts)
+	if convertErr == nil || !strings.Contains(convertErr.Error(), "CMYK") {
+		t.Fatalf("Convert returned %v, want a CMYK rejection", convertErr)
+	}
+	validated, validateErr := Validate(context.Background(), src, opts)
+	if validateErr != nil {
+		t.Fatal(validateErr)
+	}
+	if strings.Join(validated.Lines(), "\n") != strings.Join(converted.Diagnostics.Lines(), "\n") {
+		t.Fatalf("Validate diagnostics differ from Convert\n got: %v\nwant: %v", validated.Lines(), converted.Diagnostics.Lines())
+	}
+}
