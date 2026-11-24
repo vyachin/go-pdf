@@ -354,6 +354,11 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		line := &b.lines[b.cursor.line]
 		last := b.cursor.line == len(b.lines)-1
 		l.paintLineAt(f.page, b, line, b.x+b.borderLeft()+b.padLeft(), f.y, width, last)
+		for _, id := range line.Anchors {
+			if _, ok := l.anchors[id]; !ok {
+				l.anchors[id] = Anchor{Page: f.pageNum, Y: f.y}
+			}
+		}
 		f.y += line.Height
 		b.cursor.line++
 	}

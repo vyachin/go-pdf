@@ -22,6 +22,8 @@ type Line struct {
 	Indent int32
 	// ForcedBreak is true when the line ended at a <br> or the end of the block.
 	ForcedBreak bool
+	// Anchors are element ids whose content starts on this line.
+	Anchors []string
 }
 
 // LineItemKind classifies an item inside a line.
@@ -53,6 +55,7 @@ const (
 	wordPiece pieceKind = iota
 	spacePiece
 	imagePiece
+	anchorPiece
 	breakPiece
 )
 
@@ -62,7 +65,8 @@ type piece struct {
 	style    *css.Style
 	node     *htmlNode
 	image    *ImageData
-	preserve bool // a space that must not be collapsed or dropped
+	preserve bool   // a space that must not be collapsed or dropped
+	anchor   string // element id that starts at this piece
 }
 
 // htmlNode is a minimal indirection so that diagnostics can carry a position
@@ -110,6 +114,11 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 		case Image:
 			*out = append(*out, piece{kind: imagePiece, style: c.Style, image: c.Image})
 		default:
+			if c.Node != nil {
+				if id := c.Node.ID(); id != "" {
+					*out = append(*out, piece{kind: anchorPiece, style: c.Style, anchor: id})
+				}
+			}
 			l.collectPieces(c, out)
 		}
 	}
@@ -192,6 +201,10 @@ func (l *layouter) buildLines(b *Box, width int32) {
 
 	for _, p := range pieces {
 		switch p.kind {
+		case anchorPiece:
+			if p.anchor != "" {
+				cur.Anchors = append(cur.Anchors, p.anchor)
+			}
 		case breakPiece:
 			flush(true)
 			firstLine = false

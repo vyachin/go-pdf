@@ -975,3 +975,19 @@ func TestCellBlockMarginsAdvanceContent(t *testing.T) {
 		t.Fatalf("baselines are %d apart, want at least 34400", gap)
 	}
 }
+
+func TestInlineAnchorsAreRegistered(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p><span id="target">TARGET</span></p>`)
+	anchor, ok := doc.Anchors["target"]
+	if !ok {
+		t.Fatal("an inline target was not registered")
+	}
+	if anchor.Page != 1 {
+		t.Fatalf("anchor page = %d, want 1", anchor.Page)
+	}
+	doc = h.run(`<table><tr><td><span id="cell">C</span></td></tr></table>`)
+	if _, ok := doc.Anchors["cell"]; !ok {
+		t.Fatal("a target inside a table cell was not registered")
+	}
+}

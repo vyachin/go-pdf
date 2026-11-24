@@ -355,6 +355,11 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		lineY := y + b.borderTop() + b.padTop()
 		for i := range b.lines {
 			l.paintLineAt(page, b, &b.lines[i], x+b.borderLeft()+b.padLeft(), lineY, inner, i == len(b.lines)-1)
+			for _, id := range b.lines[i].Anchors {
+				if _, ok := l.anchors[id]; !ok {
+					l.anchors[id] = Anchor{Page: page.Number, Y: lineY}
+				}
+			}
 			lineY += b.lines[i].Height
 		}
 		return height

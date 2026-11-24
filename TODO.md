@@ -299,7 +299,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   **Reproduction:** `@page{size:100pt 60pt;margin:10pt} p{margin:0;font-size:10pt;line-height:12pt;orphans:2;widows:3}` with `<p>A<br>B<br>C<br>D<br>E</p>` splits pages as `ABC / DE`. A valid `AB / CDE` split satisfies both constraints. The `fits > st.Widows` guard prevents this correction when `fits == 3`.
   **Fix / acceptance:** choose a split satisfying both orphan and widow constraints whenever possible. Test equality boundaries, first and continuation fragments, and genuinely impossible constraints separately.
 
-- [ ] **LAY-10 · P2: register inline anchors for `target-counter`.**
+- [x] **LAY-10 · P2: register inline anchors for `target-counter`.**
 
   **Source:** [internal/layout/paginate.go:178](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:178), anchor registration; [internal/layout/lines.go:90](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:90), `collectPieces`.
   **Reproduction:** `<p><span id="target">TARGET</span></p>` draws the text but leaves `Document.Anchors` empty. An `a::after` rule referencing `#target` therefore displays 0 and reports an unknown target even though the element exists. Anchors are only recorded by paginated block placement.
