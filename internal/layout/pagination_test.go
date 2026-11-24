@@ -1039,3 +1039,65 @@ func TestCellVerticalAlignment(t *testing.T) {
 		t.Fatalf("bottom alignment did not move the text: %d vs %d", bottom, top)
 	}
 }
+
+// TestRepeatedHeaderDoesNotLoopOnOversizedRow guards RV2-05: painting the
+// repeated header marked the page non-empty, so a row taller than the page was
+// never clipped: every new page got a header, the row did not fit again, and
+// pagination produced thousands of header-only pages.
+func TestRepeatedHeaderDoesNotLoopOnOversizedRow(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 100000} // 200x100 pt
+	margin := [4]int32{}
+	src := `<table><thead><tr><th>HEAD</th></tr></thead>
+	<tbody><tr><td><div style="height:200pt">BODY</div></td></tr></tbody></table>`
+	doc, diags := h.runRaw(src, size, margin)
+	if hasError(diags, "layout/loop") {
+		t.Fatalf("pagination did not converge: %v", diags.Lines())
+	}
+	if hasError(diags, "layout/no-progress") {
+		t.Fatalf("content was reported as unplaceable: %v", diags.Lines())
+	}
+	if len(doc.Pages) > 2 {
+		t.Fatalf("an oversized row produced %d pages, want at most 2", len(doc.Pages))
+	}
+	if !hasWarning(doc, "layout/overflow") {
+		t.Fatalf("expected an overflow warning, got %v", diags.Lines())
+	}
+	// The body row must be painted exactly once, not lost among headers.
+	bodyPages := 0
+	for i := 1; i <= len(doc.Pages); i++ {
+		if strings.Contains(pageText(doc, i), "BODY") {
+			bodyPages++
+		}
+	}
+	if bodyPages != 1 {
+		t.Fatalf("the oversized row was painted on %d pages, want exactly 1", bodyPages)
+	}
+}
+
+// TestRepeatedHeaderStillBreaksWhenTheRowFits checks the fix did not turn real
+// continuation breaks into clipping: a row that fits a fresh page with the
+// repeated header must still move to the next page.
+func TestRepeatedHeaderStillBreaksWhenTheRowFits(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 100000}
+	margin := [4]int32{}
+	src := `<table><thead><tr><th>HEAD</th></tr></thead><tbody>
+	<tr><td><div style="height:30pt">A</div></td></tr>
+	<tr><td><div style="height:30pt">B</div></td></tr>
+	<tr><td><div style="height:30pt">C</div></td></tr>
+	</tbody></table>`
+	doc := h.runWithSize(src, size, margin)
+	if len(doc.Pages) < 2 {
+		t.Fatalf("the rows did not continue on a second page: %d pages", len(doc.Pages))
+	}
+	seen := 0
+	for i := 1; i <= len(doc.Pages); i++ {
+		if strings.Contains(pageText(doc, i), "C") {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("row C appears on %d pages, want 1", seen)
+	}
+}

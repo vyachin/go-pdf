@@ -32,7 +32,7 @@
   **Воспроизведение:** `go run ./testdata/probe/font-text-23/main.go`: синтетический TTF **820 байт**, каждая composite-глифа содержит 16 компонентов. chain=5 → 65 536 контуров и +38 МБ; chain=6 → **1 048 576 контуров и +787,8 МБ** за 220 мс. При 16 компонентах и пределе 8 возможно 16⁸ ≈ 4,3·10⁹ контуров. Путь вызова — debug `-render-png` ([internal/backend/raster/raster.go:169](/Users/vyachin/Projects/go-pdf/internal/backend/raster/raster.go:169)) и `FuzzParse`.
   **Исправление / приёмка:** мемоизировать путь по gid (как дедупликация `need[gid]` в `subset.go`) либо ограничить суммарное число компонентов/контуров и вернуть ошибку до роста памяти. Шрифт <1 КБ не должен давать сотни мегабайт; regression-тест с цепочкой композитов падает при снятии лимита.
 
-- [ ] **RV2-05 · P1: не размножать страницы, если повторённая шапка таблицы делает строку невместимой.**
+- [x] **RV2-05 · P1: не размножать страницы, если повторённая шапка таблицы делает строку невместимой.**
 
   **Код:** [internal/layout/table.go:181](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:181), ветка «строка выше страницы» требует `len(f.page.Ops) == 0`, но `paintRepeatedHeaders` ([:197](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:197)) уже нарисовал шапку.
   **Воспроизведение:** `go run ./testdata/probe/layout-1/main.go`:

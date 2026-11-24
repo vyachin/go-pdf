@@ -179,7 +179,17 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		}
 		h := t.rowHeights[t.cursor.row]
 		if f.y+h > f.bottom {
-			if len(f.page.Ops) == 0 {
+			// A new page only helps when the row fits there, and a continuation
+			// page first repeats the header rows. When the row is larger than
+			// that space too, breaking pages can never place it: clip it once
+			// instead of looping until the page limit.
+			space := f.contentHeight()
+			if t.cursor.row != 0 && t.headerCount > 0 {
+				for i := 0; i < t.headerCount; i++ {
+					space -= t.rowHeights[i]
+				}
+			}
+			if len(f.page.Ops) == 0 || h > space {
 				l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(t), "a table row is taller than the page and is clipped")
 			} else {
 				return false
