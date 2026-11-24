@@ -1,12 +1,12 @@
-# CSS-профиль
+# CSS profile
 
-Профиль — закрытый белый список. Всё, что в него не входит, отклоняется валидацией с координатой в исходнике. Актуальный список всегда доступен командой:
+The profile is a closed allow-list. Anything that is not in it is rejected by validation with a position in the source. The current list is always available with the command:
 
 ```bash
 pdfgen validate -print-profile
 ```
 
-## Элементы
+## Elements
 
 ```
 html head body div p h1 h2 h3 h4 h5 h6
@@ -14,68 +14,68 @@ ul ol li table thead tbody tfoot tr td th
 img span br hr strong b em i a title meta style link
 ```
 
-`<script>` допускается, но игнорируется с предупреждением `html/ignored-script`: код не исполняется и не рендерится. В строгом режиме (`-strict`) это ошибка.
+`<script>` is allowed but ignored with the warning `html/ignored-script`: the code is not executed or rendered. In strict mode (`-strict`) this is an error.
 
-Неизвестный элемент — ошибка `html/unsupported-element`. Поддерживаются атрибуты `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (для `ol`), `name`/`content` (для `meta`).
+An unknown element is the error `html/unsupported-element`. The supported attributes are `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (for `ol`), `name`/`content` (for `meta`).
 
-## Свойства
+## Properties
 
-| Свойство | Наследуется | Значения |
+| Property | Inherited | Values |
 |---|---|---|
-| `display` | нет | `block`, `inline`, `list-item`, `table`, `table-row`, `table-cell`, `none` |
-| `width`, `height` | нет | длина или `auto` |
-| `margin`, `padding` | нет | 1–4 длины |
-| `border` | нет | `[width] [solid\|none] [color]` |
-| `border-collapse` | нет | `collapse`, `separate` |
-| `background-color` | нет | цвет |
-| `color` | да | цвет |
-| `font-family` | да | список семейств |
-| `font-size` | да | длина, `em`, `%` |
-| `font-weight` | да | `100`–`900`, `normal`, `bold` |
-| `font-style` | да | `normal`, `italic` |
-| `line-height` | да | число, длина, `normal` |
-| `text-align` | да | `left`, `right`, `center`, `justify` |
-| `text-indent` | да | длина |
-| `white-space` | да | `normal`, `pre` |
-| `vertical-align` | нет | `baseline`, `top`, `middle`, `bottom` |
-| `break-before`, `break-after` | нет | `auto`, `page`, `avoid` |
-| `break-inside` | нет | `auto`, `page`, `avoid` |
-| `page-break-before/after/inside` | нет | устаревшие синонимы `break-*` |
-| `orphans`, `widows` | да | целое ≥ 1 |
-| `list-style-type` | да | `disc`, `decimal` |
+| `display` | no | `block`, `inline`, `list-item`, `table`, `table-row`, `table-cell`, `none` |
+| `width`, `height` | no | a length or `auto` |
+| `margin`, `padding` | no | 1–4 lengths |
+| `border` | no | `[width] [solid\|none] [color]` |
+| `border-collapse` | no | `collapse`, `separate` |
+| `background-color` | no | a colour |
+| `color` | yes | a colour |
+| `font-family` | yes | a list of families |
+| `font-size` | yes | a length, `em`, `%` |
+| `font-weight` | yes | `100`–`900`, `normal`, `bold` |
+| `font-style` | yes | `normal`, `italic` |
+| `line-height` | yes | a number, a length, `normal` |
+| `text-align` | yes | `left`, `right`, `center`, `justify` |
+| `text-indent` | yes | a length |
+| `white-space` | yes | `normal`, `pre` |
+| `vertical-align` | no | `baseline`, `top`, `middle`, `bottom` |
+| `break-before`, `break-after` | no | `auto`, `page`, `avoid` |
+| `break-inside` | no | `auto`, `page`, `avoid` |
+| `page-break-before/after/inside` | no | legacy aliases of `break-*` |
+| `orphans`, `widows` | yes | an integer ≥ 1 |
+| `list-style-type` | yes | `disc`, `decimal` |
 
-## Единицы
+## Units
 
-`px`, `pt`, `mm`, `cm`, `in`, `%`, `em`. Всё остальное (`rem`, `vw`, `vh`, `ch`) — ошибка.
+`px`, `pt`, `mm`, `cm`, `in`, `%`, `em`. Everything else (`rem`, `vw`, `vh`, `ch`) is an error.
 
-При `border-collapse: collapse` общая линия сетки рисуется один раз: внешнюю рамку даёт `border` самой таблицы (если он задан), внутренние границы — левая и верхняя границы ячейки справа или снизу. Конфликт разных толщин и цветов решается в пользу этой одной границы; приоритеты CSS (`cell > row > table`) не моделируются.
+With `border-collapse: collapse` the shared grid line is drawn once: the outer border comes from the table's own `border` (if set), and the inner borders are the left and top borders of the cell to the right or below. A conflict between different widths and colours is resolved in favour of that single border; CSS priorities (`cell > row > table`) are not modelled.
 
-Мягкий перенос `U+00AD` (`&shy;`) — невидимая точка переноса: движок не синтезирует видимый дефис на месте разрыва. Обычный `-` и `U+2010` переносят строку после себя и сохраняются в текстовом слое как записаны.
+The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does not synthesise a visible hyphen at the break. A regular `-` and `U+2010` break the line after themselves and are preserved in the text layer as written.
 
-`auto` допустим только у `width` и `height`. У `margin`, `padding`, `text-indent` и `line-height` это ошибка профиля: `margin: 0 auto` не центрирует блок, а раньше молча выравнивал его влево.
+`auto` is allowed only for `width` and `height`. For `margin`, `padding`, `text-indent` and `line-height` it is a profile error: `margin: 0 auto` does not centre the block, whereas it used to silently align it to the left.
 
-## Селекторы
+## Selectors
 
-Имя элемента, класс, идентификатор, комбинации, потомок (пробел), прямой ребёнок (`>`), перечисление через запятую.
+Element name, class, ID, combinations, descendant (space), direct child (`>`), comma-separated list.
 
-Псевдоклассы и атрибутные селекторы отклоняются. Единственное исключение — `a::after` для сгенерированного содержимого:
+Pseudo-classes and attribute selectors are rejected. The only exception is `a::after` for generated content:
 
 ```css
 a.toc::after { content: " →" target-counter(attr(href), page) }
 ```
 
-Внутри `a::after` разрешено только свойство `content` со строками, `counter(page)`, `counter(pages)` и `target-counter(attr(href), page)`. Вне `a::after` свойства `content` нет.
+Inside `a::after` only the `content` property is allowed, with strings, `counter(page)`, `counter(pages)` and `target-counter(attr(href), page)`. Outside `a::after` there is no `content` property.
 
-## At-правила
+## At-rules
 
 ```css
 @page {
-  size: A4;              /* A4, A5, Letter, два размера или landscape/portrait */
-  margin: 20mm 15mm;     /* 1–4 длины */
+  size: A4;              /* A4, A5, Letter, two lengths or landscape/portrait */
+  margin: 20mm 15mm;     /* one to four lengths */
 }
 
-@page { size: A4 landscape }  /* 297 x 210 мм */
-@page { size: landscape }     /* ориентация на размер из -page (по умолчанию A4) */
+@page { size: A4 landscape }  /* 297 x 210 mm */
+@page { size: landscape }     /* orient the size from -page (A4 by default) */
 @page { size: portrait }
 
 @page {
@@ -85,51 +85,51 @@ a.toc::after { content: " →" target-counter(attr(href), page) }
 
 @font-face {
   font-family: "PT Serif";
-  src: url(fonts/pt-serif.ttf);  /* только локальный TrueType */
+  src: url(fonts/pt-serif.ttf);  /* local TrueType only */
 }
 
-/* Внешняя таблица стилей: только локальный файл */
+/* External stylesheet: a local file only */
 <link rel="stylesheet" href="styles/print.css">
 <link rel="stylesheet" href="styles/screen.css" media="print">
 
-@media print { /* или @media all */ }
+@media print { /* or @media all */ }
 ```
 
 Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right`.
-Значения `content`: строки в кавычках, `counter(page)`, `counter(pages)`, `target-counter(attr(href), page)`.
+`content` values: quoted strings, `counter(page)`, `counter(pages)`, `target-counter(attr(href), page)`.
 
-## Чего нет и почему
+## What is missing and why
 
-| Не поддерживается | Причина |
+| Not supported | Reason |
 |---|---|
-| `flex`, `grid` | другой движок раскладки; для документов хватает блоков и таблиц |
-| `float`, `position: absolute/fixed` | ломает пагинацию и требует другого алгоритма |
-| градиенты, тени, скругления, прозрачность | не нужны в печатных документах, усложняют вывод |
-| `hyphens: auto` | требует словарей переносов; в планах на v2 |
-| JavaScript | движок статический, документ не исполняется |
-| CFF/OTF и веб-шрифты по URL | см. `docs/fonts.md` |
-| внешний CSS по URL | движок не ходит в сеть; `<link>` принимает только локальный файл |
-| `table-layout: auto` | алгоритм авто-раскладки таблиц несоразмерен пользе |
-| `size: 210mm 297mm landscape` | грамматика CSS не разрешает ориентацию вместе с длинами |
-| прочие псевдоэлементы (`::before`, `::first-line`) | сгенерированное содержимое нужно только для оглавления |
+| `flex`, `grid` | a different layout engine; blocks and tables are enough for documents |
+| `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm |
+| gradients, shadows, rounded corners, transparency | not needed in printed documents; they complicate the output |
+| `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |
+| JavaScript | the engine is static; the document is not executed |
+| CFF/OTF and web fonts by URL | see `docs/fonts.md` |
+| external CSS by URL | the engine does not access the network; `<link>` accepts only a local file |
+| `table-layout: auto` | the cost of the automatic table layout algorithm outweighs its benefit |
+| `size: 210mm 297mm landscape` | the CSS grammar does not allow an orientation combined with lengths |
+| other pseudo-elements (`::before`, `::first-line`) | generated content is needed only for the table of contents |
 
-## Внешние таблицы стилей
+## External stylesheets
 
-`<link rel="stylesheet">` подключает локальный файл. Правила:
+`<link rel="stylesheet">` includes a local file. Rules:
 
-- путь разрешается относительно `BaseDir` запуска; при заданном `BaseDir` выход за его пределы запрещён;
-- `media` у `<link>` и `<style>` со значением `print`, `all` или пустым применяет лист, иное значение (в том числе список без `print`) пропускает его без ошибки;
-- `rel`, отличный от `stylesheet` (`icon`, `canonical`), игнорируется молча;
-- `http(s)://` и `data:` отклоняются: удалённые стили не загружаются;
-- порядок каскада — порядок документа, поэтому `<style>`, `<link>`, `<style>` применяются именно в этой последовательности;
-- ошибка внутри подключённого файла указывает файл, строку и столбец в нём.
+- the path is resolved relative to the run's `BaseDir`; when `BaseDir` is set, going outside it is forbidden;
+- `media` on `<link>` and `<style>` with the value `print`, `all` or empty applies the sheet; any other value (including a list without `print`) skips it without an error;
+- a `rel` other than `stylesheet` (`icon`, `canonical`) is silently ignored;
+- `http(s)://` and `data:` are rejected: remote stylesheets are not loaded;
+- the cascade order is the document order, so `<style>`, `<link>`, `<style>` apply in exactly that sequence;
+- an error inside an included file names the file, the line and the column in it.
 
-## Диагностика
+## Diagnostics
 
-Каждая ошибка содержит файл, строку, столбец и путь элемента:
+Every error contains the file, line, column and element path:
 
 ```
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Коды: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `html/unsupported-element`, `text/glyph`, `layout/overflow`.
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `html/unsupported-element`, `text/glyph`, `layout/overflow`.

@@ -1,86 +1,86 @@
-# Корпус mPDF
+# mPDF corpus
 
-Тесты mPDF — это PHPUnit-тесты: они проверяют внутренние API (`Imagick`, `Reflection`, `$mpdf->PageLinks`), а их снимочные тесты сравнивают растр страниц с эталонным PDF. Перенести такие проверки в Go нельзя: они проверяют PHP-реализацию и функции, которых в нашем профиле нет.
+The mPDF tests are PHPUnit tests: they check internal APIs (`Imagick`, `Reflection`, `$mpdf->PageLinks`), and their snapshot tests compare a page raster with a reference PDF. Such checks cannot be ported to Go: they test the PHP implementation and features that our profile does not have.
 
-Что переносится — это **документы**. Из тестов mPDF извлечён HTML и превращён в корпус совместимости: каждый документ прогоняется через движок, и проверяется не совпадение с mPDF, а корректное поведение нашего движка.
+What carries over is the **documents**. HTML was extracted from the mPDF tests and turned into a compatibility corpus: each document is run through the engine, and what is checked is not a match with mPDF but the correct behaviour of our engine.
 
-## Что именно проверяется
+## What is checked
 
-| Категория | Проверка |
+| Category | Check |
 |---|---|
-| Документ внутри профиля | конвертируется, PDF валиден (`pdfcpu`), байтово детерминирован, текст совпадает с золотым |
-| Документ вне профиля | отклоняется с диагностиками, без паники и без «тихого игнора» |
-| Динамический PHP | пропускается с указанием причины |
+| Document inside the profile | converts, the PDF is valid (`pdfcpu`), byte-deterministic, the text matches the golden text |
+| Document outside the profile | rejected with diagnostics, without a panic and without silently ignoring it |
+| Dynamic PHP | skipped with the reason stated |
 
-Паника при обработке любого документа — падение теста со стеком.
+A panic while processing any document fails the test with a stack trace.
 
-## Состав корпуса
+## Corpus composition
 
-`testdata/mpdf/cases.json` — 149 записей:
+`testdata/mpdf/cases.json` — 149 entries:
 
-- **81** документ из issue-тестов (`tests/Issues/*.php`), извлечён из `WriteHTML('...')` и heredoc;
-- **14** снимочных документов (`tests/Snapshots/*Test.php`), записанных как чистый HTML между `ob_start(); ?>` и `ob_get_clean()`;
-- **54** записи-заглушки: 51 issue-тест и 3 снимочных, где HTML собирается PHP-кодом (переменные, циклы, `$mpdf->...` вызовы) и статически не извлекается.
+- **81** documents from the issue tests (`tests/Issues/*.php`), extracted from `WriteHTML('...')` and heredocs;
+- **14** snapshot documents (`tests/Snapshots/*Test.php`) written as plain HTML between `ob_start(); ?>` and `ob_get_clean()`;
+- **54** stub entries: 51 issue tests and 3 snapshot tests where the HTML is assembled by PHP code (variables, loops, `$mpdf->...` calls) and is not extracted statically.
 
-Текущий результат прогона:
+Current run result:
 
 ```
-36 конвертируются, 59 отклонены профилем, 54 пропущены
+36 convert, 59 rejected by the profile, 54 skipped
 
 issue:    converted=36 rejected=45 skipped=51
 snapshot: converted=0  rejected=14 skipped=3
 
-отклонения: unsupported-property 19, unsupported-element 19,
-            img/load 8, unsupported-value 6, text/glyph 6,
-            unsupported-page-selector 1
+rejections: unsupported-property 19, unsupported-element 19,
+           img/load 8, unsupported-value 6, text/glyph 6,
+           unsupported-page-selector 1
 ```
 
-## Почему снимочные документы не конвертируются
+## Why the snapshot documents do not convert
 
-Это и есть карта разрыва между mPDF и нашим профилем. Первая причина отказа по каждому документу:
+This is exactly the map of the gap between mPDF and our profile. The first reason for rejection for each document:
 
-| Документ | Блокирует |
+| Document | Blocks |
 |---|---|
-| `auto-font-snapshot` | `text/glyph`: символ деванагари `अ` отсутствует в тестовом шрифте |
+| `auto-font-snapshot` | `text/glyph`: the Devanagari character `अ` is missing from the test font |
 | `backgrounds-and-borders-snapshot` | `background-gradient` |
 | `barcode-snapshot` | `position` |
 | `basic-html-snapshot` | `float` |
-| `dot-tab-snapshot` | `outdent` (специфичное свойство mPDF) |
-| `justify-snapshot` | `<s>` — нужен `text-decoration` |
+| `dot-tab-snapshot` | `outdent` (an mPDF-specific property) |
+| `justify-snapshot` | `<s>` — `text-decoration` is needed |
 | `line-height-snapshot` | `background-gradient` |
 | `list-style-type-snapshot` | `clear` |
-| `paging-css-snapshot` | `<htmlpageheader>` (специфичный тег mPDF) |
-| `paging-html-snapshot` | `<pageheader>` (специфичный тег mPDF) |
+| `paging-css-snapshot` | `<htmlpageheader>` (an mPDF-specific tag) |
+| `paging-html-snapshot` | `<pageheader>` (an mPDF-specific tag) |
 | `positioned-html-snapshot` | `clear` |
 | `rtl-snapshot` | `direction` |
-| `table-snapshot` | `<link rel="stylesheet">` — внешний CSS |
+| `table-snapshot` | `<link rel="stylesheet">` — external CSS |
 | `watermark-snapshot` | `<blockquote>` |
 
-Часть этого — сознательные ограничения профиля (градиенты, `float`, `position`, RTL, внешний CSS). Часть — пробелы, которые стоит закрывать: `text-decoration` (для `u`, `s`, `del`, `ins`) и `<blockquote>`.
+Some of this is deliberate profile limitations (gradients, `float`, `position`, RTL, external CSS). Some are gaps worth closing: `text-decoration` (for `u`, `s`, `del`, `ins`) and `<blockquote>`.
 
-Порт уже выявил один настоящий пробел: в профиле не было `<b>` и `<i>`, хотя это базовая разметка документов. Они добавлены вместе с правилами по умолчанию.
+The port has already uncovered one real gap: the profile had no `<b>` and `<i>`, although they are basic document markup. They were added together with the default rules.
 
-## Лицензия и происхождение
+## License and provenance
 
-HTML-фрагменты взяты из [mpdf/mpdf](https://github.com/mpdf/mpdf/tree/development/tests), лицензия GPL-2.0. Они используются как тестовые данные; harness в `internal/mpdfcompat` написан с нуля.
+The HTML fragments are taken from [mpdf/mpdf](https://github.com/mpdf/mpdf/tree/development/tests), license GPL-2.0. They are used as test data; the harness in `internal/mpdfcompat` was written from scratch.
 
-Если проект будет распространяться под лицензией, несовместимой с GPL-2.0, каталог `testdata/mpdf` нужно исключить из поставки или заменить фрагменты собственными эквивалентами. Подробнее — `testdata/mpdf/NOTICE.md`.
+If the project is distributed under a license incompatible with GPL-2.0, the `testdata/mpdf` directory must be excluded from the distribution or the fragments replaced with original equivalents. For details, see `testdata/mpdf/NOTICE.md`.
 
-## Как обновить корпус
+## How to update the corpus
 
 ```bash
 git clone --depth 1 https://github.com/mpdf/mpdf /tmp/mpdf
 The corpus is committed in `testdata/mpdf/cases.json`; extracting it again is
 a one-off task and the importer is no longer part of the repository.
 
-# Пересобрать золотые тексты после изменения движка
+# Rebuild the golden texts after changing the engine
 go test ./internal/mpdfcompat -update
 ```
 
-Импортёр не ходит в сеть сам: он читает локальную копию репозитория. Корпус закоммичен, поэтому тесты работают офлайн.
+The importer does not access the network itself: it reads a local copy of the repository. The corpus is committed, so the tests work offline.
 
-## Ограничения подхода
+## Limitations of the approach
 
-- Это **не сравнение с mPDF**. Совпадение текста проверяется с нашим же эталоном, а не с выводом mPDF: полное сравнение потребовало бы растеризации и поддержки всех функций mPDF.
-- «Конвертируется» означает «профиль принял документ», а не «результат совпадает с браузером». Например, `{PAGENO}` в тексте остаётся литералом: это плейсхолдер mPDF, а не HTML.
-- `-short` пропускает документы больше 20 КБ, чтобы быстрый прогон оставался быстрым.
+- This is **not a comparison with mPDF**. The text match is checked against our own golden text, not against mPDF output: a full comparison would require rasterization and support for all mPDF features.
+- "Converts" means "the profile accepted the document", not "the result matches a browser". For example, `{PAGENO}` in the text stays a literal: it is an mPDF placeholder, not HTML.
+- `-short` skips documents larger than 20 KB so that the quick run stays quick.

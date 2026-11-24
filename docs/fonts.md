@@ -1,49 +1,49 @@
-# Шрифты: решение и порядок разрешения
+# Fonts: decision and resolution order
 
-## Решение
+## Decision
 
-Движок **не поставляет шрифты в бинарнике**. Шрифты — часть документа или конфигурации запуска.
+The engine **does not ship fonts in the binary**. Fonts are part of the document or of the run configuration.
 
-## Почему не `go:embed`
+## Why not `go:embed`
 
-- **Лицензии.** PT Serif, PT Sans и Liberation распространяются свободно, но условия перераспределения у них разные, а Times New Roman и Arial перераспределять нельзя вообще. Встраивание шрифта в бинарник — это его распространение.
-- **Размер.** Одно семейство в четырёх начертаниях — это 1.5–3 МБ. Полный набор для документов (серифный, безсерифный, моно) легко даёт 8–10 МБ к бинарнику.
-- **Воспроизводимость.** Байтовая идентичность PDF зависит от точной версии шрифта. Держать шрифт в том же артефакте, что и документы, надёжнее, чем зависеть от системного.
+- **Licenses.** PT Serif, PT Sans and Liberation are distributed freely, but their redistribution terms differ, and Times New Roman and Arial cannot be redistributed at all. Embedding a font in the binary is distributing it.
+- **Size.** One family in four faces is 1.5–3 MB. A full set for documents (serif, sans-serif, mono) easily adds 8–10 MB to the binary.
+- **Reproducibility.** Byte-identical PDFs depend on the exact font version. Keeping the font in the same artifact as the documents is more reliable than depending on the system font.
 
-Для интегратора это означает: сервис, встраивающий движок, сам решает, как доставить шрифт — через `go:embed` в своём бинарнике, через файл в контейнере или через том с шрифтами.
+For an integrator this means: the service that embeds the engine decides for itself how to deliver the font — through `go:embed` in its own binary, through a file in the container or through a volume with the fonts.
 
-## Порядок разрешения семейства
+## Family resolution order
 
-1. `@font-face` в документе — точное совпадение семейства, затем ближайшее по насыщенности и наклону.
-2. `Options.FallbackFont` — путь к TrueType-файлу, используется для любого необъявленного семейства.
-3. Системные шрифты из `DefaultFallbackFonts` — удобство для разработки, не для продакшена: состав системных шрифтов не контролируется.
-4. Ошибка `font/unavailable` — если ничего не найдено.
+1. `@font-face` in the document — an exact family match, then the closest by weight and slant.
+2. `Options.FallbackFont` — a path to a TrueType file, used for any family that is not declared.
+3. System fonts from `DefaultFallbackFonts` — a convenience for development, not for production: the set of system fonts is not controlled.
+4. The `font/unavailable` error — if nothing is found.
 
-Псевдосемейства `serif`, `sans-serif`, `monospace` без объявленного `@font-face` разрешаются через шаг 2 или 3.
+The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@font-face` resolve through step 2 or 3.
 
-## Требования к файлам
+## File requirements
 
-- Только **TrueType** (`.ttf`). CFF/OpenType, WOFF и WOFF2 отклоняются на валидации: их контуры требуют отдельного интерпретатора.
-- Кириллица обязательна: символ без глифа — ошибка `text/glyph`, а не молчаливая замена.
-- `@font-face` допускает только локальный `url(...)`; `format()` и удалённые URL отклоняются.
+- **TrueType** only (`.ttf`). CFF/OpenType, WOFF and WOFF2 are rejected during validation: their outlines require a separate interpreter.
+- Cyrillic is mandatory: a character without a glyph is the error `text/glyph`, not a silent replacement.
+- `@font-face` accepts only a local `url(...)`; `format()` and remote URLs are rejected.
 
-## Рекомендуемый набор для русских документов
+## Recommended set for Russian documents
 
-| Роль | Шрифт | Лицензия |
+| Role | Font | License |
 |---|---|---|
-| Основной текст | PT Serif | ParaType Free Font License |
-| Заголовки | PT Sans | ParaType Free Font License |
-| Совместимость с офисом | Liberation Serif / Sans | SIL OFL |
-| Широкое покрытие | DejaVu Sans | свободная |
+| Body text | PT Serif | ParaType Free Font License |
+| Headings | PT Sans | ParaType Free Font License |
+| Office compatibility | Liberation Serif / Sans | SIL OFL |
+| Wide coverage | DejaVu Sans | free |
 
-## Проверка
+## Verification
 
 ```bash
-# Проверить, что шаблон ссылается только на локальные TrueType-шрифты
+# Check that the template references only local TrueType fonts
 pdfgen validate -font-dir ./fonts invoice.html
 
-# Собрать документ с конкретным шрифтом по умолчанию
+# Build a document with a specific default font
 pdfgen convert -font-dir ./fonts -o invoice.pdf invoice.html
 ```
 
-`-font-dir` — каталог, относительно которого разрешаются пути в `@font-face`.
+`-font-dir` — the directory relative to which `@font-face` paths are resolved.

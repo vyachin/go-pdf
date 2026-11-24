@@ -1,14 +1,15 @@
-# Источник корпуса
+# Corpus source
 
-HTML-фрагменты в этом каталоге взяты из тестов проекта mPDF:
+The HTML fragments in this directory are taken from the test suite of the mPDF
+project:
 
 - https://github.com/mpdf/mpdf/tree/development/tests
 
-mPDF распространяется под лицензией GPL-2.0. Фрагменты используются как
-тестовые данные (входные документы), а не как код проекта. Тестовый
-harness в `internal/mpdfcompat` написан с нуля и не является
-производной от PHP-кода mPDF.
+mPDF is distributed under the GPL-2.0 license. The fragments are used as test
+data (input documents), not as project code. The test harness in
+`internal/mpdfcompat` was written from scratch and is not derived from the PHP
+code of mPDF.
 
-Если проект будет распространяться под несовместимой лицензией, этот
-каталог нужно либо исключить из поставки, либо заменить фрагменты на
-собственные эквиваленты.
+If the project is ever distributed under an incompatible license, this directory
+must either be excluded from the distribution or the fragments replaced with
+original equivalents.

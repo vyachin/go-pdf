@@ -1,27 +1,27 @@
-# TODO по результатам code review
+# TODO from the code review
 
-Открытых задач нет. Ниже — сводки по проходам ревью; подробные пункты, воспроизведения и история правок удалены из файла и остаются в git.
+There are no open tasks. Below are summaries of the review passes; the detailed items, reproductions and edit history were removed from this file and remain in git.
 
-## Второй проход — 24 ноября 2026 года
+## Second pass — November 24, 2026
 
-Проверен снимок `12b26c4`: HTML/CSS-парсеры, шрифты и текст, layout и пагинация, PDF-writer, публичный API и CLI. Закрыто **30 задач: 5 P1, 18 P2, 7 P3** (RV2-01 … RV2-30). Каждый сценарий перенесён в постоянный regression-тест соответствующего пакета, исправления — отдельными коммитами после `docs(todo): record the second review pass findings`.
+Reviewed snapshot `12b26c4`: HTML/CSS parsers, fonts and text, layout and pagination, PDF writer, public API and CLI. **30 tasks closed: 5 P1, 18 P2, 7 P3** (RV2-01 … RV2-30). Every scenario was moved into a permanent regression test of the corresponding package, and the fixes went in as separate commits after `docs(todo): record the second review pass findings`.
 
-## Предыдущий проход — 24 ноября 2026 года
+## Previous pass — November 24, 2026
 
-Проверен снимок `ef0e0d4`; закрыта **31 задача: 2 P1 и 29 P2** (REV-01 … REV-34) и три предложения P3. Все пункты закрыты до второго прохода; их доказательства и приёмка сохранены в git-истории `TODO.md`.
+Reviewed snapshot `ef0e0d4`; **31 tasks closed: 2 P1 and 29 P2** (REV-01 … REV-34) plus three P3 proposals. All items were closed before the second pass; their evidence and acceptance records remain in the git history of `TODO.md`.
 
-## История прежних проверок
+## History of earlier checks
 
-Проходы до 24 ноября 2026 года: 19 подтверждённых ошибок P2 и предложения по улучшению, все закрыты. Здесь же сохранялись ограничения проверок (например, отсутствие Poppler для независимого извлечения текста и недоступность `staticcheck` для Go 1.27). Актуальный статус: `go vet ./...`, `go test ./...` и `go test -race ./...` с `PDF_REQUIRE_VALIDATOR=1` проходят; PNG alpha и итоговые PDF проверяются `pdfcpu` в strict-режиме.
+Passes before November 24, 2026: 19 confirmed P2 bugs and improvement proposals, all closed. This section also preserved the checks' limitations (for example, no Poppler for independent text extraction and `staticcheck` unavailable for Go 1.27). Current status: `go vet ./...`, `go test ./...` and `go test -race ./...` with `PDF_REQUIRE_VALIDATOR=1` pass; PNG alpha and the resulting PDFs are checked by `pdfcpu` in strict mode.
 
-## Улучшения для отдельной проработки
+## Improvements for separate follow-up
 
-Бюджеты ресурсов (HTML/CSS/шрифты/изображения, страницы, ячейки таблиц, операции) и отмена во всех дорогих стадиях реализованы и покрыты тестами; открытых улучшений в этом разделе нет.
+Resource budgets (HTML/CSS/fonts/images, pages, table cells, operations) and cancellation in all expensive stages are implemented and covered by tests; there are no open improvements in this section.
 
 ## Review addendum — 2026-11-24
 
-Замечания дополнения закрыты: отмена конвертации, границы раскладки ресурсов и расширение CI независимой проверкой PDF. Отдельных открытых пунктов нет.
+The addendum's findings are closed: conversion cancellation, resource layout boundaries and the CI extension with an independent PDF check. There are no separate open items.
 
-## Дополнение: полное ревью текущего проекта — 24 ноября 2026 года
+## Addendum: full review of the current project — November 24, 2026
 
-Предложения P3 закрыты: общий расчёт геометрии блоков и ячеек (ARCH-01) и независимое визуальное/текстовое сравнение конечных PDF в CI (ENG-09). Открытых пунктов нет.
+P3 proposals are closed: shared geometry computation for blocks and cells (ARCH-01) and independent visual/text comparison of the resulting PDFs in CI (ENG-09). There are no open items.
