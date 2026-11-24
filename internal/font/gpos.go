@@ -337,12 +337,19 @@ func (f *Font) Kerning(left, right uint16) int32 {
 	if f.gpos.covered != nil && !f.gpos.covered[left] {
 		return 0
 	}
-	c1, ok := f.gpos.class1[left]
-	if !ok || int(c1) >= len(f.gpos.records) {
+	// A glyph absent from a ClassDef belongs to class 0, not to "no kerning".
+	c1 := uint16(0)
+	if v, ok := f.gpos.class1[left]; ok {
+		c1 = v
+	}
+	if int(c1) >= len(f.gpos.records) {
 		return 0
 	}
-	c2, ok := classOf(f.gpos.class2, right)
-	if !ok || int(c2) >= len(f.gpos.records[c1]) {
+	c2 := uint16(0)
+	if v, ok := classOf(f.gpos.class2, right); ok {
+		c2 = v
+	}
+	if int(c2) >= len(f.gpos.records[c1]) {
 		return 0
 	}
 	return int32(f.gpos.records[c1][c2])

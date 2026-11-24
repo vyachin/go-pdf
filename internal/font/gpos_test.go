@@ -221,3 +221,43 @@ func TestFullFontParseRejectsOversizedCoverage(t *testing.T) {
 		t.Fatalf("kerning = %d, want 0", got)
 	}
 }
+
+func TestClassKerningUsesImplicitClassZero(t *testing.T) {
+	// PairPos format 2: Coverage [65], ClassDef1 {65:1}, ClassDef2 {86:1},
+	// records (1,0) = -50 and (1,1) = -100. Glyph 87 has no ClassDef2 entry,
+	// so it belongs to class 0 and must use the (1,0) record.
+	classDef1 := classDefFormat1Test(65, []uint16{1})
+	classDef2 := classDefFormat1Test(86, []uint16{1})
+	coverage := coverageFormat1Test([]uint16{65})
+	records := make([]byte, 8)
+	binary.BigEndian.PutUint16(records[4:6], uint16(0x10000-50))  // (1,0)
+	binary.BigEndian.PutUint16(records[6:8], uint16(0x10000-100)) // (1,1)
+
+	header := make([]byte, 16)
+	binary.BigEndian.PutUint16(header[0:2], 2)   // format
+	binary.BigEndian.PutUint16(header[4:6], 4)   // valueFormat1: XAdvance
+	binary.BigEndian.PutUint16(header[12:14], 2) // class1Count
+	binary.BigEndian.PutUint16(header[14:16], 2) // class2Count
+	base := 16 + len(records)
+	binary.BigEndian.PutUint16(header[2:4], uint16(base))
+	binary.BigEndian.PutUint16(header[8:10], uint16(base+len(coverage)))
+	binary.BigEndian.PutUint16(header[10:12], uint16(base+len(coverage)+len(classDef1)))
+
+	body := append([]byte{}, header...)
+	body = append(body, records...)
+	body = append(body, coverage...)
+	body = append(body, classDef1...)
+	body = append(body, classDef2...)
+
+	f := &Font{gpos: &kerning{pairs: map[uint32]int16{}}}
+	f.gpos.parsePairPos(body, 0)
+	if got := f.Kerning(65, 87); got != -50 {
+		t.Fatalf("kerning for an implicit class 0 right glyph = %d, want -50", got)
+	}
+	if got := f.Kerning(65, 86); got != -100 {
+		t.Fatalf("kerning for an explicit class 1 right glyph = %d, want -100", got)
+	}
+	if got := f.Kerning(66, 87); got != 0 {
+		t.Fatalf("a left glyph outside Coverage must not kern, got %d", got)
+	}
+}
