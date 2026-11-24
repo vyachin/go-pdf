@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/diag"
-	"github.com/vyachin/go-pdf/internal/html"
-	"github.com/vyachin/go-pdf/internal/profile"
 )
 
 // Options controls a single conversion.
@@ -62,13 +60,8 @@ func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	doc, err := html.Parse(src, sourceName(opts))
-	if err != nil {
-		return nil, err
-	}
-	diags := profile.Validate(doc, profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict})
-	diags.Sort()
-	return diags, nil
+	_, diags, err := prepare(src, opts)
+	return diags, err
 }
 
 func sourceName(opts Options) string {

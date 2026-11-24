@@ -897,3 +897,45 @@ func TestConversionsDoNotLeakDescriptors(t *testing.T) {
 		t.Fatalf("descriptors grew from %d to %d without GC", before, after)
 	}
 }
+
+func TestValidateUsesTheSamePreparationAsConvert(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// A declared font that cannot be loaded.
+	src := []byte(`<style>@font-face { font-family: Missing; src: url(missing.ttf) } body { font-family: Missing }</style><p>A</p>`)
+	diags, err := Validate(ctx, src, Options{BaseDir: dir, File: "missing-font.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCode(diags, "font/unavailable") {
+		t.Fatalf("Validate missed an unloadable font: %v", diags.Lines())
+	}
+
+	// A span that layout would reject.
+	diags, err = Validate(ctx, []byte(`<table><tr><td rowspan="4294967296">A</td></tr></table>`), Options{File: "span.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCode(diags, "html/invalid-span") {
+		t.Fatalf("Validate missed the span bound: %v", diags.Lines())
+	}
+
+	// Invalid page options.
+	diags, err = Validate(ctx, []byte(`<p>A</p>`), Options{PageSize: "nonsense", File: "page.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCode(diags, "options/page-size") {
+		t.Fatalf("Validate missed an invalid page size: %v", diags.Lines())
+	}
+
+	// A clean template still validates cleanly.
+	diags, err = Validate(ctx, []byte(`<p>A</p>`), Options{FallbackFont: testFontPath(t), File: "ok.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("clean template: %v", diags.Lines())
+	}
+}

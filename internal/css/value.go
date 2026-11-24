@@ -84,6 +84,10 @@ var mpPerUnit = map[string]float64{
 	"in": 72000,
 }
 
+// MaxTableSpan bounds colspan and rowspan. It keeps the occupancy grid small
+// and ensures every span fits an int32 without narrowing to zero.
+const MaxTableSpan = 100
+
 // ParseLengthToken parses a single length token.
 func ParseLengthToken(t Token) (Length, error) {
 	switch t.Kind {

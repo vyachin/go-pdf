@@ -11,8 +11,8 @@ func normSpan(v int) int {
 	if v < 1 {
 		return 1
 	}
-	if v > maxTableSpan {
-		return maxTableSpan
+	if v > css.MaxTableSpan {
+		return css.MaxTableSpan
 	}
 	return v
 }

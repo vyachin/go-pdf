@@ -17,39 +17,72 @@ import (
 )
 
 // Convert renders a template into a PDF.
-func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
+// prepared is everything Validate and Convert need before layout: the parsed
+// document, the style chain, page geometry and fonts. Validate stops here;
+// Convert continues to layout and PDF writing.
+type prepared struct {
+	doc       *html.Document
+	sheets    []*css.Stylesheet
+	cascade   *css.Cascade
+	pageSize  css.PageSize
+	margin    [4]int32
+	pageStyle layout.PageStyle
+	fonts     *fontRegistry
+}
+
+// prepare validates the template and resolves everything that does not need
+// layout, so both entry points report the same problems.
+func prepare(src []byte, opts Options) (*prepared, diag.List, error) {
 	doc, err := html.Parse(src, sourceName(opts))
 	if err != nil {
-		return Result{}, err
+		return nil, nil, err
 	}
 	profileOpts := profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict}
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
 	diags := profile.ValidateSheets(doc, profileOpts, sheets, sheetDiags)
+	diags.Sort()
 	if diags.HasErrors() {
-		return Result{Diagnostics: diags}, diags.Error()
+		return nil, diags, nil
 	}
-	cascade := css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...)
-
 	pageSize, err := ParsePageSize(opts.PageSize)
 	if err != nil {
 		diags.Errorf("options/page-size", diag.Position{}, "", "%v", err)
-		return Result{Diagnostics: diags}, diags.Error()
+		return nil, diags, nil
 	}
 	margin, err := ParseMargin(opts.Margin)
 	if err != nil {
 		diags.Errorf("options/margin", diag.Position{}, "", "%v", err)
-		return Result{Diagnostics: diags}, diags.Error()
+		return nil, diags, nil
 	}
 	pageStyle := layout.ParsePageStyle(sheets, pageSize, margin)
-
 	registry, err := newFontRegistry(sheets, opts)
 	if err != nil {
 		diags.Errorf("font/unavailable", diag.Position{}, "", "%v", err)
+		return nil, diags, nil
+	}
+	return &prepared{
+		doc:       doc,
+		sheets:    sheets,
+		cascade:   css.NewCascade(append([]*css.Stylesheet{css.DefaultStylesheet()}, sheets...)...),
+		pageSize:  pageSize,
+		margin:    margin,
+		pageStyle: pageStyle,
+		fonts:     registry,
+	}, diags, nil
+}
+
+func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	p, diags, err := prepare(src, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	if diags.HasErrors() {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
+	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
 	images := &imageLoader{baseDir: opts.BaseDir}
 	defer images.Close()
 

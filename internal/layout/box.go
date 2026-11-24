@@ -394,7 +394,7 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 func (b *builder) span(n *html.Node, name string) int {
 	value, ok := spanAttr(n, name)
 	if !ok {
-		b.diags.Errorf("html/invalid-span", diag.Position{}, n.Path(), "%s value is outside 1..%d", name, maxTableSpan)
+		b.diags.Errorf("html/invalid-span", diag.Position{}, n.Path(), "%s value is outside 1..%d", name, css.MaxTableSpan)
 		return 1
 	}
 	return value
@@ -476,19 +476,15 @@ func listLevel(n *html.Node) int {
 	return level
 }
 
-// maxTableSpan bounds colspan and rowspan: it keeps the occupancy grid small
-// and ensures every span fits an int32 without narrowing to zero.
-const maxTableSpan = 100
-
 // spanAttr reads a span attribute, reporting false when the value is not an
-// integer in 1..maxTableSpan.
+// integer in 1..css.MaxTableSpan.
 func spanAttr(n *html.Node, name string) (int, bool) {
 	v, ok := n.Attr(name)
 	if !ok {
 		return 1, true
 	}
 	i, err := strconv.Atoi(v)
-	if err != nil || i < 1 || i > maxTableSpan {
+	if err != nil || i < 1 || i > css.MaxTableSpan {
 		return 1, false
 	}
 	return i, true

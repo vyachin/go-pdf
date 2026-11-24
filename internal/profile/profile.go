@@ -5,6 +5,7 @@ package profile
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/css"
@@ -60,6 +61,16 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 		}
 		if !css.SupportedElements[n.Tag] {
 			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
+		}
+		if n.Tag == "td" || n.Tag == "th" {
+			for _, name := range []string{"colspan", "rowspan"} {
+				if v, ok := n.Attr(name); ok {
+					i, convErr := strconv.Atoi(strings.TrimSpace(v))
+					if convErr != nil || i < 1 || i > css.MaxTableSpan {
+						out.Errorf("html/invalid-span", doc.Pos(n), n.Path(), "%s value %q is outside 1..%d", name, v, css.MaxTableSpan)
+					}
+				}
+			}
 		}
 		if style, ok := n.Attr("style"); ok {
 			decls, probs := css.ParseDeclarations(style)
