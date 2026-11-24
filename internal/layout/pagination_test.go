@@ -1314,3 +1314,43 @@ func contiguousEdge(t *testing.T, doc *Document, y int32) int32 {
 	}
 	return end
 }
+
+// TestInlineVerticalAlignShiftsTheRun guards RV2-17: every inline run was
+// painted on the line baseline, so vertical-align: top, middle and bottom on a
+// span had no effect at all.
+func TestInlineVerticalAlignShiftsTheRun(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<style>
+		p{margin:0;font-size:20pt;line-height:24pt}
+		.small{font-size:6pt;line-height:6pt}
+	</style><p>AA<span class="small" style="vertical-align:top">T</span>
+	<span class="small" style="vertical-align:middle">M</span>
+	<span class="small" style="vertical-align:bottom">D</span>
+	<span class="small">B</span></p>`)
+	ys := map[rune]int32{}
+	for _, op := range textOps(doc) {
+		for _, g := range op.Run.Glyphs {
+			ys[g.Rune] = op.Y
+		}
+	}
+	top, okTop := ys['T']
+	middle, okMiddle := ys['M']
+	bottom, okBottom := ys['D']
+	baseline, okBase := ys['B']
+	if !okTop || !okMiddle || !okBottom || !okBase {
+		t.Fatalf("not every span was placed: %v", ys)
+	}
+	if !(top < middle && middle < baseline && baseline < bottom) {
+		t.Fatalf("vertical-align offsets are wrong: top=%d middle=%d baseline=%d bottom=%d", top, middle, baseline, bottom)
+	}
+	if centre := (top + bottom) / 2; abs32(middle-centre) > 2000 {
+		t.Fatalf("middle %d is not near the centre %d of top %d and bottom %d", middle, centre, top, bottom)
+	}
+}
+
+func abs32(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}

@@ -112,7 +112,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-4/main.go`: `table{border:2pt solid red;border-collapse:collapse} td{border:2pt solid blue;padding:0}` — внешняя кромка 4000 mp (красная 2000 + синяя 2000) с обеих сторон, как в `separate`; между ячейками зазор `[52000,54000]` не закрашен, текст `B` начинается с X=54000.
   **Исправление / приёмка:** одна линия на общей кромке, приоритет границы ячейки/таблицы, отсутствие пустого резерва. Приёмка: внешняя кромка ровно 2000 mp, внутренняя — один fill, collapse отличается от separate.
 
-- [ ] **RV2-17 · P2: применять `vertical-align` к строчным боксам.**
+- [x] **RV2-17 · P2: применять `vertical-align` к строчным боксам.**
 
   **Код:** [internal/layout/paint.go:140](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:140): все runs ставятся на `y + line.Ascent`; `VerticalAlign` читается только для ячеек.
   **Воспроизведение:** `go run ./testdata/probe/layout-3/main.go`: `<p>AA<span style="vertical-align:top">T</span><span style="vertical-align:middle">M</span><span style="vertical-align:bottom">D</span></p>` — все runs Y=28564, top/middle/bottom неотличимы от baseline.

@@ -78,6 +78,43 @@ func insertOps(dst []Op, at int, ops []Op) []Op {
 	return out
 }
 
+// inlineBaseline returns the vertical position a line item contributes: the
+// text baseline for a text run, the top edge for an image. Baseline-aligned
+// items share the line baseline; top, middle and bottom follow the inline box
+// the item occupies, so a small span can sit above, in the middle of or below
+// the line without moving it.
+func inlineBaseline(line *Line, it LineItem) int32 {
+	if it.Kind == ImageItem {
+		switch it.Style.VerticalAlign {
+		case css.VATop:
+			return 0
+		case css.VABottom:
+			return line.Height - it.H
+		case css.VAMiddle:
+			return (line.Height - it.H) / 2
+		default:
+			// An image's baseline is its bottom edge.
+			return line.Ascent - it.H
+		}
+	}
+	boxH := it.Style.LineHeightMP()
+	leading := boxH - (it.Face.Ascent + it.Face.Descent)
+	if leading < 0 {
+		leading = 0
+	}
+	inBox := leading/2 + it.Face.Ascent
+	switch it.Style.VerticalAlign {
+	case css.VATop:
+		return inBox
+	case css.VABottom:
+		return line.Height - boxH + inBox
+	case css.VAMiddle:
+		return (line.Height-boxH)/2 + inBox
+	default:
+		return line.Ascent
+	}
+}
+
 // paintLineAt draws one line of text.
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
 	st := b.Style
@@ -114,7 +151,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				l.ops++
 				page.Ops = append(page.Ops, Op{
 					Kind:  ImageOpKind,
-					Rect:  Rect{X: x, Y: y + (line.Height-it.H)/2, W: it.W, H: it.H},
+					Rect:  Rect{X: x, Y: y + inlineBaseline(line, it), W: it.W, H: it.H},
 					Image: &ImageOp{Image: it.Image},
 				})
 			}
@@ -137,7 +174,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 					Kind: TextOpKind,
 					Text: &TextOp{
 						X:     x,
-						Y:     y + line.Ascent,
+						Y:     y + inlineBaseline(line, it),
 						Face:  it.Face,
 						Run:   TextRun{Glyphs: glyphs, Width: it.Run.Width},
 						Color: it.Color,
