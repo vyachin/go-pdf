@@ -1,0 +1,74 @@
+<!--
+  visual-certificate: the certificate from certificate.html reduced to the CSS
+  profile so that the render layer can freeze its appearance.
+
+  certificate.html itself is a browser document (flexbox, absolute positioning,
+  CSS variables, rem units, data: URIs) and is rejected by the profile, so this
+  fixture is the equivalent block layout. The assets are the images embedded in
+  certificate.html as data: URIs, extracted byte for byte.
+
+  When browser-template import lands, certificate.html should become the fixture
+  source and must reproduce these document and render goldens unchanged.
+
+  Fonts come from testdata/fonts through the test FontDir option; images come
+  from testdata/fixtures through BaseDir.
+
+  Regenerate the goldens with:
+    go test ./internal/engine -run 'TestDocumentSnapshots|TestRenderSnapshots' -update
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Электронный сертификат 9NZ22W6P</title>
+<style>
+    @page { size: A4; margin: 0 }
+
+    @font-face { font-family: "DejaVu Sans"; src: url("DejaVuSans.ttf"); font-weight: 400 }
+    @font-face { font-family: "DejaVu Sans"; src: url("DejaVuSans-Bold.ttf"); font-weight: 700 }
+
+    html, body { margin: 0; padding: 0 }
+
+    body {
+        font-family: "DejaVu Sans";
+        font-size: 32px;
+        color: #000000;
+    }
+
+    .certificate {
+        width: 210mm;
+        height: 297mm;
+        background-color: #ececec;
+        background-image: url("certificate/background.jpg");
+        background-size: cover;
+        text-align: center;
+    }
+
+    .certificate__logo { padding: 80px 0 0 0 }
+    .certificate__logo img { width: 290px }
+
+    .certificate__title {
+        margin: 0;
+        padding: 72px 0 0 0;
+        font-size: 64px;
+        font-weight: 700;
+        line-height: 1.15;
+        color: #259dff;
+    }
+
+    .certificate__field { margin: 0; padding: 48px 0 0 0 }
+    .certificate__field--visits { padding: 20px 0 0 0 }
+
+    .certificate__qr { padding: 48px 0 0 0 }
+    .certificate__qr img { width: 160px; height: 160px }
+</style>
+</head>
+<body>
+<main class="certificate">
+    <div class="certificate__logo"><img src="certificate/logo.png" alt="Кино✂Тихвин"></div>
+    <h1 class="certificate__title">ПОДАРОЧНЫЙ СЕРТИФИКАТ</h1>
+    <p class="certificate__field">Номер: <b>9NZ22W6P</b></p>
+    <p class="certificate__field certificate__field--visits">Количество посещений: <b>0</b></p>
+    <div class="certificate__qr"><img src="certificate/qr.png" alt="QR-код сертификата 9NZ22W6P"></div>
+</main>
+</body>
+</html>

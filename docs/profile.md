@@ -9,7 +9,7 @@ pdfgen validate -print-profile
 ## Elements
 
 ```
-html head body div p h1 h2 h3 h4 h5 h6
+html head body main div p h1 h2 h3 h4 h5 h6
 ul ol li table thead tbody tfoot tr td th
 img span br hr strong b em i a title meta style link
 ```
@@ -25,10 +25,12 @@ An unknown element is the error `html/unsupported-element`. The supported attrib
 | `display` | no | `block`, `inline`, `list-item`, `table`, `table-row`, `table-cell`, `none` |
 | `width`, `height` | no | a length or `auto` |
 | `margin`, `padding` | no | 1–4 lengths |
+| `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | no | a length; `auto` is rejected |
+| `padding-top`, `padding-right`, `padding-bottom`, `padding-left` | no | a non-negative length |
 | `border` | no | `[width] [solid\|none] [color]` |
 | `border-collapse` | no | `collapse`, `separate` |
 | `background-color` | no | a colour |
-| `background-image` | no | `url(<local file>)` |
+| `background-image` | no | `url(<local file>)` or `url("data:image/png;base64,…")`, `url("data:image/jpeg;base64,…")` |
 | `background-size` | no | `cover` |
 | `color` | yes | a colour |
 | `font-family` | yes | a list of families |
@@ -56,13 +58,13 @@ The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does 
 
 `auto` is allowed only for `width` and `height`. For `margin`, `padding`, `text-indent` and `line-height` it is a profile error: `margin: 0 auto` does not centre the block, whereas it used to silently align it to the left.
 
-A background image is painted behind the box's content, scaled to cover the box and clipped to it. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
+A background image is painted behind the box's content, scaled to cover the box and clipped to it. The same `data:` URI forms as for `<img src>` are accepted; remote URLs are not. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
 
 ## Selectors
 
-Element name, class, ID, combinations, descendant (space), direct child (`>`), comma-separated list.
+Element name, class, ID, the universal `*`, combinations, descendant (space), direct child (`>`) and adjacent sibling (`+`), and comma-separated lists.
 
-Pseudo-classes and attribute selectors are rejected. The only exception is `a::after` for generated content:
+Pseudo-classes and attribute selectors are rejected, with one exception: `:root` matches the document element. The only pseudo-element is `a::after`, for generated content:
 
 ```css
 a.toc::after { content: " →" target-counter(attr(href), page) }
@@ -106,8 +108,8 @@ Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-cent
 
 | Not supported | Reason |
 |---|---|
-| `flex`, `grid` | a different layout engine; blocks and tables are enough for documents |
-| `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm |
+| `flex`, `grid` | a different layout engine; blocks and tables are enough for documents. The browser import lowers a single-line flex column to block layout. |
+| `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm. The browser import lowers a full-box cover image to a background. |
 | gradients, shadows, rounded corners, transparency | not needed in printed documents; they complicate the output |
 | `background-position`, `background-repeat`, `background-size: contain/auto/lengths` | the cover model is one scaling rule with a centered crop; a positioning grammar is a larger surface for a case no document needs yet |
 | `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |

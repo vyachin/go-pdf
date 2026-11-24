@@ -15,6 +15,9 @@ const (
 	Descendant Combinator = iota
 	// Child is the ">" combinator.
 	Child
+	// Adjacent is the "+" combinator: the element immediately after the
+	// previous compound among its siblings.
+	Adjacent
 )
 
 // Compound is a simple selector: tag, id and classes.
@@ -25,6 +28,8 @@ type Compound struct {
 	Universal bool
 	// PseudoElement is set for the single supported pseudo-element, "after".
 	PseudoElement string
+	// Root marks the :root pseudo-class, which matches the document element.
+	Root bool
 }
 
 // Selector is a parsed complex selector.
@@ -47,6 +52,9 @@ func (s Selector) Specificity() [3]int {
 		}
 		if c.PseudoElement != "" {
 			sp[2]++
+		}
+		if c.Root {
+			sp[1]++
 		}
 	}
 	return sp
@@ -72,7 +80,7 @@ func (s Selector) Match(n *html.Node) bool {
 	// recursive matcher re-walks the same ancestors for every combination of
 	// positions, so a deep tree and a long descendant selector take
 	// combinatorial time even for a document of a few hundred bytes.
-	if len(s.Compounds) <= 2 {
+	if len(s.Compounds) <= 2 || s.hasAdjacent() {
 		return matchFrom(s, len(s.Compounds)-1, n)
 	}
 	return s.matchAncestors(n)
@@ -91,6 +99,8 @@ func matchFrom(s Selector, idx int, n *html.Node) bool {
 	switch s.Combinators[idx-1] {
 	case Child:
 		return matchFrom(s, idx-1, parentElement(n))
+	case Adjacent:
+		return matchFrom(s, idx-1, previousElement(n))
 	default:
 		for p := parentElement(n); p != nil; p = parentElement(p) {
 			if matchFrom(s, idx-1, p) {
@@ -152,6 +162,35 @@ func (s Selector) matchAncestors(n *html.Node) bool {
 	return prev[0]
 }
 
+// previousElement returns the sibling immediately before n, skipping text.
+func previousElement(n *html.Node) *html.Node {
+	if n == nil || n.Parent == nil {
+		return nil
+	}
+	var prev *html.Node
+	for _, c := range n.Parent.Children {
+		if c == n {
+			return prev
+		}
+		if c.Type == html.ElementNode {
+			prev = c
+		}
+	}
+	return nil
+}
+
+// hasAdjacent reports whether the selector uses the "+" combinator. Such a
+// selector cannot use the ancestor-chain fast path, because the previous
+// compound must match a sibling, not an ancestor.
+func (s Selector) hasAdjacent() bool {
+	for _, c := range s.Combinators {
+		if c == Adjacent {
+			return true
+		}
+	}
+	return false
+}
+
 func parentElement(n *html.Node) *html.Node {
 	for p := n.Parent; p != nil; p = p.Parent {
 		if p.Type == html.ElementNode {
@@ -170,6 +209,9 @@ func (c Compound) Match(n *html.Node) bool {
 		return false
 	}
 	if c.ID != "" && c.ID != n.ID() {
+		return false
+	}
+	if c.Root && parentElement(n) != nil {
 		return false
 	}
 	for _, cl := range c.Classes {
@@ -206,11 +248,15 @@ func ParseSelector(text string) (Selector, error) {
 		if i >= len(s) {
 			break
 		}
-		if s[i] == '>' {
+		if s[i] == '>' || s[i] == '+' {
 			if expectCompound {
-				return Selector{}, fmt.Errorf("unexpected %q in selector %q", ">", s)
+				return Selector{}, fmt.Errorf("unexpected %q in selector %q", string(s[i]), s)
 			}
-			pending = Child
+			if s[i] == '>' {
+				pending = Child
+			} else {
+				pending = Adjacent
+			}
 			pendingSet = true
 			expectCompound = true
 			i++
@@ -256,7 +302,7 @@ func parseCompound(s string) (Compound, int, error) {
 	for i < len(s) {
 		ch := s[i]
 		switch ch {
-		case ' ', '>', ',':
+		case ' ', '>', '+', ',':
 			if !started {
 				return Compound{}, 0, fmt.Errorf("empty compound selector")
 			}
@@ -302,7 +348,13 @@ func parseCompound(s string) (Compound, int, error) {
 				}
 				continue
 			}
-			name, _ := readIdent(s[i+1:])
+			name, n := readIdent(s[i+1:])
+			if strings.EqualFold(name, "root") {
+				c.Root = true
+				started = true
+				i += 1 + n
+				continue
+			}
 			return Compound{}, 0, fmt.Errorf("pseudo-class %q is not supported", ":"+name)
 		case '[':
 			return Compound{}, 0, fmt.Errorf("attribute selectors are not supported")

@@ -95,7 +95,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&margin, "margin", "20mm", "fallback page margin")
 	fs.StringVar(&dateStr, "date", "", "creation date in RFC 3339 (default: fixed constant)")
 	fs.BoolVar(&png, "render-png", false, "also write <output>.png with the first page")
-	fs.BoolVar(&strict, "strict", false, "treat profile warnings as errors")
+	fs.BoolVar(&strict, "strict", false, "treat profile warnings as errors and disable browser import")
 	addCommonFlags(fs, &common)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -131,14 +131,15 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	res, err := engine.Convert(ctx, src, engine.Options{
-		PageSize:  page,
-		Margin:    margin,
-		FontDir:   common.fontDir,
-		BaseDir:   common.baseDir,
-		Date:      date,
-		RenderPNG: png,
-		Strict:    strict,
-		File:      input,
+		PageSize:      page,
+		Margin:        margin,
+		FontDir:       common.fontDir,
+		BaseDir:       common.baseDir,
+		Date:          date,
+		RenderPNG:     png,
+		Strict:        strict,
+		ImportBrowser: !strict,
+		File:          input,
 	})
 	for _, d := range res.Diagnostics {
 		_, _ = fmt.Fprintln(stderr, d.String())

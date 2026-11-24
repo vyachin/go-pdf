@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/backend/raster"
+	"github.com/vyachin/go-pdf/internal/browser"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -68,7 +69,30 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		MaxStylesheetBytes: limits.MaxStylesheetBytes,
 	}
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
-	diags = profile.ValidateSheets(doc, profileOpts, sheets, sheetDiags)
+	strictDiags := profile.ValidateSheets(doc, profileOpts, sheets, nil)
+	if strictDiags.HasErrors() && opts.ImportBrowser && !opts.Strict {
+		// The document is outside the profile. Try the browser lowering and
+		// validate the rewritten document; the original errors are replaced by
+		// the import report, which explains every approximation.
+		if fallbackSize, err := ParsePageSize(opts.PageSize); err == nil {
+			if fallbackMargin, err := ParseMargin(opts.Margin); err == nil {
+				pageStyle := layout.ParsePageStyle(sheets, fallbackSize, fallbackMargin)
+				imported := browser.Import(doc, sheets, browser.Options{
+					PageSize: pageStyle.Size,
+					Margin:   pageStyle.Margin,
+				})
+				diags = append(diags, imported.Diagnostics...)
+				if !imported.Diagnostics.HasErrors() {
+					// Revalidate the rewritten document. When the import itself
+					// failed, keep the profile diagnostics of the document as
+					// written below: they describe the source the author must fix.
+					strictDiags = profile.ValidateSheets(doc, profileOpts, sheets, nil)
+				}
+			}
+		}
+	}
+	diags = append(diags, sheetDiags...)
+	diags = append(diags, strictDiags...)
 	if failed, ctxErr := budgetFailure(guard, &diags); failed {
 		return nil, diags, ctxErr
 	}

@@ -16,7 +16,7 @@ For an integrator this means: the service that embeds the engine decides for its
 
 1. `@font-face` in the document — an exact family match, then the closest by weight and slant.
 2. `Options.FallbackFont` — a path to a TrueType file, used for any family that is not declared.
-3. System fonts from `DefaultFallbackFonts` — a convenience for development, not for production: the set of system fonts is not controlled.
+3. System fonts from `DefaultFallbackFonts` — the first available family, together with the conventional bold and italic files next to its regular face (`Arial Bold.ttf`, `DejaVuSans-Bold.ttf`, `LiberationSerif-Bold.ttf`). This is a convenience for development, not for production: the set of system fonts is not controlled.
 4. The `font/unavailable` error — if nothing is found.
 
 The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@font-face` resolve through step 2 or 3.

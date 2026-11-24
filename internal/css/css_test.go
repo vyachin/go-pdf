@@ -79,6 +79,39 @@ func TestParseShorthands(t *testing.T) {
 	}
 }
 
+func TestBoxLonghands(t *testing.T) {
+	st := DefaultStyle()
+	st.FontSize = 12000
+	apply := func(prop, value string) {
+		t.Helper()
+		if err := ApplyDecl(st, prop, Tokenize([]byte(value)), 12000); err != nil {
+			t.Fatalf("%s: %s: %v", prop, value, err)
+		}
+	}
+	apply("margin", "1mm 2mm 3mm 4mm")
+	apply("margin-top", "5mm")
+	apply("padding", "1pt 2pt 3pt 4pt")
+	apply("padding-left", "6pt")
+	if got, want := st.Margin[0].Value, int32(14173); got != want {
+		t.Fatalf("margin-top = %d, want %d", got, want)
+	}
+	if st.Margin[1].Value == st.Margin[0].Value {
+		t.Fatal("margin-top must not change the other sides")
+	}
+	if got, want := st.Padding[3].Value, int32(6000); got != want {
+		t.Fatalf("padding-left = %d, want %d", got, want)
+	}
+	for _, c := range []struct{ prop, value string }{
+		{"padding-top", "-1pt"},
+		{"padding-top", "auto"},
+		{"margin-top", "auto"},
+	} {
+		if err := ApplyDecl(DefaultStyle(), c.prop, Tokenize([]byte(c.value)), 12000); err == nil {
+			t.Fatalf("%s: %s must be rejected", c.prop, c.value)
+		}
+	}
+}
+
 func TestSelectorSpecificity(t *testing.T) {
 	cases := []struct {
 		sel  string
@@ -91,6 +124,9 @@ func TestSelectorSpecificity(t *testing.T) {
 		{"div p", [3]int{0, 0, 2}},
 		{"*", [3]int{0, 0, 0}},
 		{"td.total", [3]int{0, 1, 1}},
+		{":root", [3]int{0, 1, 0}},
+		{"p + p", [3]int{0, 0, 2}},
+		{"div + p.a", [3]int{0, 1, 2}},
 	}
 	for _, tc := range cases {
 		sel, err := ParseSelector(tc.sel)
@@ -163,6 +199,33 @@ func TestSelectorMatching(t *testing.T) {
 		if got := s.Match(p); got != want {
 			t.Fatalf("%q.Match(p) = %v, want %v", sel, got, want)
 		}
+	}
+}
+
+func TestAdjacentAndRootSelectors(t *testing.T) {
+	doc := mustDoc(t, `<p id="a">a</p><p id="b">b</p><p id="c">c</p>`)
+	sel, err := ParseSelector("p + p")
+	if err != nil {
+		t.Fatalf("p + p: %v", err)
+	}
+	if sel.Match(doc.FindByID("a")) {
+		t.Fatal("the first sibling must not match p + p")
+	}
+	if !sel.Match(doc.FindByID("b")) || !sel.Match(doc.FindByID("c")) {
+		t.Fatal("later siblings must match p + p")
+	}
+	root, err := ParseSelector(":root")
+	if err != nil {
+		t.Fatalf(":root: %v", err)
+	}
+	if !root.Match(doc.HTML()) {
+		t.Fatal(":root must match the document element")
+	}
+	if root.Match(doc.FindByID("a")) {
+		t.Fatal(":root must not match a descendant")
+	}
+	if _, err := ParseSelector("p:nth-child(2)"); err == nil {
+		t.Fatal("an unsupported pseudo-class must still be rejected")
 	}
 }
 

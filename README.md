@@ -33,8 +33,9 @@ Instead of CSS breadth, the engine offers three things those engines cannot:
 ## Features
 
 - HTML tokenizer and tree with implicit tags and table foster-parenting.
-- CSS: cascade, specificity, inheritance, shorthands, `@page` (including
-  `landscape`/`portrait`), `@font-face`, `@media print`, margin boxes, local
+- CSS: cascade, specificity, inheritance, shorthands and physical longhands
+  (`margin-top`, `padding-left`, …), `@page` (including `landscape`/`portrait`),
+  `@font-face`, `@media print`, margin boxes, local
   `<link rel="stylesheet">`.
 - Layout: blocks, inline, lists, fixed table layout, `colspan`/`rowspan`,
   collapsed borders.
@@ -42,12 +43,17 @@ Instead of CSS breadth, the engine offers three things those engines cannot:
   headers, overflow with diagnostics.
 - Fonts: TrueType, `cmap` 4/12, `GPOS` kerning, subsetting, `Identity-H` +
   `ToUnicode` (Russian text can be copied and searched).
-- Images: PNG and JPEG (JPEG without recompression), including a full-bleed
-  cover with `background-image` and `background-size: cover`.
+- Images: PNG and JPEG (JPEG without recompression), from files or base64
+  `data:` URIs, including a full-bleed cover with `background-image` and
+  `background-size: cover`.
 - Generated content: `a::after` with `target-counter(attr(href), page)` — a table
   of contents with page numbers in two layout passes.
 - PDF: metadata, bookmarks from `h1`–`h3`, `FlateDecode`, deterministic output,
   atomic file writing.
+- Browser import: lowers a single-line flex column, an absolutely positioned
+  cover image, `rem`, `vw`/`vh`, `min()`/`clamp()`, CSS variables, screen
+  `@media` rules, `text-transform` and `box-sizing` to the profile, with a
+  warning for every transformation. See [docs/browser-import.md](docs/browser-import.md).
 - Debug raster: `--render-png` and `-print-profile`.
 
 ## CLI
@@ -65,7 +71,7 @@ pdfgen help
 | `-margin` | fallback margins: `20mm`, `25mm 20mm` |
 | `-date` | creation date in RFC 3339 (fixed by default) |
 | `-render-png` | also rasterize the first page to `<output>.png` |
-| `-strict` | treat warnings as errors (for CI) |
+| `-strict` | treat warnings as errors and disable the browser import (for CI) |
 | `-font-dir` | directory for relative `@font-face` paths |
 | `-base-dir` | directory for relative image paths |
 
@@ -81,6 +87,38 @@ pdfgen validate invoice.html && pdfgen convert -o invoice.pdf invoice.html
 # Strict mode: warnings (for example about an ignored <script>) fail the build
 pdfgen validate -strict invoice.html
 ```
+
+### Browser documents: `certificate.html`
+
+`certificate.html` is a browser-oriented certificate: flexbox, an absolutely
+positioned cover image, `rem` units, CSS variables and `data:` URI images. The
+converter recognizes that shape and lowers it to the profile instead of asking
+for a rewrite:
+
+```bash
+pdfgen convert certificate.html
+# A sample of the report, one warning per transformation:
+# certificate.html:14:22: warning[browser/dropped-property]: property "color-scheme" is not part of the profile and was dropped by the browser import
+# ...
+# certificate.html:139:1: warning[browser/background]: absolutely positioned cover image lowered to a background image
+# certificate.html:139:1: warning[browser/flex]: flex column lowered to block layout
+# wrote certificate.pdf
+```
+
+The source file is not modified. The warnings are the import report: every
+lowered construct and every dropped screen-only declaration is named. The same
+document still fails the strict checks:
+
+```bash
+pdfgen validate certificate.html          # profile diagnostics, as written
+pdfgen convert -strict certificate.html   # no import, no PDF
+```
+
+The acceptance fixture is
+[`testdata/browser/certificate.html`](testdata/browser/certificate.html); the
+certificate's target rendering is frozen separately by the
+`visual-certificate` fixture and its render golden. The lowering rules and
+limits are in [docs/browser-import.md](docs/browser-import.md).
 
 ## Use as a library
 
@@ -115,6 +153,7 @@ func main() {
 		Margin:   "20mm",
 		BaseDir:  "assets", // relative images stay inside this directory
 		FontDir:  "fonts",  // relative @font-face paths
+		// ImportBrowser: true, // accept a browser-oriented template
 	})
 	var verr *pdfgen.Error
 	if errors.As(err, &verr) {
@@ -133,6 +172,21 @@ func main() {
 		log.Fatal(err)
 	}
 }
+```
+
+A program that starts from a browser-oriented template such as
+`certificate.html` uses the same call with the import enabled (the CLI enables
+it for `convert` by default):
+
+```go
+certificate, err := os.ReadFile("certificate.html")
+if err != nil {
+	log.Fatal(err)
+}
+certPDF, err := pdfgen.Convert(ctx, certificate, pdfgen.Options{
+	File:          "certificate.html",
+	ImportBrowser: true, // lower flexbox, rem, data: URIs, ...
+})
 ```
 
 The same call shape works for validation. `Validate` runs the same preparation
