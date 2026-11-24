@@ -2,19 +2,35 @@ package font
 
 import "encoding/binary"
 
-// kerning holds horizontal pair adjustments from the GPOS table.
+// kerning holds horizontal pair adjustments from the GPOS table. Adjustments
+// are kept per lookup: every lookup of the feature applies in order and their
+// values add up, while the subtables inside one lookup are alternatives and
+// only the first matching one is used. Keeping a single subtable (as an earlier
+// version did) dropped every pair of the first lookup as soon as a later lookup
+// with an empty class table followed it.
 type kerning struct {
-	pairs map[uint32]int16
-	// class based positioning (PairPos format 2)
-	class1 map[uint16]uint16
-	// covered is the first-glyph Coverage of the class-based subtable: glyphs
-	// outside it must not use the class records.
-	covered map[uint16]bool
-	records [][]int16
-	class2  []classRange
+	lookups []*pairLookup
 	// coverGlyphs counts the glyph ids expanded from every Coverage of the
 	// table, so repeated lookups and subtables share one budget.
 	coverGlyphs int
+}
+
+// pairLookup holds the positioning data of one PairPos lookup.
+type pairLookup struct {
+	// pairs are the explicit pairs of PairPos format 1 subtables.
+	pairs map[uint32]int16
+	// classes are the class-based PairPos format 2 subtables in file order.
+	classes []*classSubtable
+}
+
+// classSubtable is one class-based (format 2) PairPos subtable.
+type classSubtable struct {
+	class1 map[uint16]uint16
+	// covered is the first-glyph Coverage: glyphs outside it must not use the
+	// class records.
+	covered map[uint16]bool
+	records [][]int16
+	class2  []classRange
 }
 
 // maxKerningGlyphs bounds the glyph ids a corrupt GPOS table may expand into
@@ -36,7 +52,7 @@ func (f *Font) parseGPOS() {
 	if lookupList == 0 || lookupList+2 > len(gpos) {
 		return
 	}
-	k := &kerning{pairs: map[uint32]int16{}}
+	k := &kerning{}
 	count := int(binary.BigEndian.Uint16(gpos[lookupList : lookupList+2]))
 	for i := 0; i < count; i++ {
 		offPos := lookupList + 2 + i*2
@@ -52,21 +68,36 @@ func (f *Font) parseGPOS() {
 			continue
 		}
 		subCount := int(binary.BigEndian.Uint16(gpos[off+4 : off+6]))
+		lookup := &pairLookup{pairs: map[uint32]int16{}}
 		for j := 0; j < subCount; j++ {
 			subOffPos := off + 6 + j*2
 			if subOffPos+2 > len(gpos) {
 				break
 			}
 			subOff := off + int(binary.BigEndian.Uint16(gpos[subOffPos:subOffPos+2]))
-			k.parsePairPos(gpos, subOff)
+			lookup.parsePairPos(k, gpos, subOff)
+		}
+		if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
+			k.lookups = append(k.lookups, lookup)
 		}
 	}
-	if len(k.pairs) > 0 || len(k.records) > 0 {
+	if len(k.lookups) > 0 {
 		f.gpos = k
 	}
 }
 
+// parsePairPos parses one subtable into a lookup of its own. It is the entry
+// point for tests of a single subtable; the table parser groups the subtables
+// of a lookup itself.
 func (k *kerning) parsePairPos(data []byte, off int) {
+	lookup := &pairLookup{pairs: map[uint32]int16{}}
+	lookup.parsePairPos(k, data, off)
+	if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
+		k.lookups = append(k.lookups, lookup)
+	}
+}
+
+func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 	if off+10 > len(data) {
 		return
 	}
@@ -110,7 +141,7 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 				adv, _ := xAdvance(data[cursor:cursor+valueRecordSize(valueFormat1)], valueFormat1)
 				cursor += recordSize
 				if adv != 0 {
-					k.pairs[uint32(cover[i])<<16|uint32(second)] = adv
+					l.pairs[uint32(cover[i])<<16|uint32(second)] = adv
 				}
 			}
 		}
@@ -126,8 +157,9 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 		if !ok {
 			return
 		}
+		sub := &classSubtable{class1: map[uint16]uint16{}, covered: make(map[uint16]bool, len(cover))}
 		if c2, ok := parseClassDef(data, classDef2Off); ok {
-			k.class2 = c2
+			sub.class2 = c2
 		}
 		recordSize := valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2)
 		if recordSize == 0 {
@@ -148,15 +180,13 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 		if expanded > maxKerningGlyphs {
 			return
 		}
-		k.records = make([][]int16, class1Count)
-		k.class1 = map[uint16]uint16{}
-		k.covered = make(map[uint16]bool, len(cover))
+		sub.records = make([][]int16, class1Count)
 		for _, gid := range cover {
-			k.covered[gid] = true
+			sub.covered[gid] = true
 		}
 		for _, r := range classes1 {
 			for g := uint32(r.start); g <= uint32(r.end); g++ {
-				k.class1[uint16(g)] = r.class
+				sub.class1[uint16(g)] = r.class
 			}
 		}
 		cursor := off + 16
@@ -170,8 +200,9 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 				row[c2] = adv
 				cursor += recordSize
 			}
-			k.records[c1] = row
+			sub.records[c1] = row
 		}
+		l.classes = append(l.classes, sub)
 	}
 }
 
@@ -324,33 +355,52 @@ func classOf(ranges []classRange, gid uint16) (uint16, bool) {
 }
 
 // Kerning returns the horizontal adjustment between two glyphs in font units.
+// All lookups of the feature apply, so their adjustments add up.
 func (f *Font) Kerning(left, right uint16) int32 {
 	if f.gpos == nil {
 		return 0
 	}
-	if v, ok := f.gpos.pairs[uint32(left)<<16|uint32(right)]; ok {
-		return int32(v)
+	var total int32
+	for _, lookup := range f.gpos.lookups {
+		if v, ok := lookup.adjust(left, right); ok {
+			total += int32(v)
+		}
 	}
-	if f.gpos.records == nil {
-		return 0
+	return total
+}
+
+// adjust returns the adjustment of the first subtable that applies, which is
+// the subtable this lookup contributes.
+func (l *pairLookup) adjust(left, right uint16) (int16, bool) {
+	if v, ok := l.pairs[uint32(left)<<16|uint32(right)]; ok {
+		return v, true
 	}
-	if f.gpos.covered != nil && !f.gpos.covered[left] {
-		return 0
+	for _, sub := range l.classes {
+		if v, ok := sub.adjust(left, right); ok {
+			return v, true
+		}
+	}
+	return 0, false
+}
+
+func (s *classSubtable) adjust(left, right uint16) (int16, bool) {
+	if s.covered != nil && !s.covered[left] {
+		return 0, false
 	}
 	// A glyph absent from a ClassDef belongs to class 0, not to "no kerning".
 	c1 := uint16(0)
-	if v, ok := f.gpos.class1[left]; ok {
+	if v, ok := s.class1[left]; ok {
 		c1 = v
 	}
-	if int(c1) >= len(f.gpos.records) {
-		return 0
+	if int(c1) >= len(s.records) {
+		return 0, false
 	}
 	c2 := uint16(0)
-	if v, ok := classOf(f.gpos.class2, right); ok {
+	if v, ok := classOf(s.class2, right); ok {
 		c2 = v
 	}
-	if int(c2) >= len(f.gpos.records[c1]) {
-		return 0
+	if int(c2) >= len(s.records[c1]) {
+		return 0, false
 	}
-	return int32(f.gpos.records[c1][c2])
+	return s.records[c1][c2], true
 }

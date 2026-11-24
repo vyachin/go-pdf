@@ -52,7 +52,7 @@ func TestClassKerningRequiresCoverage(t *testing.T) {
 	body = append(body, classDef1...)
 	body = append(body, classDef2...)
 
-	f := &Font{gpos: &kerning{pairs: map[uint32]int16{}}}
+	f := &Font{gpos: &kerning{}}
 	f.gpos.parsePairPos(body, 0)
 	if got := f.Kerning(65, 86); got != -100 {
 		t.Fatalf("covered pair kerning = %d, want -100", got)
@@ -77,7 +77,7 @@ func TestClassDefRangeIsBounded(t *testing.T) {
 		t.Fatalf("ranges = %d", len(classes))
 	}
 	// The format 2 PairPos path must not expand this into 65k map entries.
-	f := &Font{gpos: &kerning{pairs: map[uint32]int16{}}}
+	f := &Font{gpos: &kerning{}}
 	if expanded := int(classes[0].end-classes[0].start) + 1; expanded <= 0 {
 		t.Fatal("bad range arithmetic")
 	}
@@ -131,10 +131,15 @@ func TestClassDefExpansionIsBoundedThroughPairPos(t *testing.T) {
 		classDef = append(classDef, 0, 0, 0xFF, 0xFF, 0, 1)
 	}
 	body := pairPosFormat2WithClassDefs(coverageFormat1Test([]uint16{0}), classDef, classDefFormat1Test(0, []uint16{0}))
-	k := &kerning{pairs: map[uint32]int16{}}
+	k := &kerning{}
 	k.parsePairPos(body, 0)
-	if k.records != nil || k.class1 != nil {
-		t.Fatal("an over-budget class definition was expanded")
+	for _, lookup := range k.lookups {
+		if len(lookup.classes) != 0 || len(lookup.pairs) != 0 {
+			t.Fatal("an over-budget class definition was expanded")
+		}
+	}
+	if len(k.lookups) != 0 {
+		t.Fatalf("an over-budget subtable produced %d lookup(s)", len(k.lookups))
 	}
 	if k.coverGlyphs > maxKerningGlyphs {
 		t.Fatalf("the coverage budget was exceeded: %d", k.coverGlyphs)
@@ -174,7 +179,7 @@ func TestCoverageBudgetIsSharedAcrossSubtables(t *testing.T) {
 	// a fourth must be refused instead of allocating another 65k entries.
 	coverage := coverageFormat2Test([][2]uint16{{0, 65534}})
 	body := pairPosFormat2Test(coverage)
-	k := &kerning{pairs: map[uint32]int16{}}
+	k := &kerning{}
 	for i := 0; i < 3; i++ {
 		k.parsePairPos(body, 0)
 	}
@@ -275,7 +280,7 @@ func TestClassKerningUsesImplicitClassZero(t *testing.T) {
 	body = append(body, classDef1...)
 	body = append(body, classDef2...)
 
-	f := &Font{gpos: &kerning{pairs: map[uint32]int16{}}}
+	f := &Font{gpos: &kerning{}}
 	f.gpos.parsePairPos(body, 0)
 	if got := f.Kerning(65, 87); got != -50 {
 		t.Fatalf("kerning for an implicit class 0 right glyph = %d, want -50", got)

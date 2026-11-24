@@ -64,7 +64,7 @@
   **Воспроизведение:** `go run ./testdata/probe/css-html-5/main.go`: `<p>BEFORE</p><table><tr><td>A</td></tr><table><tr><td>B</td></tr></table></table><p>AFTER</p>` → `"BEFOREAAFTER"`, `B` потерян, диагностик нет.
   **Исправление / приёмка:** старт `table` в режиме «in table» закрывает внешнюю таблицу (сиблинг после `</table>`), как в HTML-спеке; либо явная диагностика о неподдерживаемой вложенности вместо потери. Приёмка: golden-дерево и текст `"BEFOREABAFTER"`; проверить `<table><tr><table>`.
 
-- [ ] **RV2-09 · P2: складывать все class-based PairPos-сабтаблицы GPOS, а не хранить последнюю.**
+- [x] **RV2-09 · P2: складывать все class-based PairPos-сабтаблицы GPOS, а не хранить последнюю.**
 
   **Код:** [internal/font/gpos.go:151](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:151), `parsePairPos` перезаписывает `k.records`, `k.class1`, `k.covered`; `Kerning` ([:327](/Users/vyachin/Projects/go-pdf/internal/font/gpos.go:327)) читает единственную.
   **Воспроизведение:** `go run ./testdata/probe/font-text-19/main.go`. В DejaVu Sans два kern-lookup: 97 покрытых глифов и **1832 ненулевые пары**, затем 20 глифов и 0 пар. Остаётся второй: `Kerning('T','o') = 0` вместо −348 units; «To» при 12 pt — 14672 mp вместо 12633 mp (разница 2039 mp). `TestKerning` маскирует дефект через `t.Skip` при нуле.

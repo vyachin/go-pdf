@@ -479,3 +479,43 @@ func TestCmapGroupsMustBeSorted(t *testing.T) {
 		t.Fatal("overlapping cmap groups were accepted")
 	}
 }
+
+// TestClassKerningKeepsEveryLookup guards RV2-09. DejaVu Sans has two class
+// based PairPos lookups: the first holds 1832 nonzero pairs, the second holds
+// none. Storing only the last subtable dropped all kerning of the bundled font,
+// and TestKerning hid that by skipping when every sampled pair was zero.
+func TestClassKerningKeepsEveryLookup(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Skipf("bundled DejaVu Sans is unavailable: %v", err)
+	}
+	f, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.gpos == nil {
+		t.Fatal("DejaVu Sans has no GPOS kerning")
+	}
+	if len(f.gpos.lookups) < 2 {
+		t.Fatalf("DejaVu Sans parsed into %d lookups, want at least 2", len(f.gpos.lookups))
+	}
+	cases := []struct {
+		left, right rune
+		want        int32
+	}{
+		{'T', 'o', -348},
+		{'A', 'V', -131},
+		{'V', 'a', -159},
+		{'Y', 'o', -272},
+	}
+	for _, tc := range cases {
+		l, ok1 := f.GlyphIndex(tc.left)
+		r, ok2 := f.GlyphIndex(tc.right)
+		if !ok1 || !ok2 {
+			t.Fatalf("DejaVu Sans does not map %q or %q", tc.left, tc.right)
+		}
+		if got := f.Kerning(l, r); got != tc.want {
+			t.Errorf("Kerning(%q, %q) = %d, want %d", tc.left, tc.right, got, tc.want)
+		}
+	}
+}
