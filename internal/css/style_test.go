@@ -71,3 +71,49 @@ func TestBorderRejectsPercentWidth(t *testing.T) {
 		t.Fatalf("a percentage border width must be rejected, got %+v", st.Border[0])
 	}
 }
+
+func TestBackgroundImageAndCover(t *testing.T) {
+	st := DefaultStyle()
+	if err := ApplyDecl(st, "background-image", Tokenize([]byte("url(cover.jpg)")), 12000); err != nil {
+		t.Fatalf("url(cover.jpg): %v", err)
+	}
+	if st.BackgroundImage != "cover.jpg" {
+		t.Fatalf("background-image = %q, want cover.jpg", st.BackgroundImage)
+	}
+	if st.BackgroundSize != BackgroundSizeAuto {
+		t.Fatalf("background-size initial = %v, want auto", st.BackgroundSize)
+	}
+	if err := ApplyDecl(st, "background-size", Tokenize([]byte("cover")), 12000); err != nil {
+		t.Fatalf("background-size: cover: %v", err)
+	}
+	if st.BackgroundSize != BackgroundSizeCover {
+		t.Fatalf("background-size = %v, want cover", st.BackgroundSize)
+	}
+	quoted := DefaultStyle()
+	if err := ApplyDecl(quoted, "background-image", Tokenize([]byte(`url("photos/cover shot.jpg")`)), 12000); err != nil {
+		t.Fatalf("quoted url: %v", err)
+	}
+	if quoted.BackgroundImage != "photos/cover shot.jpg" {
+		t.Fatalf("quoted background-image = %q", quoted.BackgroundImage)
+	}
+}
+
+func TestBackgroundImageRejectsUnsupportedSources(t *testing.T) {
+	invalid := []struct{ property, value string }{
+		{"background-image", "linear-gradient(#000, #fff)"},
+		{"background-image", "url(https://example.com/cover.jpg)"},
+		{"background-image", `url("data:image/png;base64,AAAA")`},
+		{"background-image", "none"},
+		{"background-image", "url()"},
+		{"background-size", "contain"},
+		{"background-size", "auto"},
+		{"background-size", "20mm 20mm"},
+		{"background-size", "100% 100%"},
+	}
+	for _, tc := range invalid {
+		st := DefaultStyle()
+		if err := ApplyDecl(st, tc.property, Tokenize([]byte(tc.value)), 12000); err == nil {
+			t.Errorf("%s: %s was accepted", tc.property, tc.value)
+		}
+	}
+}

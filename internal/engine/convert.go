@@ -505,10 +505,15 @@ func toPDFOps(ops []layout.Op, images map[*layout.ImageData]*pdf.Image) []pdf.Op
 				}
 				images[img] = shared
 			}
+			var clip *pdf.Rect
+			if c := op.Image.Clip; c != nil {
+				clip = &pdf.Rect{X: c.X, Y: c.Y, W: c.W, H: c.H}
+			}
 			out = append(out, pdf.Op{
 				Kind:  pdf.ImageOpKind,
 				Rect:  pdf.Rect{X: op.Rect.X, Y: op.Rect.Y, W: op.Rect.W, H: op.Rect.H},
 				Image: shared,
+				Clip:  clip,
 			})
 		}
 	}

@@ -28,6 +28,8 @@ An unknown element is the error `html/unsupported-element`. The supported attrib
 | `border` | no | `[width] [solid\|none] [color]` |
 | `border-collapse` | no | `collapse`, `separate` |
 | `background-color` | no | a colour |
+| `background-image` | no | `url(<local file>)` |
+| `background-size` | no | `cover` |
 | `color` | yes | a colour |
 | `font-family` | yes | a list of families |
 | `font-size` | yes | a length, `em`, `%` |
@@ -53,6 +55,8 @@ With `border-collapse: collapse` the shared grid line is drawn once: the outer b
 The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does not synthesise a visible hyphen at the break. A regular `-` and `U+2010` break the line after themselves and are preserved in the text layer as written.
 
 `auto` is allowed only for `width` and `height`. For `margin`, `padding`, `text-indent` and `line-height` it is a profile error: `margin: 0 auto` does not centre the block, whereas it used to silently align it to the left.
+
+A background image is painted behind the box's content, scaled to cover the box and clipped to it. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
 
 ## Selectors
 
@@ -105,6 +109,7 @@ Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-cent
 | `flex`, `grid` | a different layout engine; blocks and tables are enough for documents |
 | `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm |
 | gradients, shadows, rounded corners, transparency | not needed in printed documents; they complicate the output |
+| `background-position`, `background-repeat`, `background-size: contain/auto/lengths` | the cover model is one scaling rule with a centered crop; a positioning grammar is a larger surface for a case no document needs yet |
 | `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |
 | JavaScript | the engine is static; the document is not executed |
 | CFF/OTF and web fonts by URL | see `docs/fonts.md` |

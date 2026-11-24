@@ -557,6 +557,16 @@ func styleList(style *css.Style) []prop {
 	if len(style.AfterContent) > 0 {
 		out = append(out, prop{"after-content", contentItems(style.AfterContent)})
 	}
+	// A background image is written only when a box has one, so the initial
+	// "none" needs no entry and an element without it stays clean.
+	if style.BackgroundImage != "" {
+		out = append(out, prop{"background-image", "url(" + style.BackgroundImage + ")"})
+		// The initial auto is elided like every other initial value; the
+		// profile documents that it behaves as cover.
+		if style.BackgroundSize != css.BackgroundSizeAuto {
+			out = append(out, prop{"background-size", backgroundSizeValue(style.BackgroundSize)})
+		}
+	}
 	return out
 }
 
@@ -588,6 +598,13 @@ func borderValue(side css.BorderSide) string {
 		return "none"
 	}
 	return points(side.Width) + " solid " + colorValue(side.Color)
+}
+
+func backgroundSizeValue(v css.BackgroundSize) string {
+	if v == css.BackgroundSizeCover {
+		return "cover"
+	}
+	return "auto"
 }
 
 func borderCollapseValue(v css.BorderCollapse) string {

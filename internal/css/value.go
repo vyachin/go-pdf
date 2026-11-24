@@ -377,6 +377,16 @@ const (
 	ListDecimal
 )
 
+// BackgroundSize is the computed value of background-size. The profile has no
+// natural-size painting, so the initial auto value behaves as cover: an image
+// always fills its box.
+type BackgroundSize int
+
+const (
+	BackgroundSizeAuto BackgroundSize = iota
+	BackgroundSizeCover
+)
+
 // FontStyle is the computed value of font-style.
 type FontStyle int
 
@@ -398,12 +408,14 @@ func filterWhitespace(toks []Token) []Token {
 
 // Value is a parsed CSS value. Only the field matching Kind is meaningful.
 type Value struct {
-	Kind     string
-	Length   Length
-	Color    Color
-	Number   int
-	Float    float64
-	Keyword  string
+	Kind    string
+	Length  Length
+	Color   Color
+	Number  int
+	Float   float64
+	Keyword string
+	// URL is the source of a url(...) value, without quotes.
+	URL      string
 	Families []string
 	Box      [4]Length
 	Borders  [4]BorderSide

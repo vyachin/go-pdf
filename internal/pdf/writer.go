@@ -74,6 +74,10 @@ type Op struct {
 	Color RGB
 	Text  *Text
 	Image *Image
+	// Clip bounds the operation to a rectangle. A covered background image is
+	// larger than its box on one axis, so the overflow is cut here; a nil clip
+	// draws without clipping, which is what <img> needs.
+	Clip *Rect
 }
 
 // OutlineEntry is one bookmark in the document outline.
@@ -505,6 +509,13 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 			b.WriteString("] TJ ET\n")
 		case ImageOpKind:
 			if op.Image == nil {
+				continue
+			}
+			if clip := op.Clip; clip != nil && clip.W > 0 && clip.H > 0 {
+				fmt.Fprintf(&b, "q %s %s %s %s re W n %s 0 0 %s %s %s cm /%s Do Q\n",
+					num(clip.X), num(p.height-clip.Y-clip.H), num(clip.W), num(clip.H),
+					num(op.Rect.W), num(op.Rect.H), num(op.Rect.X), num(p.height-op.Rect.Y-op.Rect.H),
+					imageNames[op.Image])
 				continue
 			}
 			fmt.Fprintf(&b, "q %s 0 0 %s %s %s cm /%s Do Q\n",
