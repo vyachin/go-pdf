@@ -1464,3 +1464,41 @@ func TestHugeMarginsDoNotWrapTheCursor(t *testing.T) {
 		t.Fatalf("the paragraph after the huge margins was painted below the page at Y=%d", afterY)
 	}
 }
+
+// TestTableRowBreak guards RV2-29: break-before/after: page on a tr was accepted
+// by the profile and then ignored by layout, so the table stayed on one page.
+func TestTableRowBreak(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	base := `<style>table{width:100pt}td{padding:0;border:0;font-size:10pt}</style>`
+
+	doc, diags := h.runRaw(base+`<p>FIRST</p><table><tr><td>ROW1</td></tr>
+	<tr style="break-before:page"><td>ROW2</td></tr></table>`, size, margin)
+	if len(diags.Lines()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags.Lines())
+	}
+	if len(doc.Pages) != 2 {
+		t.Fatalf("break-before on a row produced %d pages, want 2", len(doc.Pages))
+	}
+	if strings.Contains(pageText(doc, 1), "ROW2") || !strings.Contains(pageText(doc, 2), "ROW2") {
+		t.Fatalf("ROW2 was not moved to the second page: %q / %q", pageText(doc, 1), pageText(doc, 2))
+	}
+
+	// A trailing break-after on the last row must not create an empty page.
+	doc, _ = h.runRaw(base+`<table><tr style="break-after:page"><td>ONLY</td></tr></table>`, size, margin)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("a trailing row break produced %d pages, want 1", len(doc.Pages))
+	}
+
+	// break-after in the middle breaks before the next row and repeats the
+	// header on the new page.
+	doc, _ = h.runRaw(base+`<table><thead><tr><th>HEAD</th></tr></thead>
+	<tbody><tr style="break-after:page"><td>A</td></tr><tr><td>B</td></tr></tbody></table>`, size, margin)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("break-after on a row produced %d pages, want 2", len(doc.Pages))
+	}
+	if !strings.HasPrefix(pageText(doc, 2), "HEAD") || !strings.Contains(pageText(doc, 2), "B") {
+		t.Fatalf("the second page does not repeat the header and continue the rows: %q", pageText(doc, 2))
+	}
+}

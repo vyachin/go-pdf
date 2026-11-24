@@ -177,6 +177,16 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			t.cursor.row++
 			continue
 		}
+		// break-before applies to a row like to a block: start a new page and
+		// repeat the header rows there.
+		if row.Style != nil && row.Style.BreakBefore == css.BreakPage && len(f.page.Ops) > 0 {
+			if !f.newPage() {
+				return false
+			}
+			if l.paintRepeatedHeaders(f, t) {
+				t.headerPage = f.pageNum
+			}
+		}
 		h := t.rowHeights[t.cursor.row]
 		if int64(f.y)+int64(h) > int64(f.bottom) {
 			// A new page only helps when the row fits there, and a continuation
@@ -198,6 +208,17 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		l.paintRow(f, t, t.cursor.row)
 		f.y = satAdd(f.y, h)
 		t.cursor.row++
+		// break-after applies once the row is painted and leaves the remaining
+		// rows for the next page; a trailing break after the last row would
+		// only create an empty page.
+		if row.Style != nil && row.Style.BreakAfter == css.BreakPage && t.cursor.row < len(t.Rows) {
+			if !f.newPage() {
+				return false
+			}
+			if l.paintRepeatedHeaders(f, t) {
+				t.headerPage = f.pageNum
+			}
+		}
 	}
 	return true
 }

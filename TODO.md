@@ -186,7 +186,7 @@
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-7/main.go`: 5 строк × 10 ячеек с `rowspan=100`, `MaxTableCells=50` → успех, 50 различных x-позиций (сетка 50×5 = 250 ячеек).
   **Исправление / приёмка:** считать фактическую ширину сетки с учётом занятых rowspan-ом колонок, учитывать работу в бюджете; приёмка — `resource/limit` при превышении.
 
-- [ ] **RV2-29 · P3: не принимать `break-before/after: page` на `tr` и молча его игнорировать.**
+- [x] **RV2-29 · P3: не принимать `break-before/after: page` на `tr` и молча его игнорировать.**
 
   **Код:** валидатор разрешает свойство на `tr` ([internal/profile](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go)), layout его не применяет.
   **Воспроизведение:** `go run ./testdata/probe/layout-7/main.go`: `<tr style="break-before:page">` → 1 страница вместо 2, диагностик нет.
