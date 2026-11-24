@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Локальный шрифт"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <font-face family="Corpus Sans" src="DejaVuSans.ttf" weight="400" style="normal"/>
+  <html display="block">
+    <body display="block" font-family="Corpus Sans" font-size="10pt">
+      <p display="block" margin-bottom="5.669pt">Текст в шрифте, объявленном через @font-face.</p>
+      <p display="block" margin-bottom="5.669pt">Второй абзац того же шрифта.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

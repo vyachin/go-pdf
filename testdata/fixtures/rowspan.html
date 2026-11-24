@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Объединённые ячейки</title>
+  <style>
+    @page { size: A5; margin: 12mm }
+    table { width: 100%; border-collapse: collapse }
+    th, td { border: 0.5pt solid #000000; padding: 1.5mm; font-size: 9pt }
+    th { background-color: #eeeeee; text-align: left }
+  </style>
+</head>
+<body>
+  <table>
+    <tbody>
+      <tr>
+        <td rowspan="2">Две строки</td>
+        <td>Ячейка 1</td>
+        <td>Ячейка 2</td>
+      </tr>
+      <tr>
+        <td colspan="2">Ячейка на две колонки</td>
+      </tr>
+      <tr>
+        <td>Обычная</td>
+        <td>Обычная</td>
+        <td>Обычная</td>
+      </tr>
+    </tbody>
+  </table>
+</body>
+</html>

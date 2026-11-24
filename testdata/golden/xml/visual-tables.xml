@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Таблица с рамками и фоном"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <html display="block">
+    <body display="block">
+      <div background-color="#dddddd" class="box" display="block" height="42.52pt" margin-bottom="8.504pt" width="60%"/>
+      <table border-collapse="collapse" display="table" width="100%">
+        <thead display="block">
+          <tr display="table-row">
+            <th background-color="#eeeeee" border="1pt solid #000000" display="table-cell" font-size="10pt" font-weight="700" padding="5.669pt" vertical-align="middle">Наименование</th>
+            <th background-color="#eeeeee" border="1pt solid #000000" display="table-cell" font-size="10pt" font-weight="700" padding="5.669pt" vertical-align="middle">Сумма</th>
+          </tr>
+        </thead>
+        <tbody display="block">
+          <tr display="table-row">
+            <td border="1pt solid #000000" display="table-cell" font-size="10pt" padding="5.669pt" vertical-align="middle">Услуга</td>
+            <td border="1pt solid #000000" class="num" color="#333333" display="table-cell" font-size="10pt" padding="5.669pt" text-align="right" vertical-align="middle">10 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="1pt solid #000000" display="table-cell" font-size="10pt" padding="5.669pt" vertical-align="middle">Поддержка</td>
+            <td border="1pt solid #000000" class="num" color="#333333" display="table-cell" font-size="10pt" padding="5.669pt" text-align="right" vertical-align="middle">5 000,00</td>
+          </tr>
+        </tbody>
+      </table>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

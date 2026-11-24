@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Объединённые ячейки"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <html display="block">
+    <body display="block">
+      <table border-collapse="collapse" display="table" width="100%">
+        <tbody display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Две строки</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Ячейка 1</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Ячейка 2</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Ячейка на две колонки</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Обычная</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Обычная</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-size="9pt" padding="4.252pt">Обычная</td>
+          </tr>
+        </tbody>
+      </table>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

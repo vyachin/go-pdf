@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Счёт № 42 от 01.02.2026" author="ООО «Ромашка»"/>
+  <page width="595.276pt" height="841.89pt" margin-top="70.866pt" margin-right="56.693pt" margin-bottom="56.693pt" margin-left="56.693pt"/>
+  <margin-box name="bottom-center" content="&quot;Стр. &quot; | counter(page) | &quot; из &quot; | counter(pages)"/>
+  <margin-box name="top-right" content="&quot;ООО «Ромашка», ИНН 7701234567&quot;"/>
+  <html display="block">
+    <body display="block" font-family="PT Serif" font-size="11pt">
+      <h1 display="block" font-size="16pt" font-weight="700" margin-bottom="17.008pt">Счёт на оплату № 42</h1>
+      <p class="muted" color="#666666" display="block" margin-bottom="8.504pt">Поставщик: ООО «Ромашка», г. Москва, ул. Лесная, д. 7</p>
+      <p display="block" margin-bottom="8.504pt">Покупатель: ООО «Лютик», ИНН 7809876543</p>
+      <table border-collapse="collapse" display="table" width="100%">
+        <thead display="block">
+          <tr display="table-row">
+            <th border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="5.669pt">Наименование</th>
+            <th border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="5.669pt">Кол-во</th>
+            <th border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="5.669pt">Цена</th>
+            <th border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="5.669pt">Сумма</th>
+          </tr>
+        </thead>
+        <tbody display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Разработка модуля экспорта</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">120 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">120 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Обучение сотрудников</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">2</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">15 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">30 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Техническая поддержка, 3 месяца</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">45 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">45 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Сопровождение документации</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">4</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">5 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">20 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Внедрение на площадке заказчика</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">60 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">60 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Аудит безопасности</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">35 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">35 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Настройка резервного копирования</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">18 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">18 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Консультации по интеграции</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">6</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">4 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">24 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Лицензия на год</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">96 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">96 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Доработка печатных форм</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">3</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">12 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">36 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Миграция данных</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">28 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">28 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" display="table-cell" padding="5.669pt">Нагрузочное тестирование</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">1</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">22 000,00</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">22 000,00</td>
+          </tr>
+        </tbody>
+        <tfoot display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="total" display="table-cell" font-weight="700" padding="5.669pt">Итого</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">534 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="total" display="table-cell" font-weight="700" padding="5.669pt">В том числе НДС 20%</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">89 000,00</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="total" display="table-cell" font-weight="700" padding="5.669pt">Всего к оплате</td>
+            <td border="0.5pt solid #000000" class="num" display="table-cell" padding="5.669pt" text-align="right" width="70.866pt">534 000,00</td>
+          </tr>
+        </tfoot>
+      </table>
+      <p display="block" margin-bottom="8.504pt">Оплатить счёт необходимо в течение 10 банковских дней с момента выставления.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

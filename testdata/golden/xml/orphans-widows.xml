@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Orphans и widows"/>
+  <page width="226.772pt" height="255.118pt" margin-top="22.677pt" margin-right="22.677pt" margin-bottom="22.677pt" margin-left="22.677pt"/>
+  <html display="block">
+    <body display="block">
+      <p class="tight" display="block" font-size="9pt" line-height="1.4" margin-bottom="5.669pt" orphans="4" text-indent="11.339pt" widows="3">Первый абзац достаточно длинный, чтобы занять несколько строк на узкой странице и проверить поведение свойства orphans при переносе.</p>
+      <p class="tight" display="block" font-size="9pt" line-height="1.4" margin-bottom="5.669pt" orphans="4" text-indent="11.339pt" widows="3">Второй абзац тоже длинный: движок должен оставить минимум три строки на следующей странице, а не одну висячую строку.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

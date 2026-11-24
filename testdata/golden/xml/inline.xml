@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Строчные элементы"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <html display="block">
+    <body display="block">
+      <p display="block" font-size="10pt" id="top" margin-bottom="5.669pt"><strong font-weight="700">Жирный</strong>, <b font-weight="700">тоже жирный</b>, <em font-style="italic">курсив</em>, <i font-style="italic">тоже курсив</i>.</p>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt"><span class="middle" vertical-align="middle">Строчный элемент</span> и <a color="#004488">ссылка</a>.<br/>После разрыва строки.</p>
+      <p class="pre" display="block" font-size="10pt" margin-bottom="5.669pt" white-space="pre">  две строки
+   с отступом</p>
+      <hr border="0.5pt solid #000000" display="block" height="0pt" margin-bottom="5.669pt" margin-top="5.669pt"/>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">Абзац после горизонтальной линии.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

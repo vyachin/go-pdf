@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Поля страницы"/>
+  <page width="595.276pt" height="419.528pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <margin-box name="bottom-center" content="counter(page) | &quot; из &quot; | counter(pages)"/>
+  <margin-box name="bottom-left" content="&quot;Стр. &quot; | counter(page)"/>
+  <margin-box name="bottom-right" content="&quot;Справа снизу&quot;"/>
+  <margin-box name="top-center" content="&quot;По центру&quot;"/>
+  <margin-box name="top-left" content="&quot;Слева сверху&quot;"/>
+  <margin-box name="top-right" content="&quot;Справа сверху&quot;"/>
+  <html display="block">
+    <body display="block">
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">Страница с заполненными полями.</p>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">Второй абзац для проверки полей.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

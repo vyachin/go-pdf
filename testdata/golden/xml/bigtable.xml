@@ -1,0 +1,696 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Отчёт по рекламной кампании"/>
+  <page width="841.89pt" height="595.276pt" margin-top="42.52pt" margin-right="42.52pt" margin-bottom="42.52pt" margin-left="42.52pt"/>
+  <margin-box name="bottom-center" content="&quot;Стр. &quot; | counter(page) | &quot; из &quot; | counter(pages)"/>
+  <html display="block">
+    <body display="block" font-family="PT Serif" font-size="9pt">
+      <h1 display="block" font-size="14pt" font-weight="700" margin-bottom="11.339pt">Отчёт по рекламной кампании за февраль — март 2026</h1>
+      <table border-collapse="collapse" display="table" width="100%">
+        <thead display="block">
+          <tr display="table-row">
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Дата</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Показы</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Клики</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">CTR</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Расход</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Ср. CPC</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Конверсии</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">CR</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Цена конв.</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Ср. позиция</th>
+            <th background-color="#eeeeee" border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt">Доля показов</th>
+          </tr>
+        </thead>
+        <tbody display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">01.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">95 810</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">656</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.68%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5 805,84</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8,85</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.79%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">152,79</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">22.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">02.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">25 434</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 971</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11.68%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">98 585,81</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">33,18</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">72</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.42%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 369,25</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,6</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">03.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">15 905</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">583</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.67%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8 997,84</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">15,43</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">67</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11.49%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">134,30</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">54.7%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">04.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">97 181</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 072</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.16%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">81 494,05</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">26,53</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.01%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 628,84</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,7</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">33.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">05.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12 851</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 308</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">25.74%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">117 096,10</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">35,40</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">57</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.72%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 054,32</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">23.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">06.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">56 118</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">618</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.10%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6 892,78</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11,15</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">15</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.43%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">459,52</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,1</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">07.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46 671</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">377</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.81%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12 369,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">32,81</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">71</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18.83%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">174,22</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">82.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">08.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">22 328</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 461</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11.02%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44 219,40</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17,97</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">83</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.37%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">532,76</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,6</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">77.5%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">09.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">87 674</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">987</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.13%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31 540,02</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31,96</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.81%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 942,50</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">70.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">10.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">22 458</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 153</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.13%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">43 191,89</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37,46</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">51</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.42%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">846,90</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,7</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">60.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">11.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">59 819</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">866</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.45%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17 827,61</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20,59</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">29</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.35%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">614,75</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">65.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">12.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">96 939</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">492</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.51%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">14 125,54</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28,71</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">24</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.88%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">588,56</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,1</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">30.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">13.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">72 589</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 754</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.42%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">30 130,61</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17,18</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">84</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.79%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">358,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28.7%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">14.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">54 504</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 347</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6.14%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">115 083,24</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">34,38</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">32</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.96%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 596,35</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">73.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">15.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">64 581</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 296</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.01%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">13 284,53</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10,25</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">75</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.79%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">177,13</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,1</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">35.9%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">16.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">97 909</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 244</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.29%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">48 137,13</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">21,45</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">85</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.79%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">566,32</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,7</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">32.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">17.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44 325</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 251</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">7.33%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">88 058,27</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">27,09</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">36</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.11%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 446,06</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,4</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">18.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">88 484</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 835</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.07%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37 264,96</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20,31</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.09%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 863,25</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18.9%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">19.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18 175</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">649</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.57%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8 564,60</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">13,20</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">23</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.54%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">372,37</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,6</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">20.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20 326</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 776</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8.74%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37 251,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20,98</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">62</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.49%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">600,83</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,1</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">85.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">21.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">13 504</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 986</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">22.11%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">97 058,56</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">32,50</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">90</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.01%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 078,43</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,1</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">69.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">22.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">96 012</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 593</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.66%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18 785,89</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11,79</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">58</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.64%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">323,89</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">23.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46 522</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 250</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.84%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">76 290,11</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">33,91</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">67</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.98%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 138,66</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,3</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">78.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">24.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">51 117</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 817</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.51%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">71 158,94</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">25,26</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.99%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 541,39</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">70.0%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">25.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">82 697</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 389</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.10%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">133 400,39</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">39,36</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.09%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44 466,80</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">49.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">26.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">26 662</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 686</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6.32%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">63 859,85</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37,88</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">42</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.49%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 520,47</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">30.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">27.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">86 364</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">522</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.60%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5 696,18</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10,91</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">65</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12.45%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">87,63</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">86.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">28.02.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">81 822</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 336</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.08%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">40 952,26</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12,28</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">87</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.61%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">470,72</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">53.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">01.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46 741</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 361</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.05%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">88 921,69</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37,66</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">57</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.41%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 560,03</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,6</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">82.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">02.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38 365</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3 120</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8.13%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">58 026,86</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18,60</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">88</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.82%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">659,40</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">45.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">03.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">79 839</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 049</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.57%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">24 821,88</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12,11</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.51%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">800,71</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">13.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">04.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">84 603</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 142</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.35%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31 983,95</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28,01</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.26%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10 661,32</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">60.0%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">05.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">42 007</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">476</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.13%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18 461,32</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38,78</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">45</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">9.45%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">410,25</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">30.1%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">06.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">75 624</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 077</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.42%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28 361,67</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">26,33</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">76</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">7.06%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">373,18</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,4</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">30.5%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">07.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">73 993</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 867</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.52%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">27 022,84</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">14,47</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">15</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.80%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 801,52</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38.9%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">08.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">65 883</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 112</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.21%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">78 926,39</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37,37</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.43%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">8 769,60</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">86.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">09.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">24 899</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">448</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.80%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">9 716,73</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">21,69</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10.27%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">211,23</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5,7</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20.3%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">10.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37 112</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">979</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.64%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">25 682,81</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">26,23</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.04%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 284,14</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">33.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">11.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44 742</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">508</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.14%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">11 717,75</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">23,07</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">73</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">14.37%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">160,52</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,7</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">61.6%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">12.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">82 855</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">260</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.31%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10 645,93</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">40,95</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">33</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">12.69%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">322,60</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">48.9%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">13.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">40 016</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 842</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.60%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">71 254,19</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">38,68</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">24</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.30%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 968,92</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3,3</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">86.9%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">14.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46 760</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 063</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4.41%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">36 511,95</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">74</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.59%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">493,40</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,9</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">49.0%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">15.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">36 890</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 415</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.84%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">21 793,59</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">15,40</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">10</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.71%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 179,36</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,4</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">53.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">16.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">53 104</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">434</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">0.82%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4 211,90</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">9,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">64</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">14.75%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">65,81</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">76.8%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">17.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">32 635</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">432</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.32%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17 567,92</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">40,67</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">13</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.01%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 351,38</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,0</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17.2%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">18.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">20 907</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 965</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">14.18%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">110 599,99</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">37,30</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">54</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.82%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 048,15</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">79.7%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">19.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">44 271</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 571</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5.81%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">72 537,30</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">28,21</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">82</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">3.19%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">884,60</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1,6</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">62.0%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">20.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">86 085</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2 341</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.72%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">43 909,14</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">18,76</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">36</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.54%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 219,70</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2,3</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">66.4%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">21.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">43 285</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1 287</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">2.97%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">27 614,80</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">21,46</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">88</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6.84%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">313,80</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">4,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">46.7%</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" padding="4.252pt">22.03.2026</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">21 508</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">238</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">1.11%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">5 612,45</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">23,58</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">75</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">31.51%</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">74,83</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">6,8</td>
+            <td border="0.5pt solid #000000" display="table-cell" padding="4.252pt" text-align="right">17.6%</td>
+          </tr>
+        </tbody>
+        <tfoot display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #000000" class="left" display="table-cell" font-weight="700" padding="4.252pt">Итого</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">2 690 000</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">89 100</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">3,31%</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">2 240 000,00</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">25,14</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">2 180</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">2,45%</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">1 027,52</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">3,5</td>
+            <td border="0.5pt solid #000000" display="table-cell" font-weight="700" padding="4.252pt" text-align="right">47,8%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </body>
+  </html>
+  <diagnostics/>
+</document>
