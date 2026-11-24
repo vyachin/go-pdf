@@ -3,6 +3,7 @@ package css
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -96,6 +97,16 @@ var mpPerUnit = map[string]float64{
 // MaxTableSpan bounds colspan and rowspan. It keeps the occupancy grid small
 // and ensures every span fits an int32 without narrowing to zero.
 const MaxTableSpan = 100
+
+// ParseTableSpan parses a colspan or rowspan attribute value. Surrounding
+// whitespace is ignored, so validation and layout agree on the same value.
+func ParseTableSpan(v string) (int, bool) {
+	i, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || i < 1 || i > MaxTableSpan {
+		return 1, false
+	}
+	return i, true
+}
 
 // maxMillipoints bounds every absolute length so that scaling it later cannot
 // overflow an int32.

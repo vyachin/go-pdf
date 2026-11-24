@@ -192,7 +192,7 @@
   **Воспроизведение:** страница **200×50 pt** с нулевыми margins и `<p style="font-size:100pt">A</p>` возвращает `layout/no-progress`, A не рисуется. До проверки строки страница уже помечена непустой, поэтому ветка предупреждения/клиппинга для первой слишком высокой строки недостижима.
   **Исправление / приёмка:** различать вход в контейнер и фактически занятое место. Первая слишком высокая строка должна один раз продвинуть cursor и дать предусмотренную профилем диагностику overflow; strict может превратить её в ошибку. Проверить также слишком высокую строку таблицы и block image.
 
-- [ ] **REV-30 · P2: одинаково разбирать пробелы в `colspan`/`rowspan` при валидации и layout.**
+- [x] **REV-30 · P2: одинаково разбирать пробелы в `colspan`/`rowspan` при валидации и layout.**
 
   **Код:** [internal/profile/profile.go:71](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go:71), `ValidateSheets`; [internal/layout/box.go:484](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:484), `spanAttr`.
   **Воспроизведение:** `<table><tr><td colspan=" 2 ">A</td></tr></table>` проходит Validate, затем Convert возвращает `html/invalid-span`. Валидатор использует `strings.TrimSpace`, builder передаёт исходную строку в `strconv.Atoi`.

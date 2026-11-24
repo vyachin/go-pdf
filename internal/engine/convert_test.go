@@ -1420,3 +1420,23 @@ func TestTargetCounterResolvesInsideATable(t *testing.T) {
 		t.Fatalf("target-counter did not show page 1: %q", text)
 	}
 }
+
+func TestSpanWhitespaceValidatesAndConverts(t *testing.T) {
+	fontPath := testFontPath(t)
+	opts := Options{FallbackFont: fontPath, File: "span.html"}
+	src := []byte(`<table><tr><td colspan=" 2 " rowspan=" 1 ">A</td></tr><tr><td>B</td><td>C</td></tr></table>`)
+	diags, err := Validate(context.Background(), src, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diags.HasErrors() {
+		t.Fatalf("Validate rejected a padded span: %v", diags.Lines())
+	}
+	res, err := Convert(context.Background(), src, opts)
+	if err != nil {
+		t.Fatalf("Convert disagrees with Validate: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if hasCode(res.Diagnostics, "html/invalid-span") {
+		t.Fatalf("Convert reported an invalid span after Validate accepted it: %v", res.Diagnostics.Lines())
+	}
+}

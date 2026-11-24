@@ -875,3 +875,17 @@ func TestOversizedFirstLineIsClipped(t *testing.T) {
 		t.Fatal("the clipped image was not painted")
 	}
 }
+
+func TestSpanAttributesWithWhitespace(t *testing.T) {
+	h := newHarness(t)
+	// Validate and layout must agree: whitespace around a span number is
+	// accepted by both, and an invalid value fails validation.
+	doc := h.run(`<table><tr><td colspan=" 2 " rowspan=" 1 ">A</td></tr><tr><td>B</td><td>C</td></tr></table>`)
+	if textOf(doc) == "" {
+		t.Fatal("the table did not render")
+	}
+	_, diags := h.runRaw(`<table><tr><td colspan="0">A</td></tr></table>`, h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "html/invalid-span") {
+		t.Fatalf("colspan=0 was not rejected: %v", diags.Lines())
+	}
+}

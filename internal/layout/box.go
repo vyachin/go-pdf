@@ -593,11 +593,7 @@ func spanAttr(n *html.Node, name string) (int, bool) {
 	if !ok {
 		return 1, true
 	}
-	i, err := strconv.Atoi(v)
-	if err != nil || i < 1 || i > css.MaxTableSpan {
-		return 1, false
-	}
-	return i, true
+	return css.ParseTableSpan(v)
 }
 
 func attrInt(n *html.Node, name string, def int) int {
