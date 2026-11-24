@@ -81,10 +81,105 @@ pdfgen validate invoice.html && pdfgen convert -o invoice.pdf invoice.html
 pdfgen validate -strict invoice.html
 ```
 
-The CLI is the only public interface of the project. Earlier versions of this
-README showed how to import `internal/engine`; Go forbids that import outside
-the module, so the example has been removed rather than promising an API that
-does not exist.
+## Use as a library
+
+`github.com/vyachin/go-pdf/pdfgen` is the public API. The CLI drives the same
+engine, so its flags and `pdfgen.Options` describe the same knobs, while
+`internal/` stays an implementation detail that Go hides from other modules.
+
+```bash
+go get github.com/vyachin/go-pdf/pdfgen
+```
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"os"
+
+	"github.com/vyachin/go-pdf/pdfgen"
+)
+
+func main() {
+	src, err := os.ReadFile("invoice.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := pdfgen.Convert(context.Background(), src, pdfgen.Options{
+		File:     "invoice.html", // appears in diagnostics
+		PageSize: "A4",           // fallback when @page has no size
+		Margin:   "20mm",
+		BaseDir:  "assets", // relative images stay inside this directory
+		FontDir:  "fonts",  // relative @font-face paths
+	})
+	var verr *pdfgen.Error
+	if errors.As(err, &verr) {
+		for _, d := range verr.Diagnostics {
+			log.Print(d) // invoice.html:7:12: error[css/unsupported-value]: ...
+		}
+		os.Exit(1)
+	}
+	if err != nil {
+		log.Fatal(err) // cancelled context or an unexpected failure
+	}
+	for _, d := range res.Diagnostics { // warnings only
+		log.Print(d)
+	}
+	if err := os.WriteFile("invoice.pdf", res.PDF, 0o644); err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+The same call shape works for validation. `Validate` runs the cheap half of the
+pipeline — parsing, cascade and profile — and reports the same diagnostics
+without paying for layout, which is what a CI check or a "preview" endpoint
+needs:
+
+```go
+diags, err := pdfgen.Validate(ctx, src, opts)
+var verr *pdfgen.Error
+switch {
+case errors.As(err, &verr):
+	log.Fatal(verr) // the template cannot be rendered
+case err != nil:
+	log.Fatal(err)
+}
+for _, d := range diags { // warnings only
+	log.Print(d)
+}
+```
+
+- **Nothing touches the disk.** The package only reads the images, stylesheets
+  and fonts the template references; writing the PDF (atomic or not) and
+  storing it stay the caller's decision.
+- **Determinism carries over.** Same template and same options → byte-identical
+  PDF. `Options.Date` is a fixed constant by default; set
+  `opts.Date = time.Now()` for documents that must carry today's date.
+- **One pipeline, two entry points.** `Validate` accepts exactly the templates
+  `Convert` renders, because both run the same preparation step.
+- **Diagnostics are data.** `Diagnostic` has a stable `Code` (`css/unsupported-value`,
+  `resource/limit`, …), a 1-based position and `String()` in the CLI format, so
+  a server can return them as JSON instead of parsing log lines.
+- **Previews.** `Options.RenderPNG` puts a raster of the first page in
+  `res.PNG`.
+- **Budgets.** `Options.Limits` bounds input size, page count, image pixels and
+  font bytes; an over-limit document returns a `*pdfgen.Error` with code
+  `resource/limit` before the expensive allocation, not an OOM.
+- **Cancellation.** Pass a context that can be cancelled: the engine checks it
+  between pages, rows and lines.
+- **Strict mode.** `Options.Strict` turns warnings into errors, the same way
+  `pdfgen validate -strict` does.
+
+The API reference is available through the usual tooling:
+
+```bash
+go doc github.com/vyachin/go-pdf/pdfgen
+go doc github.com/vyachin/go-pdf/pdfgen.Options
+```
 
 ## Profile
 

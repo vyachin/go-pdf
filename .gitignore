@@ -11,4 +11,7 @@ dist/
 
 # Locally built binaries
 /pdfgen
+# The same path is also the public package directory: re-include it so that
+# sources stay tracked while a binary built at the repository root stays ignored.
+!/pdfgen/
 /mpdfimport

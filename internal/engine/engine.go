@@ -1,6 +1,8 @@
-// Package engine is the public entry point of the HTML to PDF converter.
+// Package engine is the pipeline behind the pdfgen package and the CLI.
 //
-// Callers validate a template and then convert it. Both operations share the
+// It is internal: callers outside the module import github.com/vyachin/go-pdf/pdfgen,
+// which validates the options and re-exports the diagnostics. Inside the module,
+// callers validate a template and then convert it. Both operations share the
 // same pipeline and the same diagnostics, so a template that validates cleanly
 // is exactly a template that converts without validation errors.
 package engine
