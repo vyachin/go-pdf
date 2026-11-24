@@ -48,7 +48,7 @@ var Table = map[string]PropSpec{
 	},
 	"width":  {Name: "width", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Width = l })},
 	"height": {Name: "height", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Height = l })},
-	"margin": {Name: "margin", Parse: parseBoxShorthand, Set: func(s *Style, v Value, _ int32) error {
+	"margin": {Name: "margin", Parse: parseMarginShorthand, Set: func(s *Style, v Value, _ int32) error {
 		s.Margin = v.Box
 		return nil
 	}},
@@ -176,8 +176,11 @@ var Table = map[string]PropSpec{
 			if len(f) != 1 {
 				return Value{}, fmt.Errorf("line-height expects one value")
 			}
-			if f[0].Kind == IdentToken && strings.EqualFold(f[0].Text, "normal") {
-				return Value{Kind: "length", Length: Length{Kind: Auto}}, nil
+			if f[0].Kind == IdentToken {
+				if strings.EqualFold(f[0].Text, "normal") {
+					return Value{Kind: "length", Length: Length{Kind: Auto}}, nil
+				}
+				return Value{}, fmt.Errorf("line-height expects normal, a number or a length, not %q", f[0].Text)
 			}
 			if f[0].Kind == NumberToken {
 				if f[0].Bad || !finiteInRange(f[0].Num) || f[0].Num > maxLineHeightFactor {
@@ -227,7 +230,7 @@ var Table = map[string]PropSpec{
 	"text-indent": {
 		Name:      "text-indent",
 		Inherited: true,
-		Parse:     parseSingleLength,
+		Parse:     parseTextIndent,
 		Set: setLength(func(s *Style, l Length) {
 			s.TextIndent = l
 		}),
@@ -367,6 +370,32 @@ func parseNonNegativeLength(toks []Token) (Value, error) {
 
 // parsePaddingShorthand parses padding: one to four non-negative lengths. The
 // generic box parser accepts negatives for margins, which padding does not.
+// parseMarginShorthand parses the margin shorthand. Auto margins are not part
+// of the profile: they used to be accepted and then resolved to zero, which
+// silently turned "margin: 0 auto" into a left-aligned block. An explicit error
+// is better than a wrong layout.
+func parseMarginShorthand(toks []Token) (Value, error) {
+	v, err := parseBoxShorthand(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	for _, l := range v.Box {
+		if l.Kind == Auto {
+			return Value{}, fmt.Errorf("margin must not be auto, use an explicit length")
+		}
+	}
+	return v, nil
+}
+
+// parseTextIndent parses text-indent: one length, and no keyword.
+func parseTextIndent(toks []Token) (Value, error) {
+	f := filterWhitespace(toks)
+	if len(f) == 1 && f[0].Kind == IdentToken {
+		return Value{}, fmt.Errorf("text-indent expects a length, not %q", f[0].Text)
+	}
+	return parseSingleLength(toks)
+}
+
 func parsePaddingShorthand(toks []Token) (Value, error) {
 	v, err := parseBoxShorthand(toks)
 	if err != nil {

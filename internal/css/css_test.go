@@ -1,6 +1,7 @@
 package css
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -622,4 +623,49 @@ func depthOf(n *html.Node) int {
 		d++
 	}
 	return d
+}
+
+// TestAutoIsRejectedOutsideWidthAndHeight guards RV2-13: "margin: 0 auto" was
+// accepted and then resolved to zero, so a block that should have been centred
+// silently printed left aligned. Auto margins, auto text-indent and auto
+// line-height are not part of the closed profile; width and height still accept
+// auto.
+func applyTestDecl(st *Style, decl string) error {
+	i := strings.Index(decl, ":")
+	if i < 0 {
+		return fmt.Errorf("bad declaration %q", decl)
+	}
+	return ApplyDecl(st, strings.TrimSpace(decl[:i]), Tokenize([]byte(decl[i+1:])), 12000)
+}
+
+func TestAutoIsRejectedOutsideWidthAndHeight(t *testing.T) {
+	rejected := []string{
+		"margin: 0 auto",
+		"margin: auto",
+		"text-indent: auto",
+		"line-height: auto",
+	}
+	for _, decl := range rejected {
+		t.Run(decl, func(t *testing.T) {
+			var st Style
+			if err := applyTestDecl(&st, decl); err == nil {
+				t.Fatalf("%q was accepted", decl)
+			}
+		})
+	}
+	accepted := []string{
+		"width: auto",
+		"height: auto",
+		"line-height: normal",
+		"margin: 0 10pt",
+		"text-indent: 12pt",
+	}
+	for _, decl := range accepted {
+		t.Run(decl, func(t *testing.T) {
+			var st Style
+			if err := applyTestDecl(&st, decl); err != nil {
+				t.Fatalf("%q was rejected: %v", decl, err)
+			}
+		})
+	}
 }

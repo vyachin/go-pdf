@@ -88,7 +88,7 @@
   **Воспроизведение:** `go run ./testdata/probe/font-text-13/main.go`: `Normalize("и\u0300")` — 2 руны, `Shape` — 2 глифа; в PDF две кодовые точки `[U+0438 U+0300]`. Ожидается `ѝ` (gid 1010), `ѐ` (gid 997), `ā` (gid 195); `й`, `ё`, `á` собираются.
   **Исправление / приёмка:** полная каноническая композиция (сгенерированная таблица Unicode, канонический порядок меток, Hangul) вместо ручного списка; `HasCombiningMark` остаётся доступным для вызывающих. Приёмка: кириллические `Ѐ/ѐ`, `Ѝ/ѝ`, `Ў/ў`, `Ѓ/ѓ`, `Ќ/ќ`, латинские `ā/ă/ą` собираются в один глиф и одну кодовую точку ToUnicode.
 
-- [ ] **RV2-13 · P2: не принимать `margin: auto`, превращая его в 0.**
+- [x] **RV2-13 · P2: не принимать `margin: auto`, превращая его в 0.**
 
   **Код:** [internal/css/props.go:51](/Users/vyachin/Projects/go-pdf/internal/css/props.go:51), `margin` → `parseBoxShorthand`; [internal/css/value.go:162](/Users/vyachin/Projects/go-pdf/internal/css/value.go:162) принимает `auto`.
   **Воспроизведение:** `go run ./testdata/probe/css-html-7/main.go`: `<div style="width:100mm;height:10mm;margin:0 auto;background-color:#ff0000">A</div>` → `Validate: err=nil, diags=[]`, красный прямоугольник в PNG x=0..377 при ширине страницы 793 px; ожидается центрирование (208..585) либо ошибка профиля.
