@@ -1440,3 +1440,44 @@ func TestSpanWhitespaceValidatesAndConverts(t *testing.T) {
 		t.Fatalf("Convert reported an invalid span after Validate accepted it: %v", res.Diagnostics.Lines())
 	}
 }
+
+func TestPageSizeWithSharedUnit(t *testing.T) {
+	cases := map[string][2]int32{
+		"210x297mm":     {595276, 841890},
+		"210mmx297mm":   {595276, 841890},
+		"210X297MM":     {595276, 841890},
+		" 210 x 297mm ": {595276, 841890},
+	}
+	for input, want := range cases {
+		got, err := ParsePageSize(input)
+		if err != nil {
+			t.Errorf("ParsePageSize(%q): %v", input, err)
+			continue
+		}
+		if got.Width != want[0] || got.Height != want[1] {
+			t.Errorf("ParsePageSize(%q) = %v, want %v", input, got, want)
+		}
+	}
+	if _, err := ParsePageSize("210x297"); err == nil {
+		t.Error("a page size without any unit was accepted")
+	}
+}
+
+func TestPageSizeFlagThroughConvert(t *testing.T) {
+	fontPath := testFontPath(t)
+	res, err := Convert(context.Background(), []byte(`<p>A</p>`), Options{
+		FallbackFont: fontPath,
+		PageSize:     "210x297mm",
+		File:         "page-size.html",
+	})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if len(res.PDF) == 0 {
+		t.Fatal("no PDF produced")
+	}
+	// The page MediaBox uses millipoints.
+	if !bytes.Contains(res.PDF, []byte("/MediaBox [0 0 595.276 841.89]")) && !bytes.Contains(res.PDF, []byte("/MediaBox [0 0 595.28 841.89]")) {
+		t.Fatalf("unexpected MediaBox in the PDF")
+	}
+}

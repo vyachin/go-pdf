@@ -198,7 +198,7 @@
   **Воспроизведение:** `<table><tr><td colspan=" 2 ">A</td></tr></table>` проходит Validate, затем Convert возвращает `html/invalid-span`. Валидатор использует `strings.TrimSpace`, builder передаёт исходную строку в `strconv.Atoi`.
   **Исправление / приёмка:** один общий parser span attributes и одинаковая нормализация. Проверить оба атрибута с пробелами, без них, с неверным числом и на границах 1..100.
 
-- [ ] **REV-31 · P2: поддержать документированный размер `-page 210x297mm`.**
+- [x] **REV-31 · P2: поддержать документированный размер `-page 210x297mm`.**
 
   **Код:** [internal/engine/convert.go:185](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:185), `ParsePageSize`; [pdfgen/pdfgen.go:42](/Users/vyachin/Projects/go-pdf/pdfgen/pdfgen.go:42), `Options.PageSize`.
   **Воспроизведение:** `ParsePageSize("210x297mm")` возвращает **«page size expects two lengths»**. При разбиении по `x` ширина `210` не получает единицу из правой части и отклоняется. Синтаксис обещан README, CLI help и теперь публичным API.

@@ -220,3 +220,24 @@ func TestStrictMode(t *testing.T) {
 		t.Fatal("strict convert must not write a PDF")
 	}
 }
+
+func TestConvertAcceptsSharedPageUnit(t *testing.T) {
+	requireFont(t)
+	dir := t.TempDir()
+	in := filepath.Join(dir, "doc.html")
+	if err := os.WriteFile(in, []byte(`<style>p{font-size:12pt}</style><p>Страница</p>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "convert", "-page", "210x297mm", in)
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "doc.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The documented syntax must produce an A4-sized MediaBox.
+	if !strings.Contains(string(data), "/MediaBox [0 0 595.27") {
+		t.Fatal("the shared-unit page size did not reach the PDF")
+	}
+}

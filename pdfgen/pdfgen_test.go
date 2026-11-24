@@ -228,3 +228,15 @@ func TestValidateReportsMissingImages(t *testing.T) {
 		t.Fatalf("diagnostic code is %q, want img/load", verr.Diagnostics[0].Code)
 	}
 }
+
+func TestPageSizeWithSharedUnit(t *testing.T) {
+	opts := testOptions(t)
+	opts.PageSize = "210x297mm"
+	res, err := pdfgen.Convert(context.Background(), []byte(invoiceHTML), opts)
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Contains(res.PDF, []byte("/MediaBox [0 0 595.27")) {
+		t.Fatal("the documented page size did not reach the PDF")
+	}
+}

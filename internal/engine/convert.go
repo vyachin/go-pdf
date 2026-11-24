@@ -303,13 +303,25 @@ func stageFailure(guard *budget.Guard, stage, diags *diag.List) error {
 }
 
 // ParsePageSize parses A4, A5, Letter or an explicit "<w>x<h><unit>" size.
+// The unit may be written once when both sides use it: "210x297mm" and
+// "210mmx297mm" are the same size.
 func ParsePageSize(s string) (css.PageSize, error) {
 	if strings.TrimSpace(s) == "" {
 		s = "A4"
 	}
+	s = strings.TrimSpace(s)
 	if i := strings.IndexAny(s, "xX"); i > 0 {
-		width, errW := css.ParseLengthString(strings.TrimSpace(s[:i]))
-		height, errH := css.ParseLengthString(strings.TrimSpace(s[i+1:]))
+		widthText := strings.TrimSpace(s[:i])
+		heightText := strings.TrimSpace(s[i+1:])
+		widthUnit, heightUnit := lengthUnit(widthText), lengthUnit(heightText)
+		switch {
+		case widthUnit == "" && heightUnit != "":
+			widthText += heightUnit
+		case heightUnit == "" && widthUnit != "":
+			heightText += widthUnit
+		}
+		width, errW := css.ParseLengthString(widthText)
+		height, errH := css.ParseLengthString(heightText)
 		if errW == nil && errH == nil {
 			if width.Kind != css.MP || height.Kind != css.MP || width.Value <= 0 || height.Value <= 0 {
 				return css.PageSize{}, fmt.Errorf("page size %q must use absolute units", s)
@@ -328,6 +340,32 @@ func ParsePageSize(s string) (css.PageSize, error) {
 		return css.PageSize{}, fmt.Errorf("page size %q: orientation is set by the document, not by the flag", s)
 	}
 	return spec.Base, nil
+}
+
+// lengthUnit returns the unit suffix of a CSS number, for example "mm" in
+// "297mm" or "" in "297". The number syntax matches the CSS tokenizer, so an
+// exponent is not mistaken for a unit.
+func lengthUnit(s string) string {
+	i := 0
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	for i < len(s) && (s[i] >= '0' && s[i] <= '9' || s[i] == '.') {
+		i++
+	}
+	if i < len(s) && (s[i] == 'e' || s[i] == 'E') {
+		j := i + 1
+		if j < len(s) && (s[j] == '+' || s[j] == '-') {
+			j++
+		}
+		if j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			i = j
+			for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+				i++
+			}
+		}
+	}
+	return strings.ToLower(s[i:])
 }
 
 // ParseMargin parses a page margin shorthand such as "20mm" or "15mm 20mm".
