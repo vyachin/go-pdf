@@ -124,7 +124,7 @@
   **Воспроизведение:** `<body><style>script{display:block}</style><script>SECRET</script><p>VISIBLE</p></body>` рисует `SECRET`, хотя диагностика `html/ignored-script` и документация обещают игнорирование. Скрытие обеспечено только переопределяемым UA CSS. Исполнение JavaScript здесь не происходит; ошибка именно в выводе его исходного текста.
   **Исправление / приёмка:** исключать игнорируемые служебные узлы из layout независимо от CSS. Проверить script в body, принудительный display и отсутствие текста при обычном и strict запуске.
 
-- [ ] **REV-19 · P2: применять ширину, горизонтальные margins, фон и borders блока внутри ячейки.**
+- [x] **REV-19 · P2: применять ширину, горизонтальные margins, фон и borders блока внутри ячейки.**
 
   **Код:** [internal/layout/table.go:338](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:338), `paintStaticBlock`.
   **Воспроизведение:** `<table><tr><td><div style="width:30pt;margin:0 0 0 10pt;border:1pt solid red;background-color:blue">A</div></td></tr></table>`. В операциях нет ни красной рамки, ни синего фона. `b.width=width` игнорирует заданную ширину, горизонтальные margins не используются; ветка контейнера с anonymous block вообще не рисует декорации.

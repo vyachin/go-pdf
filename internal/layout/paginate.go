@@ -127,6 +127,33 @@ func (l *layouter) paginate(root *Box) *Document {
 	return l.doc
 }
 
+// usedGeometry applies the horizontal margins and the CSS width of a block to
+// the available width, setting b.x and b.width. CSS width is the content width,
+// so the outer width adds padding and borders. Pagination and the static path
+// inside table cells share it.
+func (b *Box) usedGeometry(x, width int32) {
+	st := b.Style
+	marginLeft := st.Margin[3].Resolve(width)
+	marginRight := st.Margin[1].Resolve(width)
+	avail := width - marginLeft - marginRight
+	if avail < 0 {
+		avail = 0
+	}
+	extra := st.Padding[1].Resolve(avail) + st.Padding[3].Resolve(avail) +
+		visibleWidth(st.Border[1]) + visibleWidth(st.Border[3])
+	b.width = avail
+	switch st.Width.Kind {
+	case css.MP:
+		b.width = st.Width.Value + extra
+	case css.Percent:
+		b.width = st.Width.Resolve(avail) + extra
+	}
+	if b.width > avail || b.width <= 0 {
+		b.width = avail
+	}
+	b.x = x + marginLeft
+}
+
 // placeBlock places as much of b as fits and reports whether it is complete.
 func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool {
 	if b.cursor.done {
@@ -136,28 +163,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	if !b.started {
 		b.started = true
 		b.startPage = f.pageNum
-		// Horizontal margins shrink the box and move it right; the vertical
-		// ones are applied to the flow separately. CSS width is the content
-		// width, so the outer width adds padding and borders (content box).
-		marginLeft := st.Margin[3].Resolve(width)
-		marginRight := st.Margin[1].Resolve(width)
-		avail := width - marginLeft - marginRight
-		if avail < 0 {
-			avail = 0
-		}
-		extra := st.Padding[1].Resolve(avail) + st.Padding[3].Resolve(avail) +
-			visibleWidth(st.Border[1]) + visibleWidth(st.Border[3])
-		b.width = avail
-		switch st.Width.Kind {
-		case css.MP:
-			b.width = st.Width.Value + extra
-		case css.Percent:
-			b.width = st.Width.Resolve(avail) + extra
-		}
-		if b.width > avail || b.width <= 0 {
-			b.width = avail
-		}
-		b.x = x + marginLeft
+		b.usedGeometry(x, width)
 	}
 	cw := b.contentWidth()
 
@@ -425,6 +431,13 @@ func (l *layouter) measure(b *Box, width int32) int32 {
 	}
 	if b.Kind == Table {
 		return own + l.measureTable(b, inner)
+	}
+	if b.Kind == Image {
+		if b.Image == nil {
+			return own
+		}
+		_, h := imageSize(b.Style, b.Image, inner, l.ctx)
+		return own + h
 	}
 	if l.isTextBlock(b) {
 		l.buildLines(b, inner)

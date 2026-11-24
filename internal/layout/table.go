@@ -311,10 +311,11 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	}
 	t.built = true
 	t.x = x
+	t.width = width
 	height := t.borderTop() + t.padTop() + rows + t.padBottom() + t.borderBottom()
-	if t.Style.Background.Set && height > 0 {
-		l.ops++
-		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: Rect{X: x, Y: y, W: width, H: height}, Color: t.Style.Background})
+	if ops := l.decorationOps(t, y, y+height, true, true); len(ops) > 0 {
+		l.ops += len(ops)
+		page.Ops = append(page.Ops, ops...)
 	}
 	rowY := y + t.borderTop() + t.padTop()
 	for i := range t.Rows {
@@ -339,51 +340,77 @@ func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width int3
 }
 
 func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32 {
-	if b.Kind == Table {
-		return l.paintStaticTable(page, b, x, y, width)
+	if !b.started {
+		b.started = true
+		b.usedGeometry(x, width)
 	}
+	if b.Kind == Table {
+		return l.paintStaticTable(page, b, b.x, y, b.width)
+	}
+	opStart := len(page.Ops)
 	if b.Kind == Image {
 		if b.Image == nil {
 			return 0
 		}
-		w, h := imageSize(b.Style, b.Image, width, l.ctx)
+		inner := b.contentWidth()
+		w, h := imageSize(b.Style, b.Image, inner, l.ctx)
 		l.ops++
 		page.Ops = append(page.Ops, Op{
-			Kind:  ImageOpKind,
-			Rect:  Rect{X: x, Y: y, W: w, H: h},
+			Kind: ImageOpKind,
+			Rect: Rect{
+				X: b.x + b.borderLeft() + b.padLeft(),
+				Y: y + b.borderTop() + b.padTop(),
+				W: w,
+				H: h,
+			},
 			Image: &ImageOp{Image: b.Image},
 		})
-		return h
-	}
-	b.x = x
-	b.width = width
-	if b.width > width {
-		b.width = width
+		height := l.staticHeight(b, h)
+		l.paintStaticDecorations(page, b, y, height, opStart)
+		return height
 	}
 	inner := b.contentWidth()
+	var contentH int32
 	if l.isTextBlock(b) {
 		if !b.built {
 			l.buildLines(b, inner)
 		}
-		height := l.measure(b, width)
-		if b.Style.Background.Set {
-			page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: Rect{X: x, Y: y, W: width, H: height}, Color: b.Style.Background})
-		}
 		lineY := y + b.borderTop() + b.padTop()
 		for i := range b.lines {
-			l.paintLineAt(page, b, &b.lines[i], x+b.borderLeft()+b.padLeft(), lineY, inner, i == len(b.lines)-1)
+			l.paintLineAt(page, b, &b.lines[i], b.x+b.borderLeft()+b.padLeft(), lineY, inner, i == len(b.lines)-1)
 			for _, id := range b.lines[i].Anchors {
 				if _, ok := l.anchors[id]; !ok {
 					l.anchors[id] = Anchor{Page: page.Number, Y: lineY}
 				}
 			}
+			contentH += b.lines[i].Height
 			lineY += b.lines[i].Height
 		}
-		return height
+	} else {
+		contentH = l.paintStaticBlocks(page, b.Children, b.x+b.borderLeft()+b.padLeft(), y+b.borderTop()+b.padTop(), inner)
 	}
-	height := b.borderTop() + b.padTop()
-	childY := y + height
-	childH := l.paintStaticBlocks(page, b.Children, x+b.borderLeft()+b.padLeft(), childY, inner)
-	height += childH + b.padBottom() + b.borderBottom()
+	height := l.staticHeight(b, contentH)
+	l.paintStaticDecorations(page, b, y, height, opStart)
 	return height
+}
+
+// staticHeight returns the outer height of a statically painted block: its
+// content height, raised to a declared CSS height when that is larger.
+func (l *layouter) staticHeight(b *Box, contentH int32) int32 {
+	if b.Style.Height.Kind == css.MP && b.Style.Height.Value > contentH {
+		contentH = b.Style.Height.Value
+	}
+	return b.borderTop() + b.padTop() + contentH + b.padBottom() + b.borderBottom()
+}
+
+// paintStaticDecorations inserts the background and border fills behind the
+// operations painted for the box, so a static block looks like the same block
+// in the paginated flow.
+func (l *layouter) paintStaticDecorations(page *Page, b *Box, y, height int32, opStart int) {
+	ops := l.decorationOps(b, y, y+height, true, true)
+	if len(ops) == 0 {
+		return
+	}
+	l.ops += len(ops)
+	page.Ops = insertOps(page.Ops, opStart, ops)
 }

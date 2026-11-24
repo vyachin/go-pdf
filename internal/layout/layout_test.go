@@ -471,3 +471,100 @@ func TestIgnoredServiceNodesNeverPrint(t *testing.T) {
 		t.Fatalf("visible text is missing: %q", text)
 	}
 }
+
+func TestBlockInsideCellKeepsGeometryAndDecorations(t *testing.T) {
+	h := newHarness(t)
+	block := `<div style="width:30pt;margin:0 0 0 10pt;border:1pt solid red;background-color:blue">A</div>`
+	outside := h.run(`<p style="margin:0">Z</p>` + block)
+	inside := h.run(`<table><tr><td><p style="margin:0">Z</p>` + block + `</td></tr></table>`)
+
+	type info struct {
+		bgW      int32
+		leftEdge int32 // background x relative to the cell/body content edge
+		textRel  int32 // text x relative to the background
+		borders  int
+	}
+	inspect := func(doc *Document) info {
+		var out info
+		var bg *Op
+		var zX, aX int32
+		for i := range doc.Pages[0].Ops {
+			op := &doc.Pages[0].Ops[i]
+			switch op.Kind {
+			case FillOpKind:
+				switch op.Color {
+				case css.Color{R: 0, G: 0, B: 255, Set: true}:
+					bg = op
+				case css.Color{R: 255, Set: true}:
+					out.borders++
+				}
+			case TextOpKind:
+				if op.Text == nil || len(op.Text.Run.Glyphs) == 0 {
+					continue
+				}
+				switch op.Text.Run.Glyphs[0].Rune {
+				case 'Z':
+					zX = op.Text.X
+				case 'A':
+					aX = op.Text.X
+				}
+			}
+		}
+		if bg == nil {
+			t.Fatal("the block background is missing")
+		}
+		out.bgW = bg.Rect.W
+		out.leftEdge = bg.Rect.X - zX
+		out.textRel = aX - bg.Rect.X
+		return out
+	}
+
+	want := info{
+		bgW:      32000, // 30 pt content + two 1 pt borders
+		leftEdge: 10000, // margin-left: 10pt
+		textRel:  1000,  // border-left: 1pt
+		borders:  4,
+	}
+	if got := inspect(outside); got != want {
+		t.Fatalf("block outside a cell = %+v, want %+v", got, want)
+	}
+	if got := inspect(inside); got != want {
+		t.Fatalf("the same block inside a cell = %+v, want %+v", got, want)
+	}
+}
+
+func TestBlockImageInsideCellReservesHeight(t *testing.T) {
+	h := newHarness(t)
+	img := image.NewRGBA(image.Rect(0, 0, 60, 30))
+	for i := range img.Pix {
+		img.Pix[i] = 200
+	}
+	f, err := os.Create(filepath.Join(h.images.dir, "logo.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	doc := h.run(`<table><tr><td><img src="logo.png" style="width:50pt;height:30pt"><p style="margin:0">AFTER</p></td></tr></table>`)
+	var imageRect Rect
+	var afterY int32 = -1
+	for _, op := range doc.Pages[0].Ops {
+		switch op.Kind {
+		case ImageOpKind:
+			imageRect = op.Rect
+		case TextOpKind:
+			if op.Text != nil && len(op.Text.Run.Glyphs) > 0 && op.Text.Run.Glyphs[0].Rune == 'A' {
+				afterY = op.Text.Y
+			}
+		}
+	}
+	if imageRect.W != 50000 || imageRect.H != 30000 {
+		t.Fatalf("image rect = %+v, want 50pt x 30pt", imageRect)
+	}
+	if afterY < imageRect.Y+imageRect.H {
+		t.Fatalf("AFTER baseline %d overlaps the image that ends at %d", afterY, imageRect.Y+imageRect.H)
+	}
+}

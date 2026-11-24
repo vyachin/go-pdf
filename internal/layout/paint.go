@@ -23,6 +23,16 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	page := f.page
 	// Decorations are inserted where the fragment started so that they stay
 	// behind the content that was painted afterwards.
+	ops := l.decorationOps(b, top, bottom, first, completed)
+	if len(ops) > 0 {
+		l.ops += len(ops)
+		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
+	}
+}
+
+// decorationOps returns the background and border fills of one box fragment.
+// first and completed select the border sides that this fragment owns.
+func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed bool) []Op {
 	var ops []Op
 	if b.Style.Background.Set && bottom > top {
 		ops = append(ops, Op{
@@ -53,10 +63,7 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	if completed {
 		paintBorder(2, Rect{X: b.x, Y: bottom - bb, W: b.width, H: bb})
 	}
-	if len(ops) > 0 {
-		l.ops += len(ops)
-		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
-	}
+	return ops
 }
 
 // insertOps places ops at the given index of dst, keeping paint order.
