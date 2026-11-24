@@ -26,7 +26,11 @@ func Open(dir string) (*Root, error) {
 	if dir == "" {
 		return &Root{}, nil
 	}
-	real, err := filepath.EvalSymlinks(dir)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving root %q: %w", dir, err)
+	}
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, fmt.Errorf("resolving root %q: %w", dir, err)
 	}
@@ -59,7 +63,11 @@ func (r *Root) Read(path string) ([]byte, error) {
 	if r == nil || r.dir == "" {
 		return os.ReadFile(path)
 	}
-	real, err := filepath.EvalSymlinks(path)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, err
 	}

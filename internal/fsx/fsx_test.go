@@ -126,3 +126,20 @@ func TestNoRootReadsDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRelativeRootWithAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	file := writeFile(t, dir, "a.css", "x")
+	t.Chdir(dir)
+	root, err := Open(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := root.Read(file); err != nil {
+		t.Fatalf("an absolute path inside a relative root must be allowed: %v", err)
+	}
+	if _, err := root.Read("a.css"); err != nil {
+		t.Fatalf("a relative path inside a relative root must be allowed: %v", err)
+	}
+}
