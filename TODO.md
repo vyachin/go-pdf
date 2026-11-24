@@ -8,7 +8,7 @@
 
 ### P1 — доступность и целостность
 
-- [ ] **RV2-01 · P1: убрать квадратичные копии остатка входа в HTML-токенизаторе.**
+- [x] **RV2-01 · P1: убрать квадратичные копии остатка входа в HTML-токенизаторе.**
 
   **Код:** [internal/html/token.go:284](/Users/vyachin/Projects/go-pdf/internal/html/token.go:284), `indexFold`; вызовы в `readText`, `readBogusComment`, `readDoctype`, `readRawText`.
   **Воспроизведение:** `go run ./testdata/probe/css-html-1/main.go`. Документ из N комментариев `<!--x-->`: 32 КиБ — 12 мс, 64 КиБ — 51 мс, 128 КиБ — 188 мс, 256 КиБ — 604 мс (рост ×4 на удвоение). `<style>x</style>` × 16 384: 256 КиБ — 2,0 с. `engine.Validate` на 256 КиБ комментариев — 4,5 с, `err=nil`, 32 769 операций из 20 000 000.

@@ -1,6 +1,7 @@
 package html
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 )
@@ -128,7 +129,7 @@ func (z *Tokenizer) readBogusComment() Token {
 	start := z.pos
 	z.pos += 2 // <!
 	bodyStart := z.pos
-	if i := strings.IndexByte(string(z.src[z.pos:]), '>'); i >= 0 {
+	if i := bytes.IndexByte(z.src[z.pos:], '>'); i >= 0 {
 		z.pos += i
 		data := string(z.src[bodyStart:z.pos])
 		z.pos++
@@ -143,7 +144,7 @@ func (z *Tokenizer) readDoctype() Token {
 	z.pos += 9 // <!doctype
 	bodyStart := z.pos
 	end := len(z.src)
-	if i := strings.IndexByte(string(z.src[z.pos:]), '>'); i >= 0 {
+	if i := bytes.IndexByte(z.src[z.pos:], '>'); i >= 0 {
 		end = z.pos + i
 	}
 	data := strings.TrimSpace(string(z.src[bodyStart:end]))
@@ -280,8 +281,42 @@ func hasPrefixFold(b []byte, prefix string) bool {
 	return len(b) >= len(prefix) && strings.EqualFold(string(b[:len(prefix)]), prefix)
 }
 
+// indexFold finds needle in b, comparing ASCII letters case-insensitively.
+// Every needle the tokenizer searches for is ASCII ("-->", "</style>",
+// "<!doctype"), so a byte-wise scan with ASCII folding is both exact for those
+// needles and allocation free. Lowercasing the whole remainder instead would
+// copy the rest of the input once per comment, doctype and raw-text element,
+// which makes the tokenizer quadratic.
 func indexFold(b []byte, needle string) int {
-	return strings.Index(strings.ToLower(string(b)), strings.ToLower(needle))
+	n := len(needle)
+	if n == 0 {
+		return 0
+	}
+	if len(b) < n {
+		return -1
+	}
+	for i := 0; i+n <= len(b); i++ {
+		if foldASCII(b[i]) != foldASCII(needle[0]) {
+			continue
+		}
+		j := 1
+		for ; j < n; j++ {
+			if foldASCII(b[i+j]) != foldASCII(needle[j]) {
+				break
+			}
+		}
+		if j == n {
+			return i
+		}
+	}
+	return -1
+}
+
+func foldASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
 }
 
 var namedEntities = map[string]string{

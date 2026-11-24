@@ -3,6 +3,7 @@ package html
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +58,15 @@ func TestTokenizer(t *testing.T) {
 			want: []Token{
 				{Kind: StartTagToken, Name: "script"},
 				{Kind: TextToken, Data: "if (a<b) {}"},
+				{Kind: EndTagToken, Name: "script"},
+			},
+		},
+		{
+			name:  "raw text end tag is case insensitive",
+			input: `<script>a</SCRIPT>`,
+			want: []Token{
+				{Kind: StartTagToken, Name: "script"},
+				{Kind: TextToken, Data: "a"},
 				{Kind: EndTagToken, Name: "script"},
 			},
 		},
@@ -449,6 +459,58 @@ func TestDecodeEntitiesLeavesUnterminatedAmpersands(t *testing.T) {
 	src := strings.Repeat("&", 1<<20)
 	if got := decodeEntities(src); got != src {
 		t.Fatalf("unterminated ampersands changed: %d bytes out, want %d", len(got), len(src))
+	}
+}
+
+// TestTokenizerAllocationIsLinear guards RV2-01. The comment, bogus comment,
+// doctype and raw-text readers used to lowercase (and therefore copy) the whole
+// remaining input for every such element, which made tokenization quadratic in
+// the document size. Total allocation must stay proportional to the input.
+func TestTokenizerAllocationIsLinear(t *testing.T) {
+	cases := []struct {
+		name string
+		unit string
+	}{
+		{"comment", "<!--x-->"},
+		{"bogus comment", "<!x>"},
+		{"doctype", "<!doctype html>"},
+		{"raw text", "<style>x</style>"},
+	}
+	const size = 32 << 10
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(strings.Repeat(tc.unit, size/len(tc.unit)))
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			tokens := tokenCount(t, src)
+			runtime.ReadMemStats(&after)
+			if tokens == 0 {
+				t.Fatal("no tokens produced")
+			}
+			allocated := after.TotalAlloc - before.TotalAlloc
+			if limit := uint64(len(src)) * 24; allocated > limit {
+				t.Fatalf("tokenizing %d bytes allocated %d bytes (limit %d): the per-element cost must not depend on the remaining input", len(src), allocated, limit)
+			}
+		})
+	}
+}
+
+// tokenCount runs the tokenizer to EOF and returns the number of tokens, so the
+// measurement includes every reader.
+func tokenCount(t *testing.T, src []byte) int {
+	t.Helper()
+	z := NewTokenizer(src)
+	n := 0
+	for {
+		tok := z.Next()
+		if tok.Kind == EOFToken {
+			return n
+		}
+		n++
+		if tok.Kind == StartTagToken && (tok.Name == "style" || tok.Name == "script") {
+			z.SetRawTag(tok.Name)
+		}
 	}
 }
 
