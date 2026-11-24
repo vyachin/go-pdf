@@ -41,6 +41,11 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 			Color: b.Style.Background,
 		})
 	}
+	if b.Background != nil && bottom > top {
+		if op, ok := backgroundOp(b.Background, Rect{X: b.x, Y: top, W: b.width, H: bottom - top}); ok {
+			ops = append(ops, op)
+		}
+	}
 	paintBorder := func(side int, rect Rect) {
 		border := b.Style.Border[side]
 		w := visibleWidth(border)

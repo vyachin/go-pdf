@@ -22,7 +22,7 @@ var PropOrder = []string{
 	"display",
 	"width", "height",
 	"margin", "padding", "border", "border-collapse",
-	"background-color", "color",
+	"background-color", "background-image", "background-size", "color",
 	"font-family", "font-size", "font-weight", "font-style", "line-height",
 	"text-align", "text-indent", "white-space", "vertical-align",
 	"break-before", "break-after", "break-inside",
@@ -76,6 +76,22 @@ var Table = map[string]PropSpec{
 		},
 		Set: func(s *Style, v Value, _ int32) error {
 			s.Background = v.Color
+			return nil
+		},
+	},
+	"background-image": {
+		Name:  "background-image",
+		Parse: parseBackgroundImage,
+		Set: func(s *Style, v Value, _ int32) error {
+			s.BackgroundImage = v.URL
+			return nil
+		},
+	},
+	"background-size": {
+		Name:  "background-size",
+		Parse: parseKeyword(map[string]BackgroundSize{"cover": BackgroundSizeCover}, "background-size"),
+		Set: func(s *Style, v Value, _ int32) error {
+			s.BackgroundSize = v.Enum.(BackgroundSize)
 			return nil
 		},
 	},
@@ -343,6 +359,35 @@ func setLength(fn func(*Style, Length)) func(*Style, Value, int32) error {
 }
 
 var errMultipleValues = fmt.Errorf("expected a single value")
+
+// parseBackgroundImage parses background-image: exactly one local url(...).
+// The engine never reads the network, and a data: URL would smuggle an image
+// past the root confinement the loader applies, so both are rejected here.
+func parseBackgroundImage(toks []Token) (Value, error) {
+	f := filterWhitespace(toks)
+	if len(f) != 1 || f[0].Kind != URLToken {
+		return Value{}, fmt.Errorf("background-image expects one url(<local file>)")
+	}
+	src := trimURLQuotes(f[0].Text)
+	if src == "" {
+		return Value{}, fmt.Errorf("background-image has an empty url()")
+	}
+	if strings.Contains(src, "://") {
+		return Value{}, fmt.Errorf("remote background images are not supported: %q", src)
+	}
+	if strings.HasPrefix(strings.ToLower(src), "data:") {
+		return Value{}, fmt.Errorf("data: background images are not supported")
+	}
+	return Value{Kind: "url", URL: src}, nil
+}
+
+// trimURLQuotes removes one pair of matching quotes around a url() argument.
+func trimURLQuotes(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
 
 func parseSingleLength(toks []Token) (Value, error) {
 	f := filterWhitespace(toks)

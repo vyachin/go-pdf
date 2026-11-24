@@ -694,3 +694,41 @@ func TestOutlineCountsAllVisibleDescendants(t *testing.T) {
 		}
 	}
 }
+
+func TestImageClipIsWrittenBeforeTheDraw(t *testing.T) {
+	img := testImage(t, color.RGBA{R: 255, A: 255})
+	clip := Rect{X: 1000, Y: 2000, W: 3000, H: 4000}
+	content := func(clip *Rect) string {
+		d := New(Options{})
+		d.AddPage(595276, 841890, []Op{{
+			Kind:  ImageOpKind,
+			Rect:  Rect{X: 500, Y: 1500, W: 4000, H: 5000},
+			Image: img,
+			Clip:  clip,
+		}})
+		data, err := d.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, body := range pdfObjects(t, data) {
+			if s := decodeStream(t, body); strings.Contains(s, "/Im1 Do") {
+				return s
+			}
+		}
+		t.Fatal("no content stream draws the image")
+		return ""
+	}
+	clipped := content(&clip)
+	// The rectangle is written in PDF space, where y counts from the bottom:
+	// 841.89 - 2 - 4 = 835.89.
+	if !strings.Contains(clipped, "q 1 835.89 3 4 re W n") {
+		t.Fatalf("the clip rectangle is missing: %q", clipped)
+	}
+	if strings.Index(clipped, "re W n") > strings.Index(clipped, "Do") {
+		t.Fatalf("the clip is applied after the draw: %q", clipped)
+	}
+	plain := content(nil)
+	if strings.Contains(plain, "W n") {
+		t.Fatalf("an image without a clip was clipped anyway: %q", plain)
+	}
+}

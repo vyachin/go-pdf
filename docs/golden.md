@@ -60,6 +60,10 @@ with `pdftoppm -png -r 72`. The set is the four corpus documents and every
 - Comparison is pixel exact (`raster.Diff(actual, golden, 0)`). A measured one
   millimetre margin change moves about 12% of the pixels, while one added glyph
   moves 34 pixels, so a percentage tolerance would hide real regressions.
+- `visual-hello-world` is the cover fixture: the only page painted edge to edge
+  from a photograph, with `background-image` and `background-size: cover`. Its
+  golden is the acceptance test for background painting, cover cropping and the
+  clip, so a change there is reviewed like any other golden.
 - A failure reports the page number, the number of differing pixels and the
   bounding box, and writes three images to `$GOLDEN_ARTIFACTS` (or the test's
   temporary directory): `produced`, `expected` and a red-on-gray `diff`.

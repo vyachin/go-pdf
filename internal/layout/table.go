@@ -254,20 +254,24 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 	// The rows sit inside the table's padding box; the columns were already
 	// computed for the content width, so the origin includes the padding.
 	startX := t.x + t.borderLeft() + t.padLeft()
-	if row.Style != nil && row.Style.Background.Set {
-		// The row background is painted before the cells so that opaque cell
-		// backgrounds still cover it.
-		var rowWidth int32
-		for _, w := range t.columns {
-			rowWidth += w
-		}
-		if rowWidth > 0 && h > 0 {
+	// The row background is painted before the cells so that opaque cell
+	// backgrounds still cover it.
+	var rowWidth int32
+	for _, w := range t.columns {
+		rowWidth += w
+	}
+	if row.Style != nil && row.Style.Background.Set && rowWidth > 0 && h > 0 {
+		l.ops++
+		page.Ops = append(page.Ops, Op{
+			Kind:  FillOpKind,
+			Rect:  Rect{X: startX, Y: y, W: rowWidth, H: h},
+			Color: row.Style.Background,
+		})
+	}
+	if row.Background != nil && rowWidth > 0 && h > 0 {
+		if op, ok := backgroundOp(row.Background, Rect{X: startX, Y: y, W: rowWidth, H: h}); ok {
 			l.ops++
-			page.Ops = append(page.Ops, Op{
-				Kind:  FillOpKind,
-				Rect:  Rect{X: startX, Y: y, W: rowWidth, H: h},
-				Color: row.Style.Background,
-			})
+			page.Ops = append(page.Ops, op)
 		}
 	}
 	for _, cell := range row.Cells {
@@ -304,6 +308,12 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	if cell.Style.Background.Set {
 		l.ops++
 		page.Ops = append(page.Ops, Op{Kind: FillOpKind, Rect: Rect{X: x, Y: y, W: w, H: h}, Color: cell.Style.Background})
+	}
+	if cell.Background != nil && w > 0 && h > 0 {
+		if op, ok := backgroundOp(cell.Background, Rect{X: x, Y: y, W: w, H: h}); ok {
+			l.ops++
+			page.Ops = append(page.Ops, op)
+		}
 	}
 	paintSide := func(side int, rect Rect) {
 		border := cell.Style.Border[side]

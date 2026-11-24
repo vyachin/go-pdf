@@ -46,6 +46,9 @@ type Box struct {
 	Text     string
 	Children []*Box
 	Image    *ImageData
+	// Background is the decoded background image of the box, nil when the box
+	// has none. It is resolved while the tree is built.
+	Background *ImageData
 	// Rows holds the rows of a table box.
 	Rows []*Row
 	// ColSpan and RowSpan are set on table cells.
@@ -86,7 +89,12 @@ type Box struct {
 // Row is a table row.
 type Row struct {
 	Header bool
-	Cells  []*Box
+	// Node is the tr element, used to attribute diagnostics.
+	Node *html.Node
+	// Background is the decoded background image of the row, nil when the row
+	// has none.
+	Background *ImageData
+	Cells      []*Box
 	// Style is the computed style of the tr, kept because height, background
 	// and other non-inherited properties apply to the row itself.
 	Style *css.Style
@@ -180,6 +188,10 @@ type Glyph struct {
 // ImageOp draws an image scaled into Rect.
 type ImageOp struct {
 	Image *ImageData
+	// Clip bounds the painted image. A covered background image is larger than
+	// its box on one axis, so the overflow is cut by this rectangle. Nil draws
+	// the image without clipping, which is what <img> needs.
+	Clip *Rect
 }
 
 // LinkOp records a link target and its area.
@@ -271,6 +283,7 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 			root.Children = b.buildBlocks(body, bodyStyle)
 		}
 	}
+	b.loadBackgrounds(root)
 	return root, *b.diags
 }
 
@@ -372,6 +385,8 @@ func anonymousStyle(parent *css.Style) *css.Style {
 	s.Padding = [4]css.Length{}
 	s.Border = [4]css.BorderSide{}
 	s.Background = css.Color{}
+	s.BackgroundImage = ""
+	s.BackgroundSize = css.BackgroundSizeAuto
 	s.Width = css.Length{Kind: css.Auto}
 	s.Height = css.Length{Kind: css.Auto}
 	s.BreakBefore = css.BreakAuto
@@ -470,6 +485,55 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 	return box
 }
 
+// loadBackgrounds resolves the background image of every box that paints one.
+// Loading while the tree is built keeps a missing file a build diagnostic next
+// to the <img> ones, instead of a surprise during painting.
+func (b *builder) loadBackgrounds(root *Box) {
+	var walk func(*Box)
+	walk = func(box *Box) {
+		if box == nil {
+			return
+		}
+		b.loadBackground(box.Style, box.Node, &box.Background)
+		for _, c := range box.Children {
+			walk(c)
+		}
+		for _, row := range box.Rows {
+			b.loadBackground(row.Style, row.Node, &row.Background)
+			for _, c := range row.Cells {
+				walk(c)
+			}
+		}
+	}
+	walk(root)
+}
+
+// loadBackground resolves one background source into dst, attributing any
+// failure to the element that declared it.
+func (b *builder) loadBackground(style *css.Style, n *html.Node, dst **ImageData) {
+	if style == nil || style.BackgroundImage == "" || *dst != nil {
+		return
+	}
+	path := ""
+	if n != nil {
+		path = n.Path()
+	}
+	if b.images == nil {
+		b.diags.Errorf("img/no-loader", diag.Position{}, path, "images are not available in this context")
+		return
+	}
+	img, err := b.images.Load(style.BackgroundImage)
+	if err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			b.diags.Errorf("resource/limit", diag.Position{}, path, "%v", err)
+			return
+		}
+		b.diags.Errorf("img/load", diag.Position{}, path, "%v", err)
+		return
+	}
+	*dst = img
+}
+
 // span reads one table span and reports an invalid value instead of letting it
 // reach layout arithmetic.
 func (b *builder) span(n *html.Node, name string) int {
@@ -502,7 +566,7 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 				if rowStyle.Display == css.DisplayNone {
 					continue
 				}
-				row := &Row{Header: header, Style: rowStyle}
+				row := &Row{Header: header, Node: c, Style: rowStyle}
 				for _, cellNode := range c.ElementChildren() {
 					if cellNode.Tag != "td" && cellNode.Tag != "th" {
 						continue

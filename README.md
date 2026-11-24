@@ -42,7 +42,8 @@ Instead of CSS breadth, the engine offers three things those engines cannot:
   headers, overflow with diagnostics.
 - Fonts: TrueType, `cmap` 4/12, `GPOS` kerning, subsetting, `Identity-H` +
   `ToUnicode` (Russian text can be copied and searched).
-- Images: PNG and JPEG (JPEG without recompression).
+- Images: PNG and JPEG (JPEG without recompression), including a full-bleed
+  cover with `background-image` and `background-size: cover`.
 - Generated content: `a::after` with `target-counter(attr(href), page)` — a table
   of contents with page numbers in two layout passes.
 - PDF: metadata, bookmarks from `h1`–`h3`, `FlateDecode`, deterministic output,

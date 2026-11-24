@@ -12,12 +12,16 @@ type Style struct {
 	Border         [4]BorderSide
 	BorderCollapse BorderCollapse
 	Background     Color
-	Color          Color
-	FontFamily     []string
-	FontSize       int32 // absolute millipoints
-	FontWeight     int
-	FontStyle      FontStyle
-	LineHeight     Length // Auto or absolute millipoints
+	// BackgroundImage is the local source of a background image, or "" when
+	// the box has none. BackgroundSize keeps the declared keyword.
+	BackgroundImage string
+	BackgroundSize  BackgroundSize
+	Color           Color
+	FontFamily      []string
+	FontSize        int32 // absolute millipoints
+	FontWeight      int
+	FontStyle       FontStyle
+	LineHeight      Length // Auto or absolute millipoints
 	// LineHeightFactor is set for a unitless line-height and follows the
 	// font size of the element that inherits it.
 	LineHeightFactor float64

@@ -172,3 +172,25 @@ func lineWith(t *testing.T, text, prefix string) string {
 	t.Fatalf("no line contains %q", prefix)
 	return ""
 }
+
+func TestBackgroundImageInSnapshot(t *testing.T) {
+	src := `<html><body><div style="background-image: url(cover.jpg); background-size: cover">x</div></body></html>`
+	got := dump(t, src)
+	div := lineWith(t, got, "<div")
+	if !strings.Contains(div, `background-image="url(cover.jpg)"`) {
+		t.Fatalf("div does not carry its background image: %s", div)
+	}
+	if !strings.Contains(div, `background-size="cover"`) {
+		t.Fatalf("div does not carry its background size: %s", div)
+	}
+	body := lineWith(t, got, "<body")
+	if strings.Contains(body, "background-") {
+		t.Fatalf("the background leaked to the body: %s", body)
+	}
+	// Without an explicit size the initial auto is elided like any other
+	// initial value.
+	implicit := dump(t, `<html><body><div style="background-image: url(cover.jpg)">x</div></body></html>`)
+	if strings.Contains(lineWith(t, implicit, "<div"), "background-size") {
+		t.Fatalf("the initial background-size was written: %s", lineWith(t, implicit, "<div"))
+	}
+}
