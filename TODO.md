@@ -118,7 +118,7 @@
   **Воспроизведение:** `<body style="display:none">PRIVATE</body>` и `<style>html{display:none}</style><p>PRIVATE</p>` оба рисуют `PRIVATE`. Для обычных потомков проверка DisplayNone есть, для корневых элементов — нет: после Compute безусловно строится body.
   **Исправление / приёмка:** не строить/не рисовать дерево скрытого корня и его ресурсы; пустой результат обрабатывать согласованно. Проверить оба корня, в том числе скрытые изображения и заголовки, отсутствие текста и закладок.
 
-- [ ] **REV-18 · P2: не превращать игнорируемый `<script>` в печатный текст через CSS.**
+- [x] **REV-18 · P2: не превращать игнорируемый `<script>` в печатный текст через CSS.**
 
   **Код:** [internal/layout/box.go:255](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:255), `buildBlocks`; [internal/css/ua.go:11](/Users/vyachin/Projects/go-pdf/internal/css/ua.go:11).
   **Воспроизведение:** `<body><style>script{display:block}</style><script>SECRET</script><p>VISIBLE</p></body>` рисует `SECRET`, хотя диагностика `html/ignored-script` и документация обещают игнорирование. Скрытие обеспечено только переопределяемым UA CSS. Исполнение JavaScript здесь не происходит; ошибка именно в выводе его исходного текста.

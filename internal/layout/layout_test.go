@@ -457,3 +457,17 @@ func TestHiddenRootDrawsNothing(t *testing.T) {
 		})
 	}
 }
+
+func TestIgnoredServiceNodesNeverPrint(t *testing.T) {
+	h := newHarness(t)
+	src := `<style>script{display:block} style{display:block}</style>` +
+		`<script>SECRET</script><style>p{color:red}</style><p>VISIBLE</p>`
+	doc := h.run(src)
+	text := textOf(doc)
+	if strings.Contains(text, "SECRET") || strings.Contains(text, "color:red") {
+		t.Fatalf("an ignored service node was printed: %q", text)
+	}
+	if !strings.Contains(text, "VISIBLE") {
+		t.Fatalf("visible text is missing: %q", text)
+	}
+}

@@ -331,6 +331,11 @@ func (b *builder) buildBlocks(n *html.Node, parentStyle *css.Style) []*Box {
 			}
 			inlineRun = append(inlineRun, &Box{Kind: Text, Node: child, Style: parentStyle, Text: child.Data})
 		case html.ElementNode:
+			// Scripts and stylesheets carry no printable content. They must
+			// stay hidden even when author CSS sets display:block.
+			if child.Tag == "script" || child.Tag == "style" {
+				continue
+			}
 			style := b.cascade.Compute(child, parentStyle)
 			if style.Display == css.DisplayNone {
 				continue
@@ -419,6 +424,9 @@ func (b *builder) buildInline(n *html.Node, parentStyle *css.Style) []*Box {
 		case html.TextNode:
 			out = append(out, &Box{Kind: Text, Node: child, Style: parentStyle, Text: child.Data})
 		case html.ElementNode:
+			if child.Tag == "script" || child.Tag == "style" {
+				continue
+			}
 			style := b.cascade.Compute(child, parentStyle)
 			if style.Display == css.DisplayNone {
 				continue
