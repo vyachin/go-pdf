@@ -776,3 +776,32 @@ func TestImageLoaderOpensRootOnce(t *testing.T) {
 		t.Fatalf("the root was resolved %d times, want 1", loader.rootOpens)
 	}
 }
+
+func TestBlockImageIsPainted(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "a.png"))
+	src := `<p>BEFORE</p><img style="display:block" src="a.png"><p>AFTER</p>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, BaseDir: dir, File: "block.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(res.PDF), "/Subtype /Image"); n != 1 {
+		t.Fatalf("the block image is missing: %d image objects", n)
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "BEFORE") || !strings.Contains(text, "AFTER") {
+		t.Fatalf("paragraphs around the image: %q", text)
+	}
+
+	only, err := Convert(context.Background(), []byte(`<img style="display:block" src="a.png">`), Options{FallbackFont: fontPath, BaseDir: dir, File: "only.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(only.PDF), "/Subtype /Image"); n != 1 {
+		t.Fatalf("an image-only document must paint its image once, got %d", n)
+	}
+}

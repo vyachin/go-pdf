@@ -627,3 +627,14 @@ func TestTableSpansAreBounded(t *testing.T) {
 		t.Fatal("ordinary spans produced no content")
 	}
 }
+
+func TestMarginBoxReportsMissingGlyph(t *testing.T) {
+	h := newHarness(t)
+	size, margin := smallPage()
+	missing := "\U0010FFFF"
+	src := `<style>@page { @bottom-center { content: "` + missing + `" } }</style><p>x</p>`
+	_, diags := h.runRaw(src, size, margin)
+	if !hasError(diags, "text/glyph") {
+		t.Fatalf("a missing glyph in a margin box must be reported, got %v", diags.Lines())
+	}
+}

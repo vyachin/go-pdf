@@ -215,6 +215,14 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		}
 		l.finishFragment(f, b, false)
 		return false
+	case b.Kind == Image:
+		if l.placeImageBlock(f, b, cw) {
+			l.finishFragment(f, b, true)
+			l.afterBlock(f, b)
+			return true
+		}
+		l.finishFragment(f, b, false)
+		return false
 	case l.isTextBlock(b):
 		if l.placeText(f, b, cw) {
 			l.finishFragment(f, b, true)
@@ -262,6 +270,36 @@ func (l *layouter) afterBlock(f *flow, b *Box) {
 	if b.Style.BreakAfter == css.BreakPage {
 		f.newPage()
 	}
+}
+
+// placeImageBlock paints a replaced block image and advances the flow.
+func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
+	if b.Image == nil {
+		return true
+	}
+	w, h := imageSize(b.Style, b.Image, width, l.ctx)
+	avail := f.bottom - b.padBottom() - b.borderBottom()
+	if f.y+h > avail {
+		if f.empty {
+			l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "an image is taller than the page and is clipped")
+		} else {
+			f.newPage()
+			return false
+		}
+	}
+	l.ops++
+	f.page.Ops = append(f.page.Ops, Op{
+		Kind: ImageOpKind,
+		Rect: Rect{
+			X: b.x + b.borderLeft() + b.padLeft(),
+			Y: f.y,
+			W: w,
+			H: h,
+		},
+		Image: &ImageOp{Image: b.Image},
+	})
+	f.y += h
+	return true
 }
 
 // placeText places lines of a text block and reports whether it is complete.

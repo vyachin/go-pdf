@@ -106,6 +106,9 @@ func (l *layouter) paintMarginBoxes() {
 			}
 			run, err := text.Shape(face.Font, face.Size, label)
 			if err != nil {
+				// Losing a header or footer silently is not acceptable: report
+				// it the same way body text reports a missing glyph.
+				l.diags.Errorf("text/glyph", diag.Position{}, "", "margin box %s: %v", name, err)
 				continue
 			}
 			var x, y int32
