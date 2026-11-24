@@ -685,3 +685,20 @@ func TestNestedListIndentation(t *testing.T) {
 		t.Fatalf("text after the nested list moved: A=%d C=%d", a, c)
 	}
 }
+
+func TestBodyStylesheetIsNotRendered(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p>A</p><style>p { color: #ff0000 }</style><p>B</p>`)
+	text := pageText(doc, 1)
+	if strings.Contains(text, "color") || strings.Contains(text, "{") {
+		t.Fatalf("the stylesheet source leaked into the document: %q", text)
+	}
+	if !strings.Contains(text, "A") || !strings.Contains(text, "B") {
+		t.Fatalf("paragraphs are missing: %q", text)
+	}
+	for _, op := range textOps(doc) {
+		if op.Color != (css.Color{R: 255, Set: true}) {
+			t.Fatalf("the body stylesheet was not applied: %+v", op.Color)
+		}
+	}
+}
