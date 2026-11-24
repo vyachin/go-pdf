@@ -2,95 +2,113 @@
 
 ## Purpose
 
-Описывает, как символы входного документа превращаются в глифы и строки: загрузка шрифтов, отображение кодовых точек, кернинг, разбиение на строки и правила, которые нельзя нарушать в русской типографике.
+Describes how characters of the input document become glyphs and lines: font loading, mapping code points to glyphs, kerning, line breaking, and the rules that Russian typography must not violate.
 
 ## Requirements
 
-### Requirement: Загрузка шрифтов только в формате TrueType
+### Requirement: Font loading is limited to TrueType
 
-Движок ДОЛЖЕН загружать шрифты из локальных файлов, указанных в `@font-face`, и ДОЛЖЕН поддерживать только формат TrueType (`.ttf`). Шрифты CFF/OpenType, WOFF и WOFF2, а также ссылки на удалённые шрифты ДОЛЖНЫ отклоняться с диагностикой, называющей формат или источник.
+The engine SHALL load fonts from local files named in `@font-face` and MUST support only the TrueType format (`.ttf`). CFF/OpenType, WOFF and WOFF2 fonts, as well as remote font URLs, MUST be rejected with a diagnostic naming the format or the source.
 
-#### Scenario: Локальный TrueType-шрифт
-- **WHEN** шаблон объявляет `@font-face` с локальным файлом PT Serif в формате TrueType
-- **THEN** шрифт загружается и доступен для использования в документе
+#### Scenario: Local TrueType font
+- **WHEN** the template declares `@font-face` with a local PT Serif file in TrueType format
+- **THEN** the font loads and is available for the document
 
-#### Scenario: Шрифт по URL
-- **WHEN** шаблон объявляет `@font-face` с `src: url(https://example.com/font.woff2)`
-- **THEN** валидация завершается ошибкой: удалённые и нетруetype-шрифты не поддерживаются
+#### Scenario: Font by URL
+- **WHEN** the template declares `@font-face` with `src: url(https://example.com/font.woff2)`
+- **THEN** validation fails: remote fonts and non-TrueType formats are not supported
 
-#### Scenario: Отсутствующий файл шрифта
-- **WHEN** путь в `@font-face` указывает на несуществующий файл
-- **THEN** выводится диагностика с абсолютным путём, который не удалось открыть
+#### Scenario: Missing font file
+- **WHEN** the path in `@font-face` points to a file that does not exist
+- **THEN** a diagnostic reports the absolute path that could not be opened
 
-### Requirement: Отображение кодовых точек в глифы
+### Requirement: Mapping code points to glyphs
 
-Движок ДОЛЖЕН отображать символы в глифы через таблицу `cmap` формата 4 или 12. Если символ отсутствует в выбранном шрифте и ни в одном из альтернативных шрифтов семейства, ДОЛЖНА выводиться диагностика с указанием символа и его позиции в документе; молчаливая замена на пустой глиф недопустима.
+The engine SHALL map characters to glyphs through a `cmap` table of format 4 or 12. If a character is missing from the selected font and from every alternative in the family, a diagnostic MUST name the character and its position in the document; silently substituting an empty glyph is not allowed.
 
-#### Scenario: Кириллица отображается корректно
-- **WHEN** документ содержит текст «Счёт № 42 от 01.02.2026»
-- **THEN** все символы, включая «ё», «№» и «—», отображаются существующими глифами
+#### Scenario: Cyrillic renders correctly
+- **WHEN** the document contains the text "Счёт № 42 от 01.02.2026"
+- **THEN** all characters, including "ё", "№" and "—", are rendered with existing glyphs
 
-#### Scenario: Символ отсутствует во всех кандидатах
-- **WHEN** текст содержит символ, отсутствующий в семействе шрифтов
-- **THEN** рендеринг завершается ошибкой с указанием кодовой точки и места в документе
+#### Scenario: Character missing from every candidate
+- **WHEN** the text contains a character absent from the font family
+- **THEN** rendering fails with a diagnostic naming the code point and its place in the document
 
-### Requirement: Кернинг из таблицы GPOS
+### Requirement: Kerning from the GPOS table
 
-Движок ДОЛЖЕН применять пары кернинга из таблицы `GPOS`, если она присутствует в шрифте. При отсутствии таблицы ДОЛЖНЫ использоваться ширины из `hmtx` без кернинга, без ошибки.
+The engine SHALL apply kerning pairs from the `GPOS` table when the font provides one. Without the table it MUST use widths from `hmtx` and report no error.
 
-#### Scenario: Пара кернинга применяется
-- **WHEN** шрифт содержит пару кернинга для соседних символов и документ использует её
-- **THEN** расстояние между глифами отличается от суммы их ширин из `hmtx`
+#### Scenario: A kerning pair is applied
+- **WHEN** the font contains a kerning pair for adjacent characters and the document uses it
+- **THEN** the distance between the glyphs differs from the sum of their `hmtx` widths
 
-#### Scenario: Шрифт без GPOS
-- **WHEN** шрифт не содержит таблицу `GPOS`
-- **THEN** текст рендерится с ширинами из `hmtx` без диагностики
+#### Scenario: Font without GPOS
+- **WHEN** the font has no `GPOS` table
+- **THEN** text is rendered with `hmtx` widths and no diagnostics
 
-### Requirement: Неразрывные конструкции не разрываются
+### Requirement: Malformed optional font tables do not crash parsing
 
-Движок ДОЛЖЕН трактовать неразрывный пробел (U+00A0) как запрет разрыва строки в этой позиции и ДОЛЖЕН сохранять неразрывный пробел как межсловный интервал при выравнивании.
+Parsing a font with a truncated or inconsistent optional table SHALL NOT panic. Every field read MUST be preceded by a bounds check for that table format. A corrupt optional table MAY be ignored, in which case the font loads without the feature it provides; a corrupt required table MUST produce an error.
 
-#### Scenario: Неразрывный пробел в адресе
-- **WHEN** документ содержит «г.» + U+00A0 + «Москва»
-- **THEN** эта пара остаётся на одной строке при любом доступном переносе
+#### Scenario: Truncated class definition
+- **WHEN** a class definition in a GPOS table ends before its range header
+- **THEN** parsing does not panic
+- **AND** the font either loads without kerning or returns an error
 
-#### Scenario: Неразрывный пробел при выравнивании по ширине
-- **WHEN** строка с неразрывным пробелом выравнивается по ширине
-- **THEN** интервал в позиции неразрывного пробела не растягивается
+#### Scenario: Truncated kerning table
+- **WHEN** the GPOS table is truncated in the middle of a pair set
+- **THEN** parsing does not panic
+- **AND** the font loads with no kerning pairs
 
-### Requirement: Разбиение на строки
+#### Scenario: Required table missing
+- **WHEN** a required table such as `glyf` is absent
+- **THEN** parsing returns an error naming the missing table
 
-Движок ДОЛЖЕН разрывать строку по пробелам и после дефиса, не разрывая слово без дефиса, и ДОЛЖЕН выносить висячую пунктуацию вместе с предшествующим словом. Переносы по слогам (`hyphens`) в v1 не поддерживаются и ДОЛЖНЫ отклоняться как неподдерживаемое свойство.
+### Requirement: Non-breaking sequences are not split
 
-#### Scenario: Длинное слово шире строки
-- **WHEN** слово без пробелов не помещается в доступную ширину
-- **THEN** оно переносится на следующую строку целиком, а не разрывается посередине
+The engine SHALL treat a no-break space (U+00A0) as a prohibition of a line break at that position and MUST keep it as a word separator when justifying.
 
-#### Scenario: Запрос автоматических переносов
-- **WHEN** шаблон содержит `hyphens: auto`
-- **THEN** валидация завершается ошибкой, указывающей, что переносы не входят в профиль v1
+#### Scenario: No-break space in an address
+- **WHEN** the document contains "г." + U+00A0 + "Москва"
+- **THEN** the pair stays on one line for every available break
 
-### Requirement: Выравнивание по ширине
+#### Scenario: No-break space under justification
+- **WHEN** a line containing a no-break space is justified
+- **THEN** the gap at the no-break space is not stretched
 
-При `text-align: justify` движок ДОЛЖЕН распределять дополнительное пространство между межсловными пробелами. Последняя строка абзаца и строка перед принудительным разрывом ДОЛЖНЫ оставаться нерастянутыми.
+### Requirement: Line breaking
 
-#### Scenario: Абзац из нескольких строк
-- **WHEN** абзац занимает три строки и выровнен по ширине
-- **THEN** первые две строки имеют одинаковую ширину, равную доступной, а третья остаётся нерастянутой
+The engine SHALL break lines at spaces and after a hyphen without splitting a word that has no hyphen, and MUST keep trailing punctuation with the preceding word. Hyphenation (`hyphens`) is not supported in v1 and MUST be rejected as an unsupported property.
 
-#### Scenario: Строка перед разрывом страницы
-- **WHEN** строка завершает страницу и следующая начинается с новой
-- **THEN** завершающая строка не растягивается по ширине
+#### Scenario: A long word wider than the line
+- **WHEN** a word without spaces does not fit the available width
+- **THEN** it moves to the next line as a whole instead of being split in the middle
 
-### Requirement: Нормализация составных символов
+#### Scenario: Requesting automatic hyphenation
+- **WHEN** the template contains `hyphens: auto`
+- **THEN** validation fails and states that hyphenation is outside the v1 profile
 
-Движок ДОЛЖЕН приводить входной текст к канонической композиции перед отображением в глифы, чтобы «й» и «ё», записанные разложенно, рендерились одним глифом, а не базовым символом с отдельной диакритикой.
+### Requirement: Justification
 
-#### Scenario: Разложенная запись «й»
-- **WHEN** текст содержит «и» + U+0306
-- **THEN** на выходе используется глиф «й» из шрифта
-- **AND** извлечённый из PDF текст содержит один символ «й»
+With `text-align: justify` the engine SHALL distribute extra space between word separators. The last line of a paragraph and the line before a forced break MUST remain unstretched.
 
-#### Scenario: Канонически записанный текст не меняется
-- **WHEN** текст уже записан в канонической композиции
-- **THEN** отображение в глифы даёт тот же результат
+#### Scenario: A paragraph of several lines
+- **WHEN** a paragraph occupies three lines and is justified
+- **THEN** the first two lines have the same width, equal to the available width, and the third stays unstretched
+
+#### Scenario: A line before a page break
+- **WHEN** a line ends the page and the next one starts a new page
+- **THEN** the closing line is not stretched
+
+### Requirement: Composition of combining characters
+
+The engine SHALL normalise input text to canonical composition before mapping it to glyphs, so that "й" and "ё" written in decomposed form render as a single glyph rather than a base character plus a separate diacritic.
+
+#### Scenario: Decomposed "й"
+- **WHEN** the text contains "и" + U+0306
+- **THEN** the output uses the "й" glyph from the font
+- **AND** text extracted from the PDF contains a single "й" character
+
+#### Scenario: Canonically composed text is unchanged
+- **WHEN** the text is already written in canonical composition
+- **THEN** mapping to glyphs produces the same result
