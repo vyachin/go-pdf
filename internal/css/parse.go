@@ -175,14 +175,14 @@ func ParseSheet(opts SheetOptions, src []byte) *Stylesheet {
 }
 
 // ParseDeclarations parses a declaration list such as a style attribute.
-func ParseDeclarations(src string) []Declaration {
+func ParseDeclarations(src string) ([]Declaration, []Problem) {
 	toks := Tokenize([]byte(src))
 	if len(toks) > 0 {
 		toks[len(toks)-1] = Token{Kind: RBraceToken, Offset: len(src)}
 	}
 	p := &parser{toks: toks}
-	decls, _, _ := p.parseBlockContents()
-	return decls
+	decls, _, probs := p.parseBlockContents()
+	return decls, probs
 }
 
 func (p *parser) peek() Token {
@@ -366,6 +366,9 @@ func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 		}
 		d, ok := p.parseDeclaration()
 		if !ok {
+			// A skipped declaration is a syntax error, not a silent success:
+			// the closed profile must report it.
+			probs = append(probs, Problem{Message: "skipping an invalid declaration", Offset: p.peek().Offset})
 			p.skipToDeclarationEnd()
 			continue
 		}

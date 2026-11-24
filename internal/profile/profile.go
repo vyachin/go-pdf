@@ -62,7 +62,11 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
 		}
 		if style, ok := n.Attr("style"); ok {
-			validateDeclarations(doc, doc.Pos(n), n.Path(), css.ParseDeclarations(style), &out)
+			decls, probs := css.ParseDeclarations(style)
+			for _, prob := range probs {
+				out.Errorf("css/syntax", doc.Pos(n), n.Path(), "%s", prob.Message)
+			}
+			validateDeclarations(doc, doc.Pos(n), n.Path(), decls, &out)
 		}
 	})
 

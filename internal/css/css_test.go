@@ -396,3 +396,21 @@ func TestRuleKeepsItsSheet(t *testing.T) {
 		t.Fatal("the declaration does not reference its stylesheet")
 	}
 }
+
+func TestInvalidDeclarationsAreReported(t *testing.T) {
+	cases := []string{
+		"p { color red }",
+		"p { width 10pt }",
+		"p { color: red; broken }",
+	}
+	for _, src := range cases {
+		sheet := ParseSheet(SheetOptions{File: "t.css"}, []byte(src))
+		if len(sheet.Problems) == 0 {
+			t.Fatalf("%q: the skipped declaration was not reported", src)
+		}
+	}
+	_, probs := ParseDeclarations("color red")
+	if len(probs) == 0 {
+		t.Fatal("an invalid inline declaration was not reported")
+	}
+}
