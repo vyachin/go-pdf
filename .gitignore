@@ -1,0 +1,10 @@
+# Local Go build caches (workspace-local, not part of the project)
+.cache/
+
+# Generated demo PDFs and page rasters
+dist/
+
+.DS_Store
+
+# IDE project files
+.idea/

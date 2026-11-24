@@ -1,0 +1,75 @@
+// Package engine is the public entry point of the HTML to PDF converter.
+//
+// Callers validate a template and then convert it. Both operations share the
+// same pipeline and the same diagnostics, so a template that validates cleanly
+// is exactly a template that converts without validation errors.
+package engine
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/html"
+	"github.com/vyachin/go-pdf/internal/profile"
+)
+
+// Options controls a single conversion.
+type Options struct {
+	// PageSize is the fallback page size used when the document does not set
+	// @page { size }. Values are "A4", "A5", "Letter" or "<w>x<h><unit>".
+	PageSize string
+	// Margin is the fallback page margin, for example "20mm".
+	Margin string
+	// FontDir is the directory used to resolve relative @font-face paths.
+	FontDir string
+	// BaseDir is the directory used to resolve relative image paths.
+	BaseDir string
+	// Date replaces the PDF creation date. The zero value selects a fixed
+	// constant so that repeated runs stay byte identical.
+	Date time.Time
+	// Title overrides the document title taken from <title>.
+	Title string
+	// RenderPNG asks the converter to also rasterize the first page. It is
+	// used by tests and the CLI debug flag.
+	RenderPNG bool
+	// File is the path used in diagnostics. When empty a placeholder is used.
+	File string
+	// FallbackFont is a TrueType font used for families that are not declared
+	// with @font-face. When empty, a small list of system fonts is tried.
+	FallbackFont string
+}
+
+// Result is the outcome of a successful conversion.
+type Result struct {
+	// PDF is the rendered document.
+	PDF []byte
+	// PNG is the rasterized first page, when Options.RenderPNG was set.
+	PNG []byte
+	// Diagnostics contains warnings produced while rendering. Errors are
+	// returned as the error value instead.
+	Diagnostics diag.List
+}
+
+// ErrNotImplemented is returned by pipeline stages that are not wired up yet.
+var ErrNotImplemented = errors.New("engine: not implemented")
+
+// Validate parses and checks a template without rendering it.
+func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	doc, err := html.Parse(src, sourceName(opts))
+	if err != nil {
+		return nil, err
+	}
+	return profile.Validate(doc), nil
+}
+
+func sourceName(opts Options) string {
+	if opts.File != "" {
+		return opts.File
+	}
+	return "document.html"
+}

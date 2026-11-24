@@ -1,0 +1,313 @@
+package css
+
+import (
+	"strconv"
+	"strings"
+)
+
+// TokenKind classifies CSS tokens.
+type TokenKind int
+
+const (
+	// IdentToken is an identifier such as a property name or keyword.
+	IdentToken TokenKind = iota
+	// HashToken is a "#name" token, used by colours and id selectors.
+	HashToken
+	// StringToken is a quoted string. Text keeps the surrounding quotes.
+	StringToken
+	// NumberToken is a plain number.
+	NumberToken
+	// PercentageToken is a number followed by '%'.
+	PercentageToken
+	// DimensionToken is a number followed by a unit, for example "12pt".
+	DimensionToken
+	// DelimToken is a single punctuation character such as "." or ">".
+	DelimToken
+	// WhitespaceToken is a run of whitespace, normalised to a single space.
+	WhitespaceToken
+	// ColonToken is ":".
+	ColonToken
+	// SemicolonToken is ";".
+	SemicolonToken
+	// CommaToken is ",".
+	CommaToken
+	// LBraceToken is "{".
+	LBraceToken
+	// RBraceToken is "}".
+	RBraceToken
+	// LParenToken is "(".
+	LParenToken
+	// RParenToken is ")".
+	RParenToken
+	// LBracketToken is "[".
+	LBracketToken
+	// RBracketToken is "]".
+	RBracketToken
+	// URLToken is an unquoted url(...) value; Text holds the raw contents.
+	URLToken
+	// AtKeywordToken is "@name".
+	AtKeywordToken
+	// EOFToken marks the end of the input.
+	EOFToken
+)
+
+func (k TokenKind) String() string {
+	switch k {
+	case IdentToken:
+		return "ident"
+	case HashToken:
+		return "hash"
+	case StringToken:
+		return "string"
+	case NumberToken:
+		return "number"
+	case PercentageToken:
+		return "percentage"
+	case DimensionToken:
+		return "dimension"
+	case DelimToken:
+		return "delim"
+	case WhitespaceToken:
+		return "whitespace"
+	case ColonToken:
+		return ":"
+	case SemicolonToken:
+		return ";"
+	case CommaToken:
+		return ","
+	case LBraceToken:
+		return "{"
+	case RBraceToken:
+		return "}"
+	case LParenToken:
+		return "("
+	case RParenToken:
+		return ")"
+	case LBracketToken:
+		return "["
+	case RBracketToken:
+		return "]"
+	case URLToken:
+		return "url"
+	case AtKeywordToken:
+		return "at-keyword"
+	case EOFToken:
+		return "eof"
+	default:
+		return "unknown"
+	}
+}
+
+// Token is a single CSS token. Text always holds the raw source spelling so
+// that selectors and values can be reconstructed exactly.
+type Token struct {
+	Kind   TokenKind
+	Text   string
+	Num    float64
+	Unit   string
+	Offset int
+}
+
+// Tokenize splits CSS source into tokens.
+func Tokenize(src []byte) []Token {
+	var out []Token
+	i := 0
+	for i < len(src) {
+		c := src[i]
+		switch {
+		case isSpace(c):
+			start := i
+			for i < len(src) && isSpace(src[i]) {
+				i++
+			}
+			out = append(out, Token{Kind: WhitespaceToken, Text: " ", Offset: start})
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			i += 2
+			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(src) {
+				i += 2
+			} else {
+				i = len(src)
+			}
+		case c == '"' || c == '\'':
+			start := i
+			quote := c
+			i++
+			for i < len(src) && src[i] != quote {
+				if src[i] == '\\' && i+1 < len(src) {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < len(src) {
+				i++
+			}
+			out = append(out, Token{Kind: StringToken, Text: string(src[start:i]), Offset: start})
+		case c == '#':
+			start := i
+			i++
+			for i < len(src) && isNameChar(src[i]) {
+				i++
+			}
+			out = append(out, Token{Kind: HashToken, Text: string(src[start:i]), Offset: start})
+		case c == '@':
+			start := i
+			i++
+			for i < len(src) && isNameChar(src[i]) {
+				i++
+			}
+			out = append(out, Token{Kind: AtKeywordToken, Text: string(src[start:i]), Offset: start})
+		case isDigit(c) || (c == '.' && i+1 < len(src) && isDigit(src[i+1])) || ((c == '+' || c == '-') && i+1 < len(src) && (isDigit(src[i+1]) || src[i+1] == '.')):
+			out = append(out, tokenizeNumber(src, &i))
+		case isNameStart(c) || c == '-' || c == '_':
+			start := i
+			i++
+			for i < len(src) && isNameChar(src[i]) {
+				i++
+			}
+			name := string(src[start:i])
+			// url(...) is a single token in CSS; parsing it here keeps paths
+			// with slashes and dots intact.
+			if strings.EqualFold(name, "url") && i < len(src) && src[i] == '(' {
+				i++
+				for i < len(src) && isSpace(src[i]) {
+					i++
+				}
+				vStart := i
+				for i < len(src) && src[i] != ')' {
+					i++
+				}
+				raw := strings.TrimSpace(string(src[vStart:i]))
+				if i < len(src) {
+					i++
+				}
+				out = append(out, Token{Kind: URLToken, Text: raw, Offset: start})
+				continue
+			}
+			out = append(out, Token{Kind: IdentToken, Text: name, Offset: start})
+		default:
+			kind := DelimToken
+			switch c {
+			case ':':
+				kind = ColonToken
+			case ';':
+				kind = SemicolonToken
+			case ',':
+				kind = CommaToken
+			case '{':
+				kind = LBraceToken
+			case '}':
+				kind = RBraceToken
+			case '(':
+				kind = LParenToken
+			case ')':
+				kind = RParenToken
+			case '[':
+				kind = LBracketToken
+			case ']':
+				kind = RBracketToken
+			}
+			out = append(out, Token{Kind: kind, Text: string(c), Offset: i})
+			i++
+		}
+	}
+	out = append(out, Token{Kind: EOFToken, Offset: len(src)})
+	return out
+}
+
+func tokenizeNumber(src []byte, i *int) Token {
+	start := *i
+	j := *i
+	if j < len(src) && (src[j] == '+' || src[j] == '-') {
+		j++
+	}
+	for j < len(src) && isDigit(src[j]) {
+		j++
+	}
+	if j < len(src) && src[j] == '.' {
+		j++
+		for j < len(src) && isDigit(src[j]) {
+			j++
+		}
+	}
+	if j < len(src) && (src[j] == 'e' || src[j] == 'E') {
+		k := j + 1
+		if k < len(src) && (src[k] == '+' || src[k] == '-') {
+			k++
+		}
+		if k < len(src) && isDigit(src[k]) {
+			j = k
+			for j < len(src) && isDigit(src[j]) {
+				j++
+			}
+		}
+	}
+	numText := string(src[start:j])
+	num, err := strconv.ParseFloat(numText, 64)
+	if err != nil {
+		num = 0
+	}
+	if j < len(src) && src[j] == '%' {
+		j++
+		*i = j
+		return Token{Kind: PercentageToken, Text: string(src[start:j]), Num: num, Offset: start}
+	}
+	if j < len(src) && isNameStart(src[j]) {
+		unitStart := j
+		for j < len(src) && isNameChar(src[j]) {
+			j++
+		}
+		*i = j
+		return Token{Kind: DimensionToken, Text: string(src[start:j]), Num: num, Unit: strings.ToLower(string(src[unitStart:j])), Offset: start}
+	}
+	*i = j
+	return Token{Kind: NumberToken, Text: numText, Num: num, Offset: start}
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isNameStart(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c >= 0x80
+}
+
+func isNameChar(c byte) bool {
+	return isNameStart(c) || isDigit(c) || c == '-'
+}
+
+// stringify reconstructs a source-like string from tokens, used for selectors
+// and for messages.
+func stringify(toks []Token) string {
+	var b strings.Builder
+	for _, t := range toks {
+		if t.Kind == EOFToken {
+			continue
+		}
+		b.WriteString(t.Text)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// unquote strips surrounding quotes and processes the escapes we support.
+func unquote(s string) string {
+	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
+		inner := s[1 : len(s)-1]
+		var b strings.Builder
+		for i := 0; i < len(inner); i++ {
+			if inner[i] == '\\' && i+1 < len(inner) {
+				i++
+				b.WriteByte(inner[i])
+				continue
+			}
+			b.WriteByte(inner[i])
+		}
+		return b.String()
+	}
+	return s
+}
