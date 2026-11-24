@@ -158,9 +158,11 @@ func (l *layouter) paintListMarker(f *flow, b *Box) {
 	if err != nil {
 		return
 	}
+	// The marker belongs to the list's left padding, not to the item's
+	// content box: place it before the text and never over it.
 	x := b.x + b.padLeft() - run.Width - 2000
-	if x < b.x {
-		x = b.x + 500
+	if x < f.left {
+		x = f.left
 	}
 	glyphs := make([]Glyph, len(run.Glyphs))
 	for i, g := range run.Glyphs {

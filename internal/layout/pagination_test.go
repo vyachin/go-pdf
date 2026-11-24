@@ -854,3 +854,27 @@ func TestEmptyBlockTakesNoSpace(t *testing.T) {
 		t.Fatalf("an empty block moved the text by %d mp", withEmpty-plain)
 	}
 }
+
+func TestListMarkerSitsBeforeTheText(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<ol><li>A</li><li>B</li></ol>`)
+	var markerX, textX int32 = -1, -1
+	for _, op := range textOps(doc) {
+		label := pageTextRun(op)
+		switch {
+		case strings.HasPrefix(label, "1."):
+			markerX = op.X
+		case label == "A":
+			textX = op.X
+		}
+	}
+	if markerX < 0 || textX < 0 {
+		t.Fatalf("marker or text missing: marker=%d text=%d", markerX, textX)
+	}
+	if markerX >= textX {
+		t.Fatalf("the marker starts at %d, text at %d; the marker overlaps", markerX, textX)
+	}
+	if markerX < 0 {
+		t.Fatalf("the marker is outside the page: %d", markerX)
+	}
+}

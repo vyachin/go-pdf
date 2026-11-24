@@ -321,6 +321,19 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 	if b.Kind == Table {
 		return l.paintStaticTable(page, b, x, y, width)
 	}
+	if b.Kind == Image {
+		if b.Image == nil {
+			return 0
+		}
+		w, h := imageSize(b.Style, b.Image, width, l.ctx)
+		l.ops++
+		page.Ops = append(page.Ops, Op{
+			Kind:  ImageOpKind,
+			Rect:  Rect{X: x, Y: y, W: w, H: h},
+			Image: &ImageOp{Image: b.Image},
+		})
+		return h
+	}
 	b.x = x
 	b.width = width
 	if b.width > width {

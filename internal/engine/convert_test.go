@@ -939,3 +939,17 @@ func TestValidateUsesTheSamePreparationAsConvert(t *testing.T) {
 		t.Fatalf("clean template: %v", diags.Lines())
 	}
 }
+
+func TestBlockImageInsideTableCell(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "i.png"))
+	src := `<table><tr><td><img style="display:block;width:10pt;height:10pt" src="i.png"></td></tr></table>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, BaseDir: dir, File: "cell.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(res.PDF), "/Subtype /Image"); n != 1 {
+		t.Fatalf("the image inside the cell is missing: %d image objects", n)
+	}
+}
