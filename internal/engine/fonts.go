@@ -32,10 +32,15 @@ type fontRegistry struct {
 	fallback *font.Font
 	mu       sync.Mutex
 	cache    map[string]*layout.FontFace
+	// maxFontBytes and guard let the registry load a system fallback lazily,
+	// only when a document really asks for a family it does not declare.
+	maxFontBytes int
+	guard        *budget.Guard
+	systemTried  bool
 }
 
 func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
-	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
+	r := &fontRegistry{cache: map[string]*layout.FontFace{}, guard: guard, maxFontBytes: opts.Limits.resolved().MaxFontBytes}
 	if err := guard.Err(); err != nil {
 		return nil, err
 	}
@@ -139,14 +144,6 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		}
 		r.fallback = f
 	}
-	if r.fallback == nil && len(r.faces) == 0 {
-		if f := loadSystemFallback(maxFontBytes, guard); f != nil {
-			r.fallback = f
-		}
-	}
-	if r.fallback == nil && len(r.faces) == 0 {
-		return nil, fmt.Errorf("no fonts available: declare @font-face or pass a fallback font")
-	}
 	return r, nil
 }
 
@@ -204,13 +201,28 @@ func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Fo
 		}
 		return best.font
 	}
-	if r.fallback != nil {
+	if f := r.systemFallback(); f != nil {
+		return f
+	}
+	// Never guess: substituting the first declared face would print an
+	// undeclared family in a font the document did not ask for.
+	return nil
+}
+
+// systemFallback loads the first available system font once, so a document
+// without @font-face still renders while a declared but unrelated family is not
+// silently replaced by another declaration.
+func (r *fontRegistry) systemFallback() *font.Font {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// An explicit Options.FallbackFont is step two of the documented order and
+	// always wins over a system font.
+	if r.fallback != nil || r.systemTried {
 		return r.fallback
 	}
-	if len(r.faces) > 0 {
-		return r.faces[0].font
-	}
-	return nil
+	r.systemTried = true
+	r.fallback = loadSystemFallback(r.maxFontBytes, r.guard)
+	return r.fallback
 }
 
 // weightRank orders an available weight against the requested one, following

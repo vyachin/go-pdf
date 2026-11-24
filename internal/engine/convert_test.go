@@ -22,6 +22,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
+	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/pdfdebug"
 	"github.com/vyachin/go-pdf/internal/text"
 )
@@ -1584,5 +1585,40 @@ func TestStyleMediaAttributeIsHonored(t *testing.T) {
 				t.Fatalf("text = %q, want %q", text, tc.want)
 			}
 		})
+	}
+}
+
+// TestUndeclaredFamilyDoesNotReuseAnotherFace guards RV2-23: a font-family that
+// no @font-face declares used to be replaced by the first declared face, so a
+// document printed in a font it never asked for and no diagnostic appeared.
+func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
+	data, err := os.ReadFile(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := font.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &fontRegistry{
+		faces:       []*registeredFace{{family: "pt serif", weight: 400, font: f}},
+		cache:       map[string]*layout.FontFace{},
+		systemTried: true, // a machine with no system font left to try
+	}
+	if got := r.pick([]string{"Arial"}, 400, false); got != nil {
+		t.Fatalf("pick returned the unrelated %q face for Arial", got.Family())
+	}
+	if _, err := r.Face([]string{"Arial"}, 400, false, 12000); err == nil {
+		t.Fatal("Face accepted an undeclared family without a diagnostic")
+	}
+
+	// A declared family still resolves, and an explicit fallback still covers
+	// any other family.
+	if got := r.pick([]string{"PT Serif"}, 400, false); got == nil {
+		t.Fatal("the declared family did not resolve")
+	}
+	r.fallback = f
+	if got := r.pick([]string{"Arial"}, 400, false); got != f {
+		t.Fatal("the explicit fallback font was not used for an undeclared family")
 	}
 }

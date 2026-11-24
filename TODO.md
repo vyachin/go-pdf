@@ -148,7 +148,7 @@
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-1/main.go`, секция `truncated PNG`: `Validate: err=nil, diags=[]`, затем `Convert: error[pdf/write]: png: invalid format: not enough pixel data`.
   **Исправление / приёмка:** декодировать (или проверять IDAT/CRC) на этапе подготовки, общем для Validate и Convert, не выходя за лимиты пикселей/байт. Приёмка: одинаковые диагностики обоих entry point; целый PNG по-прежнему проходит.
 
-- [ ] **RV2-23 · P2: не подставлять первый `@font-face` для необъявленного семейства.**
+- [x] **RV2-23 · P2: не подставлять первый `@font-face` для необъявленного семейства.**
 
   **Код:** [internal/engine/fonts.go:211](/Users/vyachin/Projects/go-pdf/internal/engine/fonts.go:211): `pick` возвращает `r.faces[0].font`; системный fallback загружается только при `len(r.faces)==0`.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-1/main.go`, секция `undeclared font family`: `@font-face{font-family:"PT Serif"} body{font-family:"Arial"}` → `err=nil`, PDF с `/BaseFont /DejaVu-Sans-Book`, хотя Arial есть в системе.
