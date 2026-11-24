@@ -258,7 +258,13 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 	}
 	bodyStyle := ctx.Cascade.Compute(body, htmlStyle)
 	root := &Box{Kind: Block, Node: body, Style: bodyStyle}
-	root.Children = b.buildBlocks(body, bodyStyle)
+	// display:none on a root hides the whole tree, including images, anchors
+	// and headings. Descendant checks do not cover the roots themselves.
+	if htmlStyle == nil || htmlStyle.Display != css.DisplayNone {
+		if bodyStyle.Display != css.DisplayNone {
+			root.Children = b.buildBlocks(body, bodyStyle)
+		}
+	}
 	return root, *b.diags
 }
 

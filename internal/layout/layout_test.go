@@ -435,3 +435,25 @@ func TestPageLimitStopsBeforeLayoutEnds(t *testing.T) {
 		t.Fatalf("layout created %d pages, want at most 2", len(doc.Pages))
 	}
 }
+
+func TestHiddenRootDrawsNothing(t *testing.T) {
+	cases := map[string]string{
+		"body": `<body style="display:none"><h1 id="t">PRIVATE</h1><p>PRIVATE</p></body>`,
+		"html": `<style>html{display:none}</style><h1 id="t">PRIVATE</h1><p>PRIVATE</p>`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			doc := h.run(src)
+			if text := textOf(doc); strings.Contains(text, "PRIVATE") {
+				t.Fatalf("hidden root still drew %q", text)
+			}
+			if len(doc.Outline) != 0 {
+				t.Fatalf("hidden root still produced outline entries: %v", doc.Outline)
+			}
+			if _, ok := doc.Anchors["t"]; ok {
+				t.Fatal("hidden root still registered an anchor")
+			}
+		})
+	}
+}

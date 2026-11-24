@@ -112,7 +112,7 @@
   **Воспроизведение:** `<style>*{padding:0}</style><table><tr><td>A</td></tr></table>`. Авторский reset проигрывает более специфичному UA `td { padding:1mm }`: `A` начинается в **59528 mp** вместо **56693 mp**. Сначала должен учитываться origin, затем specificity внутри origin; одно лишь добавление UA sheet в начало списка этого не обеспечивает.
   **Исправление / приёмка:** представить origin явно либо применять UA как начальный слой перед авторским каскадом. Проверить `*` против UA для padding, margin и font-size, не ломая author `!important` и inline styles.
 
-- [ ] **REV-17 · P2: соблюдать `display:none` на `html` и `body`.**
+- [x] **REV-17 · P2: соблюдать `display:none` на `html` и `body`.**
 
   **Код:** [internal/layout/box.go:230](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:230), `Build`.
   **Воспроизведение:** `<body style="display:none">PRIVATE</body>` и `<style>html{display:none}</style><p>PRIVATE</p>` оба рисуют `PRIVATE`. Для обычных потомков проверка DisplayNone есть, для корневых элементов — нет: после Compute безусловно строится body.
