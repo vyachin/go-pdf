@@ -63,7 +63,7 @@ Only the findings that are still open are listed below. A successful existing te
 
 ### Блочная раскладка, списки и изображения
 
-- [ ] **LAY-19 · P2: реализовать размеры и атомарность `inline-block` либо отклонять его.**
+- [x] **LAY-19 · P2: реализовать размеры и атомарность `inline-block` либо отклонять его.**
 
   **Код:** [internal/layout/box.go:307](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:307), `isInlineDisplay`; [internal/layout/box.go:336](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:336), `buildElement`; `collectPieces`.
   **Ошибка:** `inline-block` строится как обычный `Inline`, затем рекурсивно разворачивается в слова. Его ширина, высота, фон и границы не формируют отдельного бокса; содержимое может переноситься как обычный текст.

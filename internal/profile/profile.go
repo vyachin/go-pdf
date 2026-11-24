@@ -182,6 +182,12 @@ func validateDeclarations(doc *html.Document, pos diag.Position, elementPath str
 		st := css.DefaultStyle()
 		if err := css.ApplyDecl(st, d.Property, d.Value, 12000); err != nil {
 			out.Errorf("css/unsupported-value", pos, elementPath, "%s: %v", d.Property, err)
+			continue
+		}
+		if d.Property == "display" && st.Display == css.DisplayInlineBlock {
+			// Layout has no atomic inline-block box: it would silently lose the
+			// width, height and decorations, so the profile rejects it.
+			out.Errorf("css/unsupported-value", pos, elementPath, "display: inline-block is not supported")
 		}
 	}
 }

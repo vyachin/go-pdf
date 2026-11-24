@@ -963,3 +963,13 @@ func TestTransparentTextColourIsRejected(t *testing.T) {
 		t.Fatalf("color:transparent was accepted: %v", diags.Lines())
 	}
 }
+
+func TestInlineBlockIsRejected(t *testing.T) {
+	diags, err := Validate(context.Background(), []byte(`<p><span style="display:inline-block;width:100pt">A</span>B</p>`), Options{FallbackFont: testFontPath(t), File: "ib.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diags.HasErrors() {
+		t.Fatalf("display:inline-block was accepted: %v", diags.Lines())
+	}
+}
