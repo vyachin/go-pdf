@@ -256,3 +256,34 @@ func TestScriptIsIgnoredWithWarning(t *testing.T) {
 		t.Fatalf("code = %q", strict[0].Code)
 	}
 }
+
+func TestGeneratorsAreRestrictedToTheirContext(t *testing.T) {
+	doc := parseDoc(t, `<p><a href="#x">A</a></p>`)
+	sheet := css.ParseSheet(css.SheetOptions{}, []byte(`a::after { content: " page=" counter(page) }`))
+	diags := validateSheetDiags(t, doc, sheet)
+	if !diags.HasErrors() {
+		t.Fatal("counter(page) in a::after must be rejected")
+	}
+
+	doc = parseDoc(t, `<p>x</p>`)
+	sheet = css.ParseSheet(css.SheetOptions{}, []byte(`@page { @bottom-center { content: target-counter(attr(href), page) } }`))
+	diags = validateSheetDiags(t, doc, sheet)
+	if !diags.HasErrors() {
+		t.Fatal("target-counter in a margin box must be rejected")
+	}
+
+	// The supported combinations stay valid.
+	sheet = css.ParseSheet(css.SheetOptions{}, []byte(`a::after { content: target-counter(attr(href), page) }`))
+	if diags := validateSheetDiags(t, doc, sheet); diags.HasErrors() {
+		t.Fatalf("a::after target-counter: %v", diags.Lines())
+	}
+	sheet = css.ParseSheet(css.SheetOptions{}, []byte(`@page { @bottom-center { content: "p " counter(page) } }`))
+	if diags := validateSheetDiags(t, doc, sheet); diags.HasErrors() {
+		t.Fatalf("margin box counter: %v", diags.Lines())
+	}
+}
+
+func validateSheetDiags(t *testing.T, doc *html.Document, sheet *css.Stylesheet) diag.List {
+	t.Helper()
+	return ValidateSheets(doc, Options{}, []*css.Stylesheet{sheet}, nil)
+}

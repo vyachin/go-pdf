@@ -156,8 +156,15 @@ func validateGeneratedContent(doc *html.Document, r css.Rule, pseudo string, out
 			out.Errorf("css/unsupported-property", declPos, "", "only content is allowed inside a::after, got %q", d.Property)
 			continue
 		}
-		if _, err := css.ParseContent(d.Value); err != nil {
+		items, err := css.ParseContent(d.Value)
+		if err != nil {
 			out.Errorf("css/unsupported-value", declPos, "", "content: %v", err)
+			continue
+		}
+		for _, item := range items {
+			if item.Kind == css.ContentPageNumber || item.Kind == css.ContentPageCount {
+				out.Errorf("css/unsupported-value", declPos, "", "counter(page) is not available in a::after; use target-counter")
+			}
 		}
 	}
 }
@@ -243,8 +250,15 @@ func validatePageMargin(doc *html.Document, r css.Rule, out *diag.List) {
 			out.Errorf("css/unsupported-property", pos, "", "property %q is not supported inside @%s", d.Property, r.Name)
 			continue
 		}
-		if _, err := css.ParseContent(d.Value); err != nil {
+		items, err := css.ParseContent(d.Value)
+		if err != nil {
 			out.Errorf("css/unsupported-value", pos, "", "content: %v", err)
+			continue
+		}
+		for _, item := range items {
+			if item.Kind == css.ContentTarget {
+				out.Errorf("css/unsupported-value", pos, "", "target-counter is not available in a margin box; use counter(page)")
+			}
 		}
 	}
 }
