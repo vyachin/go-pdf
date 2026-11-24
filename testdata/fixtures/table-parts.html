@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Части таблицы</title>
+  <style>
+    @page { size: A5; margin: 12mm }
+    table { width: 100%; border-collapse: collapse }
+    th, td { border: 0.5pt solid #000000; padding: 1.5mm; font-size: 9pt }
+    thead th { background-color: #dddddd }
+    tfoot td { font-weight: 700 }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr><th>Наименование</th><th>Сумма</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Услуга</td><td>10 000</td></tr>
+      <tr><td>Поддержка</td><td>5 000</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td>Итого</td><td>15 000</td></tr>
+    </tfoot>
+  </table>
+</body>
+</html>

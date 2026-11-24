@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Внешняя таблица стилей"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <html display="block">
+    <body display="block">
+      <p class="title" color="#112233" display="block" font-size="13pt" margin-bottom="5.669pt" text-align="center">Заголовок из внешнего файла</p>
+      <p color="#112233" display="block" margin-bottom="5.669pt">Абзац со стилем из внешней таблицы.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

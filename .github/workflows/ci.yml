@@ -13,7 +13,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned: the render goldens are produced with the poppler of this release.
+    # An image bump must be a deliberate commit that regenerates them.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -39,12 +41,37 @@ jobs:
         env:
           PDF_REQUIRE_VALIDATOR: "1"
           PDF_REQUIRE_RENDER: "1"
+          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
         run: go test ./...
       - name: Race
         env:
           PDF_REQUIRE_VALIDATOR: "1"
           PDF_REQUIRE_RENDER: "1"
+          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
         run: go test -race ./...
+      - name: Golden snapshots
+        # Runs both snapshot layers explicitly and fails when either one skips.
+        # A suite that never ran them is not a gate: PDF_REQUIRE_RENDER makes a
+        # missing rasterizer fail here even if another step deleted the install.
+        env:
+          PDF_REQUIRE_RENDER: "1"
+          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
+        run: |
+          set -o pipefail
+          go test ./internal/engine \
+            -run 'TestDocumentSnapshots|TestRenderSnapshots|TestProfileCoverage' \
+            -count=1 -v | tee golden.log
+          ! grep -q -- '--- SKIP' golden.log
+          grep -q -- '--- PASS: TestDocumentSnapshots ' golden.log
+          grep -q -- '--- PASS: TestRenderSnapshots ' golden.log
+      - name: Snapshot artifacts
+        # Uploaded only when a golden test fails: produced, expected and diff.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-artifacts
+          path: artifacts/golden
+          if-no-files-found: ignore
       - name: Fuzz
         # Short runs on the parsers that read untrusted input. A longer fuzz
         # session belongs to a nightly job, not to every pull request.

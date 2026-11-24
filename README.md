@@ -236,17 +236,30 @@ floating point.
 go test ./...
 go test ./internal/engine -run TestCorpus         # document corpus
 go test ./internal/engine -run TestCorpus -update # rebuild golden texts
+go test ./internal/engine -run TestDocumentSnapshots        # parsed model snapshots
+go test ./internal/engine -run TestDocumentSnapshots -update
+go test ./internal/engine -run TestRenderSnapshots          # page render snapshots
+go test ./internal/engine -run TestRenderSnapshots -update
 go test ./internal/engine -bench .
 go test ./internal/mpdfcompat              # mPDF corpus
 go test ./internal/mpdfcompat -update      # rebuild golden texts
 ```
 
-- Layout snapshots check geometry, not pixels.
+- Document snapshots (`testdata/golden/xml`) freeze what the engine understood:
+  the elements, their effective styles, the `@page` setup and the diagnostics,
+  as canonical XML. They need no font and no external tool, so a failure is a
+  parser, cascade or profile change.
+- Render snapshots (`testdata/golden/render`) freeze every page of the corpus
+  and the painting fixtures as a 72 dpi PNG and compare pixels exactly with
+  `raster.Diff`. They need poppler and are produced with the poppler version
+  recorded next to the images. Format, scope and the update procedure are in
+  [docs/golden.md](docs/golden.md).
 - Generated PDFs are validated by the independent `pdfcpu` tool when it is
   available in `PATH` (tests also honour `PDFCPU`); CI requires it through
   `PDF_REQUIRE_VALIDATOR=1`.
 - The `testdata/*.html` corpus is an invoice, an act and a contract with real
-  layout.
+  layout; `testdata/fixtures/` adds one small document per profile feature so a
+  snapshot always runs the feature it protects.
 - The mPDF corpus (`internal/mpdfcompat`) contains 149 documents extracted from
   the mPDF tests. It checks that a document inside the profile yields a valid
   deterministic PDF, while a document outside the profile is rejected with
@@ -254,13 +267,21 @@ go test ./internal/mpdfcompat -update      # rebuild golden texts
   [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
 - Fuzz tests cover the HTML and CSS tokenizers, TrueType parsing and the PDF
   writer.
-- Visual regressions use the engine's own raster backend and `raster.Diff`.
 
 The test suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical
-on every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it.
+on every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it for
+the text and conversion tests; the render snapshots always use the bundled font,
+because their pixels must not depend on the machine.
 
 CI runs the tests above and, in a separate `lint` job, the formatting and
-linting checks described below.
+linting checks described below. It also runs the two snapshot layers as their
+own step: `PDF_REQUIRE_RENDER=1` makes a missing rasterizer fail, and the step
+fails when either layer is skipped, so the snapshots are a gate rather than a
+side effect of the suite. A failing step uploads `produced`, `expected` and
+`diff` images as the `golden-artifacts` build artifact.
+
+The `test` job must be a required check in branch protection; that is a
+repository setting, not a file in this repository.
 
 ## Formatting and linting
 

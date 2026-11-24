@@ -14,6 +14,11 @@ What carries over is the **documents**. HTML was extracted from the mPDF tests a
 
 A panic while processing any document fails the test with a stack trace.
 
+The corpus is outside both snapshot layers described in
+[docs/golden.md](golden.md): 149 documents would dominate the repository, so
+these documents keep their text goldens and are not part of the document and
+render snapshot sets.
+
 ## Corpus composition
 
 `testdata/mpdf/cases.json` — 149 entries:

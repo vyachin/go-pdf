@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Заголовки"/>
+  <page width="419.528pt" height="595.276pt" margin-top="34.016pt" margin-right="34.016pt" margin-bottom="34.016pt" margin-left="34.016pt"/>
+  <html display="block">
+    <body display="block">
+      <h1 display="block" font-size="24pt" font-weight="700" margin-bottom="2.835pt">Заголовок 1</h1>
+      <h2 display="block" font-size="18pt" font-weight="700" margin-bottom="2.835pt">Заголовок 2</h2>
+      <h3 display="block" font-size="14.04pt" font-weight="700" margin-bottom="2.835pt">Заголовок 3</h3>
+      <h4 display="block" font-weight="700" margin-bottom="2.835pt">Заголовок 4</h4>
+      <h5 display="block" font-size="9.96pt" font-weight="700" margin-bottom="2.835pt">Заголовок 5</h5>
+      <h6 display="block" font-size="8.04pt" font-weight="700" margin-bottom="2.835pt">Заголовок 6</h6>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

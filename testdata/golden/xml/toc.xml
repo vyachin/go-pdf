@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Оглавление"/>
+  <page width="255.118pt" height="198.425pt" margin-top="22.677pt" margin-right="22.677pt" margin-bottom="22.677pt" margin-left="22.677pt"/>
+  <margin-box name="bottom-center" content="counter(page) | &quot; / &quot; | counter(pages)"/>
+  <html display="block">
+    <body display="block">
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">
+        <a after-content="&quot; — стр. &quot; | target-counter(attr(href), page)" class="toc" color="#000000">Раздел 1</a>
+      </p>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">
+        <a after-content="&quot; — стр. &quot; | target-counter(attr(href), page)" class="toc" color="#000000">Раздел 2</a>
+      </p>
+      <h2 display="block" font-weight="700" id="one" margin-bottom="5.669pt">Раздел 1</h2>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">Текст первого раздела.</p>
+      <h2 display="block" font-weight="700" id="two" margin-bottom="5.669pt">Раздел 2</h2>
+      <p display="block" font-size="10pt" margin-bottom="5.669pt">Текст второго раздела.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>
