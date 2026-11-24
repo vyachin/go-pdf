@@ -219,3 +219,73 @@
 #### Scenario: Разметка внутри шаблонного скрипта
 - **WHEN** скрипт объявлен как `<script type="text/template"><p>шаблон</p></script>`
 - **THEN** разметка внутри не рендерится, но и не вызывает ошибки
+
+### Requirement: Stylesheet paths cannot escape through symlinks
+
+When a base directory is configured, the engine SHALL open stylesheets through a root confined to that directory, so a symbolic link inside the base that points outside MUST be rejected. Lexical rejections of `..` and of absolute paths outside the base MUST keep working, and symlinks that stay inside the base MUST be followed.
+
+#### Scenario: A symlink pointing outside
+- **WHEN** the base directory contains `link.css` pointing to a file outside it and the document links `link.css`
+- **THEN** validation fails with `css/link-path` and the outside file is not read
+
+#### Scenario: A symlink inside the base
+- **WHEN** the base directory contains `link.css` pointing to another stylesheet inside it
+- **THEN** the stylesheet loads and its rules apply
+
+#### Scenario: Lexical escape still rejected
+- **WHEN** the document links `../../outside.css`
+- **THEN** validation fails with `css/link-path`
+
+#### Scenario: No base directory configured
+- **WHEN** no base directory is configured
+- **THEN** relative paths resolve from the working directory as before
+
+### Requirement: Inheritance follows the element chain
+
+The engine SHALL compute styles along the real ancestor chain: `html` → `body`, and `table` → row group (`thead`, `tbody`, `tfoot`) → `tr` → `td`/`th`. Inherited properties set on an ancestor MUST reach its descendants through that chain, and attributes on the `html` element MUST survive parsing so selectors and inline styles on it take effect.
+
+#### Scenario: Font size from html
+- **WHEN** the stylesheet declares `html { font-size: 30pt }` and the body contains text without its own size
+- **THEN** the text is rendered at 30 pt
+
+#### Scenario: Colour from a table row
+- **WHEN** the stylesheet declares `tr { color: red }`
+- **THEN** the text in its cells is red
+
+#### Scenario: Inline style on html
+- **WHEN** the document declares `<html style="color: red">`
+- **THEN** body text inherits the red colour
+
+#### Scenario: Attributes survive parsing
+- **WHEN** the `html` element carries a class or id
+- **THEN** the attribute is present on the parsed element and selectors can match it
+
+### Requirement: Local assets stay inside their configured root
+
+Every local file named by the document SHALL be opened inside a configured root: stylesheets and images inside `BaseDir`, `@font-face` files inside `FontDir` when set, otherwise `BaseDir`. Absolute paths and symbolic links that leave the root MUST be rejected with a diagnostic naming the asset. Operator-provided fallback fonts are trusted paths and are outside this rule. When no root is configured, the engine reads paths as before.
+
+#### Scenario: Image outside the base directory
+- **WHEN** an `<img src>` is an absolute path outside `BaseDir`
+- **THEN** conversion fails with a diagnostic naming the path
+- **AND** the file is not read
+
+#### Scenario: Image reached through an escaping symlink
+- **WHEN** `BaseDir` contains `logo.png` that links to a file outside it
+- **THEN** conversion fails with a diagnostic
+- **AND** the outside file is not read
+
+#### Scenario: Image inside the base directory
+- **WHEN** the document references an image that exists inside `BaseDir`, including through a symlink that stays inside
+- **THEN** the image is loaded and embedded
+
+#### Scenario: Font outside the font root
+- **WHEN** `@font-face` names a file outside `FontDir`
+- **THEN** conversion fails with a `font/unavailable` diagnostic
+
+#### Scenario: Trusted fallback font
+- **WHEN** the run passes a fallback font path outside the roots
+- **THEN** it is loaded as configured
+
+#### Scenario: No root configured
+- **WHEN** neither `BaseDir` nor `FontDir` is set
+- **THEN** relative paths resolve from the working directory as before

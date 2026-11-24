@@ -119,3 +119,56 @@ The engine SHALL write the result so that after any rendering error the destinat
 #### Scenario: Error during writing
 - **WHEN** an error occurs while the PDF is being produced
 - **THEN** the target file is absent or unchanged, and never corrupted
+
+### Requirement: Page resources list only images the page draws
+
+A page's resource dictionary SHALL list only the images that page actually draws. Images used on other pages MUST NOT appear in it. The order of the listed images MUST remain deterministic.
+
+#### Scenario: An image used on one page
+- **WHEN** a document of two pages draws an image only on the first page
+- **THEN** the second page's resources contain no image entries
+
+#### Scenario: Two images on the same page
+- **WHEN** a page draws two different images
+- **THEN** both appear in that page's resources in document order
+
+#### Scenario: Output stays deterministic
+- **WHEN** the same document is serialised repeatedly
+- **THEN** every run produces identical bytes
+
+### Requirement: A repeated image is embedded once
+
+When the same image source is used several times in a document, the engine SHALL decode it once and embed a single image object.
+
+#### Scenario: The same image twice
+- **WHEN** a document references the same image file in two places
+- **THEN** the PDF contains one image object for it
+- **AND** both places draw that object
+
+### Requirement: Deterministic image resource ordering
+
+Image resources SHALL be written in a deterministic order derived from the order in which images first appear in the document. Repeated serialisation of the same document MUST produce byte-identical output, including the document identifier.
+
+#### Scenario: Repeated serialisation with several images
+- **WHEN** a document containing three images is serialised thirty times
+- **THEN** every serialisation produces the same bytes
+
+#### Scenario: Image order follows the document
+- **WHEN** a document places image A before image B
+- **THEN** the resource entries list A before B
+
+### Requirement: Glyph positions match layout including kerning
+
+The writer SHALL use the advance calculated by layout for every glyph and MUST express the difference from the nominal font width as a `TJ` adjustment. Positions in the PDF MUST match layout for runs with nonzero kerning, and the text layer MUST keep extracting the same characters.
+
+#### Scenario: A kerned pair is preserved
+- **WHEN** a run contains adjacent glyphs with nonzero kerning in the font
+- **THEN** the content stream carries a nonzero `TJ` adjustment between them
+
+#### Scenario: Extraction still works
+- **WHEN** text is extracted from a PDF whose runs are written as `TJ` arrays
+- **THEN** the extracted characters match the document text
+
+#### Scenario: No kerning needed
+- **WHEN** every advance equals the nominal width
+- **THEN** no adjustment numbers are written and the run still renders correctly
