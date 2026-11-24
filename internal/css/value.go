@@ -131,8 +131,11 @@ func ParseLengthString(s string) (Length, error) {
 // Color is a parsed colour. Set is false for "transparent" and for an absent
 // value.
 type Color struct {
-	R, G, B uint8
-	Set     bool
+	// Transparent marks the transparent keyword, which is distinct from an
+	// absent colour (Set == false).
+	Transparent bool
+	R, G, B     uint8
+	Set         bool
 }
 
 var namedColors = map[string][3]uint8{
@@ -166,7 +169,7 @@ func ParseColor(toks []Token) (Color, error) {
 		if t.Kind == IdentToken {
 			name := strings.ToLower(t.Text)
 			if name == "transparent" {
-				return Color{}, nil
+				return Color{Transparent: true}, nil
 			}
 			if c, ok := namedColors[name]; ok {
 				return Color{R: c[0], G: c[1], B: c[2], Set: true}, nil

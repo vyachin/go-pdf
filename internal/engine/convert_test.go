@@ -953,3 +953,13 @@ func TestBlockImageInsideTableCell(t *testing.T) {
 		t.Fatalf("the image inside the cell is missing: %d image objects", n)
 	}
 }
+
+func TestTransparentTextColourIsRejected(t *testing.T) {
+	diags, err := Validate(context.Background(), []byte(`<p style="color:transparent">HIDDEN</p>`), Options{FallbackFont: testFontPath(t), File: "transparent.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !diags.HasErrors() {
+		t.Fatalf("color:transparent was accepted: %v", diags.Lines())
+	}
+}

@@ -86,6 +86,9 @@ var Table = map[string]PropSpec{
 			return Value{Kind: "color", Color: c}, err
 		},
 		Set: func(s *Style, v Value, _ int32) error {
+			if v.Color.Transparent {
+				return fmt.Errorf("color: transparent is not supported")
+			}
 			s.Color = v.Color
 			return nil
 		},
