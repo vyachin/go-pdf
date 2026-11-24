@@ -357,7 +357,7 @@ Address **SEC-05 first**, then silent content loss (LAY-11, LAY-13), document st
   **Reproduction:** write two text runs using Arial and Times New Roman with the same GID 30 but their respective characters U+037E and `;`. Extraction returns `;;` instead of `;;` (or duplicates the other character depending on map iteration). Every font's ToUnicode map is merged into one GID map, and `Tf` is ignored. Valid PDFs with multiple fonts therefore produce incorrect or unstable golden text.
   **Fix / acceptance:** resolve page font resources and switch the mapping on each `Tf`; preserve empty pages when exposing page-indexed text. Verify two real fonts with colliding GIDs and repeated extraction of the same bytes. Add independent text extraction in CI where practical.
 
-- [ ] **ENG-07 · P3: separate elapsed-time performance budgets from ordinary and race tests.**
+- [x] **ENG-07 · P3: separate elapsed-time performance budgets from ordinary and race tests.**
 
   **Source:** [internal/engine/bench_test.go:71](/Users/vyachin/Projects/go-pdf/internal/engine/bench_test.go:71), `TestPerformanceBudget`.
   The functional suite passes, but `go test -race ./...` failed this test because the 50-page conversion took about 1.07 seconds against an 800 ms wall-clock threshold. Race instrumentation and shared-machine load change these timings without proving a product regression.
