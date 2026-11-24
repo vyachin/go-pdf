@@ -108,11 +108,22 @@ func (s *Style) resolveEm() {
 // LineHeightMP returns the used line height in millipoints, falling back to
 // 1.2 times the font size for "auto".
 func (s *Style) LineHeightMP() int32 {
-	if s.LineHeightFactor > 0 {
-		return int32(math.Round(s.LineHeightFactor * float64(s.FontSize)))
+	var v int64
+	switch {
+	case s.LineHeightFactor > 0:
+		v = int64(math.Round(s.LineHeightFactor * float64(s.FontSize)))
+	case s.LineHeight.IsAuto():
+		v = int64(s.FontSize) * 12 / 10
+	default:
+		return s.LineHeight.Value
 	}
-	if s.LineHeight.IsAuto() {
-		return s.FontSize * 12 / 10
+	// Saturate: a large factor or font size must not narrow the product into a
+	// negative line height.
+	if v > int64(maxMillipoints) {
+		return maxMillipoints
 	}
-	return s.LineHeight.Value
+	if v < -int64(maxMillipoints) {
+		return -maxMillipoints
+	}
+	return int32(v)
 }

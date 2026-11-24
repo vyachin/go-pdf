@@ -106,6 +106,10 @@ type Token struct {
 	Num    float64
 	Unit   string
 	Offset int
+	// Bad marks a numeric token whose value does not fit in a float64. The
+	// spelling is valid CSS, so the token is still produced; every consumer
+	// must reject it instead of using a substituted zero.
+	Bad bool
 }
 
 // Tokenize splits CSS source into tokens.
@@ -247,13 +251,14 @@ func tokenizeNumber(src []byte, i *int) Token {
 	}
 	numText := string(src[start:j])
 	num, err := strconv.ParseFloat(numText, 64)
-	if err != nil {
+	bad := err != nil
+	if bad {
 		num = 0
 	}
 	if j < len(src) && src[j] == '%' {
 		j++
 		*i = j
-		return Token{Kind: PercentageToken, Text: string(src[start:j]), Num: num, Offset: start}
+		return Token{Kind: PercentageToken, Text: string(src[start:j]), Num: num, Offset: start, Bad: bad}
 	}
 	if j < len(src) && isNameStart(src[j]) {
 		unitStart := j
@@ -261,10 +266,10 @@ func tokenizeNumber(src []byte, i *int) Token {
 			j++
 		}
 		*i = j
-		return Token{Kind: DimensionToken, Text: string(src[start:j]), Num: num, Unit: strings.ToLower(string(src[unitStart:j])), Offset: start}
+		return Token{Kind: DimensionToken, Text: string(src[start:j]), Num: num, Unit: strings.ToLower(string(src[unitStart:j])), Offset: start, Bad: bad}
 	}
 	*i = j
-	return Token{Kind: NumberToken, Text: numText, Num: num, Offset: start}
+	return Token{Kind: NumberToken, Text: numText, Num: num, Offset: start, Bad: bad}
 }
 
 func isSpace(c byte) bool {

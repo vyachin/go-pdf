@@ -47,7 +47,16 @@ func (l Length) Resolve(basis int32) int32 {
 	case MP:
 		return l.Value
 	case Percent, Em:
-		return int32(int64(basis) * int64(l.Value) / 100000)
+		// Saturate instead of wrapping: a 2,000,000% value over a 200,000 mp
+		// basis would otherwise narrow to a negative length.
+		v := int64(basis) * int64(l.Value) / 100000
+		if v > int64(maxMillipoints) {
+			return maxMillipoints
+		}
+		if v < -int64(maxMillipoints) {
+			return -maxMillipoints
+		}
+		return int32(v)
 	default:
 		return 0
 	}
@@ -104,6 +113,9 @@ func scaleLength(v, factor float64) (int32, error) {
 
 // ParseLengthToken parses a single length token.
 func ParseLengthToken(t Token) (Length, error) {
+	if t.Bad {
+		return Length{}, fmt.Errorf("number %q is out of range", t.Text)
+	}
 	switch t.Kind {
 	case DimensionToken:
 		if v, ok := mpPerUnit[t.Unit]; ok {
@@ -114,6 +126,11 @@ func ParseLengthToken(t Token) (Length, error) {
 			return Abs(mp), nil
 		}
 		if t.Unit == "em" {
+			// An em length is stored in thousandths of a percent of the font
+			// size, so the scaled value must fit before the multiplication.
+			if _, err := scaleLength(t.Num, 100000); err != nil {
+				return Length{}, err
+			}
 			return EmLen(t.Num), nil
 		}
 		if t.Unit == "rem" {
@@ -237,7 +254,7 @@ func ParseColor(toks []Token) (Color, error) {
 			if t.Kind == CommaToken {
 				continue
 			}
-			if t.Kind != NumberToken {
+			if t.Kind != NumberToken || t.Bad {
 				return Color{}, fmt.Errorf("rgb() expects numbers")
 			}
 			parts = append(parts, t.Num)
@@ -360,6 +377,9 @@ const (
 func parseInt(t Token) (int, error) {
 	if t.Kind != NumberToken {
 		return 0, fmt.Errorf("expected a number, got %q", t.Text)
+	}
+	if t.Bad || !finiteInRange(t.Num) {
+		return 0, fmt.Errorf("number %q is out of range", t.Text)
 	}
 	return int(t.Num), nil
 }

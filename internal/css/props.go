@@ -2,6 +2,7 @@ package css
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 )
@@ -136,6 +137,9 @@ var Table = map[string]PropSpec{
 			}
 			switch {
 			case f[0].Kind == NumberToken:
+				if f[0].Bad || !finiteInRange(f[0].Num) {
+					return Value{}, fmt.Errorf("font-weight %q is out of range", f[0].Text)
+				}
 				return Value{Kind: "number", Number: int(f[0].Num)}, nil
 			case f[0].Kind == IdentToken:
 				switch strings.ToLower(f[0].Text) {
@@ -176,6 +180,9 @@ var Table = map[string]PropSpec{
 				return Value{Kind: "length", Length: Length{Kind: Auto}}, nil
 			}
 			if f[0].Kind == NumberToken {
+				if f[0].Bad || !finiteInRange(f[0].Num) || f[0].Num > maxLineHeightFactor {
+					return Value{}, fmt.Errorf("line-height factor %q is out of range", f[0].Text)
+				}
 				if f[0].Num <= 0 {
 					return Value{}, fmt.Errorf("line-height must be positive")
 				}
@@ -466,7 +473,21 @@ func parseInteger(toks []Token) (Value, error) {
 	if len(f) != 1 || f[0].Kind != NumberToken {
 		return Value{}, fmt.Errorf("expected an integer")
 	}
+	if f[0].Bad || !finiteInRange(f[0].Num) {
+		return Value{}, fmt.Errorf("number %q is out of range", f[0].Text)
+	}
 	return Value{Kind: "number", Number: int(f[0].Num)}, nil
+}
+
+// maxLineHeightFactor bounds a unitless line-height in the profile. The factor
+// is multiplied by the font size at use time, and a corrupt value would
+// otherwise narrow that product.
+const maxLineHeightFactor = 1000
+
+// finiteInRange reports whether v is a finite number that fits an int32 when
+// used as a count or a millipoint value.
+func finiteInRange(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v <= float64(maxMillipoints) && v >= -float64(maxMillipoints)
 }
 
 func parseBreak(toks []Token) (Value, error) {
