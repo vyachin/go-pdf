@@ -1,7 +1,10 @@
 package layout
 
 import (
+	"image"
+	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -876,5 +879,34 @@ func TestListMarkerSitsBeforeTheText(t *testing.T) {
 	}
 	if markerX < 0 {
 		t.Fatalf("the marker is outside the page: %d", markerX)
+	}
+}
+
+func TestImageMoveUsesOnePage(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 100000, Height: 100000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	img := image.NewRGBA(image.Rect(0, 0, 10, 20))
+	for i := range img.Pix {
+		img.Pix[i] = 100
+	}
+	f, err := os.Create(filepath.Join(h.images.dir, "i.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	src := `<p style="height:65pt;margin:0">A</p><img style="display:block;width:10pt;height:20pt" src="i.png"><p>B</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if diags.HasErrors() {
+		t.Fatalf("layout errors: %v", diags.Lines())
+	}
+	if len(doc.Pages) != 2 {
+		t.Fatalf("got %d pages, want 2 (ops per page: %d/%d)", len(doc.Pages), len(doc.Pages[0].Ops), len(doc.Pages[1].Ops))
+	}
+	if len(doc.Pages[1].Ops) == 0 {
+		t.Fatal("the second page is empty")
 	}
 }

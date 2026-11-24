@@ -300,7 +300,8 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 		if f.empty {
 			l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "an image is taller than the page and is clipped")
 		} else {
-			f.newPage()
+			// The page loop owns page creation: creating one here as well
+			// produced an empty page for every moved image.
 			return false
 		}
 	}
