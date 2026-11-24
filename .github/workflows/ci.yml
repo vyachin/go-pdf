@@ -23,6 +23,10 @@ jobs:
           go-version-file: go.mod
           # The module has no dependencies and therefore no go.sum.
           cache: false
+      - name: Install poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
       - name: Install pdfcpu
         # Pinned: v0.12 and later require Go 1.25, while the module targets
         # go 1.24. Bump both together.
@@ -34,4 +38,5 @@ jobs:
       - name: Test
         env:
           PDF_REQUIRE_VALIDATOR: "1"
+          PDF_REQUIRE_RENDER: "1"
         run: go test ./...
