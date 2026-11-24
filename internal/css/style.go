@@ -71,6 +71,7 @@ func NewStyle(parent *Style) *Style {
 	s.FontWeight = parent.FontWeight
 	s.FontStyle = parent.FontStyle
 	s.LineHeight = parent.LineHeight
+	s.TextIndent = parent.TextIndent
 	s.LineHeightFactor = parent.LineHeightFactor
 	s.TextAlign = parent.TextAlign
 	s.WhiteSpace = parent.WhiteSpace

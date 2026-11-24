@@ -910,3 +910,12 @@ func TestImageMoveUsesOnePage(t *testing.T) {
 		t.Fatal("the second page is empty")
 	}
 }
+
+func TestTextIndentInherits(t *testing.T) {
+	h := newHarness(t)
+	plain := textOps(h.run(`<p>X</p>`))[0].X
+	indented := textOps(h.run(`<style>body { text-indent: 20pt }</style><p>X</p>`))[0].X
+	if got := indented - plain; got != 20000 {
+		t.Fatalf("inherited text-indent shifted the line by %d, want 20000", got)
+	}
+}
