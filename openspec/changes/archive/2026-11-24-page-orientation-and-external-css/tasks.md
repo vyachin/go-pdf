@@ -1,43 +1,43 @@
 # Tasks
 
-## 1. Ориентация страницы
+## 1. Page orientation
 
-- [x] 1.1 Разобрать грамматику `size`: имя размера, одна-две длины, `portrait`/`landscape` отдельно и вместе с именем; неизвестное слово и ориентация вместе с длинами — ошибки — проверка: таблица кейсов в `internal/css` проходит
-- [x] 1.2 Добавить `css.PageSizeSpec` и `layout.ResolvePageSize(spec, fallback)`, применить в `ParsePageStyle` — проверка: `A4 landscape` даёт 297x210, `landscape` при запасном A5 даёт 210x148
-- [x] 1.3 Обновить валидацию `@page size`: `A4 sideways` и `210mm 297mm landscape` отклоняются, `A4 landscape` принимается — проверка: тесты `internal/profile`
-- [x] 1.4 Сквозной тест: PDF в альбомной ориентации имеет ширину 297 мм и высоту 210 мм, колонтитулы располагаются по новым сторонам — проверка: тест `internal/engine` читает `/MediaBox` и текст колонтитула
-- [x] 1.5 Обновить `docs/profile.md` разделом про `size` и ориентацию — проверка: пример из документа выполняется через `pdfgen validate`
+- [x] 1.1 Parse the `size` grammar: size name, one or two lengths, `portrait`/`landscape` separately and together with a name; an unknown word and orientation together with lengths — errors — check: the case table in `internal/css` passes
+- [x] 1.2 Add `css.PageSizeSpec` and `layout.ResolvePageSize(spec, fallback)`, apply in `ParsePageStyle` — check: `A4 landscape` yields 297x210, `landscape` with fallback A5 yields 210x148
+- [x] 1.3 Update `@page size` validation: `A4 sideways` and `210mm 297mm landscape` are rejected, `A4 landscape` is accepted — check: `internal/profile` tests
+- [x] 1.4 End-to-end test: a landscape PDF has width 297 mm and height 210 mm, headers and footers are placed on the new sides — check: `internal/engine` test reads `/MediaBox` and the header text
+- [x] 1.5 Update `docs/profile.md` with a section on `size` and orientation — check: the example from the document runs via `pdfgen validate`
 
-## 2. Источник правил в диагностиках
+## 2. Rule source in diagnostics
 
-- [x] 2.1 Дать `css.Stylesheet` источник (`File`, `Src`, индекс строк) и метод позиции; `Rule` и `Declaration` ДОЛЖНЫ ссылаться на свой лист — проверка: юнит-тест позиции по смещению для листа из файла
-- [x] 2.2 Перевести `profile` на позиции через лист; встроенный `<style>` продолжает указывать строки HTML — проверка: существующие тесты позиций и формата диагностик зелёные
-- [x] 2.3 Тест: объявление из подключённого файла даёт `print.css:12:4`, а не строку HTML — проверка: тест `internal/profile` на синтетическом листе
+- [x] 2.1 Give `css.Stylesheet` a source (`File`, `Src`, line index) and a position method; `Rule` and `Declaration` SHALL reference their sheet — check: unit test of the position by offset for a sheet from a file
+- [x] 2.2 Switch `profile` to positions via the sheet; inline `<style>` keeps pointing to HTML lines — check: the existing position and diagnostics format tests are green
+- [x] 2.3 Test: a declaration from an included file yields `print.css:12:4`, not an HTML line — check: `internal/profile` test on a synthetic sheet
 
-## 3. Внешние таблицы стилей
+## 3. External stylesheets
 
-- [x] 3.1 Заменить `ExtractStyleSheets` на `CollectStylesheets(doc, opts)`, который обходит DOM в порядке появления и собирает `<style>` и `<link rel="stylesheet">` — проверка: тест порядка возвращает листы в порядке документа
-- [x] 3.2 Загружать локальный файл относительно `BaseDir`, поддерживать абсолютный путь; отсутствие файла — `css/link-load`, `http(s)` — `css/link-remote`, `data:` — `css/link-unsupported` — проверка: четыре сценария в тестах
-- [x] 3.3 Ограничить пути: при заданном `BaseDir` разрешённый путь ДОЛЖЕН оставаться внутри него — проверка: тест на `../../outside.css` даёт ошибку, файл не читается
-- [x] 3.4 Реализовать правила `rel` и `media`: `stylesheet` подключается, прочие `rel` игнорируются, `print`/`all`/пусто применяются, `screen` пропускается — проверка: три теста без диагностик
-- [x] 3.5 Передать срез листов в `css.NewCascade` вариадически и проверить порядок каскада — проверка: `<style>`, `<link>`, `<style>` — побеждает последнее объявление
-- [x] 3.6 Обновить `docs/profile.md`: `<link>` поддержан, сеть запрещена, `BaseDir` обязателен для ограничения путей — проверка: раздел существует и совпадает с поведением CLI
+- [x] 3.1 Replace `ExtractStyleSheets` with `CollectStylesheets(doc, opts)`, which walks the DOM in order of appearance and collects `<style>` and `<link rel="stylesheet">` — check: the order test returns sheets in document order
+- [x] 3.2 Load a local file relative to `BaseDir`, support an absolute path; a missing file — `css/link-load`, `http(s)` — `css/link-remote`, `data:` — `css/link-unsupported` — check: four scenarios in the tests
+- [x] 3.3 Confine paths: with `BaseDir` set, the resolved path SHALL remain inside it — check: the test on `../../outside.css` gives an error, the file is not read
+- [x] 3.4 Implement the `rel` and `media` rules: `stylesheet` is included, other `rel` values are ignored, `print`/`all`/empty are applied, `screen` is skipped — check: three tests without diagnostics
+- [x] 3.5 Pass the slice of sheets to `css.NewCascade` variadically and verify the cascade order — check: `<style>`, `<link>`, `<style>` — the last declaration wins
+- [x] 3.6 Update `docs/profile.md`: `<link>` is supported, the network is forbidden, `BaseDir` is mandatory for path confinement — check: the section exists and matches the CLI behavior
 
-## 4. Скрипты и строгий режим
+## 4. Scripts and strict mode
 
-- [x] 4.1 Игнорировать `<script>`: предупреждение `html/ignored-script`, `script { display: none }` в таблице стилей движка, содержимое не попадает в PDF — проверка: тест проверяет предупреждение и отсутствие текста скрипта в выводе
-- [x] 4.2 Добавить `engine.Options.Strict` и `profile.Options{Strict}`, превращающие предупреждения в ошибки — проверка: тот же шаблон со скриптом при `Strict` даёт ошибку и не создаёт PDF
-- [x] 4.3 Добавить флаг `-strict` командам `validate` и `convert`, обновить справку — проверка: CLI-тест на код возврата 1 и текст ошибки
-- [x] 4.4 Обновить `README.md`: скрипты не исполняются, `-strict` для CI — проверка: раздел CLI содержит флаг, пример выполняется
+- [x] 4.1 Ignore `<script>`: warning `html/ignored-script`, `script { display: none }` in the engine's stylesheet, the content does not get into the PDF — check: the test verifies the warning and the absence of the script text in the output
+- [x] 4.2 Add `engine.Options.Strict` and `profile.Options{Strict}`, turning warnings into errors — check: the same template with a script under `Strict` gives an error and does not create a PDF
+- [x] 4.3 Add the `-strict` flag to the `validate` and `convert` commands, update the help — check: CLI test on exit code 1 and the error text
+- [x] 4.4 Update `README.md`: scripts are not executed, `-strict` for CI — check: the CLI section contains the flag, the example runs
 
-## 5. Фикстура и приёмка
+## 5. Fixture and acceptance
 
-- [x] 5.1 Написать `testdata/bigtable.html`: 35 строк на 11 колонок, русский текст, `thead`, `tfoot`, `@page { size: A4 landscape }` — проверка: `pdfgen validate` без ошибок, сборка даёт не менее трёх страниц
-- [x] 5.2 Проверить пагинацию фикстуры: шапка повторяется на каждой странице, итоги `tfoot` только на последней — проверка: тест разбирает текст страниц
-- [x] 5.3 Добавить золотой текст фикстуры в корпус движка и проверить детерминизм — проверка: `go test ./internal/engine -update`, затем повторный прогон без `-update`
-- [x] 5.4 Прогнать приёмку: `go vet ./...`, `go test ./...`, `go test ./internal/mpdfcompat`, `openspec validate page-orientation-and-external-css` — проверка: всё зелёное, предупреждения только про язык спек
+- [x] 5.1 Write `testdata/bigtable.html`: 35 rows by 11 columns, Russian text, `thead`, `tfoot`, `@page { size: A4 landscape }` — check: `pdfgen validate` without errors, the build produces at least three pages
+- [x] 5.2 Verify the pagination of the fixture: the header repeats on every page, `tfoot` totals only on the last one — check: the test parses the page text
+- [x] 5.3 Add the fixture's golden text to the engine corpus and verify deterministic output — check: `go test ./internal/engine -update`, then a repeat run without `-update`
+- [x] 5.4 Run acceptance: `go vet ./...`, `go test ./...`, `go test ./internal/mpdfcompat`, `openspec validate page-orientation-and-external-css` — check: everything is green, warnings only about the spec language
 
 ## Workflow follow-up
 
-- Архивировать change после прохождения ревью и проверки на фикстуре.
-- Синхронизировать дельты `css-profile` и `pagination` в главные спеки при архивации.
+- Archive the change after review and verification against the fixture.
+- Sync the `css-profile` and `pagination` deltas into the main specs when archiving.

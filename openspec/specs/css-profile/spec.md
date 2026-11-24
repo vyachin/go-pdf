@@ -2,223 +2,223 @@
 
 ## Purpose
 
-Определяет, какое подмножество HTML и CSS движок обязан понимать, и как он сообщает о неподдерживаемом. Профиль — это контракт: шаблон либо валиден целиком, либо получает диагностику до начала рендеринга.
+Defines which subset of HTML and CSS the engine is required to understand, and how it reports what is unsupported. The profile is a contract: a template is either valid as a whole or receives a diagnostic before rendering begins.
 
 ## Requirements
 
-### Requirement: Профиль как закрытый белый список
+### Requirement: The profile is a closed allow-list
 
-Движок ДОЛЖЕН принимать только элементы, свойства, значения, единицы и at-правила, перечисленные в профиле v1. Любое неподдерживаемое свойство, значение, единица или at-правило ДОЛЖНО приводить к ошибке валидации, а не к молчаливому игнорированию.
+The engine SHALL accept only the elements, properties, values, units and at-rules listed in the v1 profile. Any unsupported property, value, unit or at-rule SHALL produce a validation error rather than being silently ignored.
 
-#### Scenario: Неподдерживаемое значение display
-- **WHEN** шаблон содержит `div { display: flex }`
-- **THEN** валидация завершается ошибкой с указанием свойства, значения, файла и позиции
-- **AND** рендеринг не запускается
+#### Scenario: Unsupported display value
+- **WHEN** the template contains `div { display: flex }`
+- **THEN** validation fails with the property, the value, the file and the position named
+- **AND** rendering does not start
 
-#### Scenario: Неподдерживаемое свойство
-- **WHEN** шаблон содержит `box-shadow: 0 0 4px #000`
-- **THEN** валидация завершается ошибкой с указанием, что свойство не входит в профиль v1
+#### Scenario: Unsupported property
+- **WHEN** the template contains `box-shadow: 0 0 4px #000`
+- **THEN** validation fails, stating that the property is not part of the v1 profile
 
-#### Scenario: Полностью поддерживаемый шаблон
-- **WHEN** все элементы и свойства шаблона входят в профиль
-- **THEN** валидация завершается успешно без диагностик
+#### Scenario: A fully supported template
+- **WHEN** every element and property of the template is part of the profile
+- **THEN** validation succeeds without diagnostics
 
-### Requirement: Поддерживаемые элементы
+### Requirement: Supported elements
 
-Профиль ДОЛЖЕН включать элементы `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`, `link` (только как подключение таблицы стилей) и `script` (только для игнорирования). Неизвестный элемент ДОЛЖЕН отклоняться с указанием имени и позиции.
+The profile SHALL include the elements `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`, `link` (only as a stylesheet reference) and `script` (only to be ignored). An unknown element SHALL be rejected with its name and position named.
 
-#### Scenario: Разрешённый элемент
-- **WHEN** шаблон содержит элемент `h2`
-- **THEN** валидация принимает элемент, а layout применяет к нему стили по умолчанию из таблицы стилей движка
+#### Scenario: An accepted element
+- **WHEN** the template contains an `h2` element
+- **THEN** validation accepts the element and layout applies the engine stylesheet's default styles to it
 
-#### Scenario: Неизвестный элемент
-- **WHEN** шаблон содержит элемент `video`
-- **THEN** валидация завершается ошибкой с указанием имени элемента и его позиции
+#### Scenario: An unknown element
+- **WHEN** the template contains a `video` element
+- **THEN** validation fails with the element name and its position named
 
-#### Scenario: Подключение таблицы стилей
-- **WHEN** шаблон содержит `<link rel="stylesheet" href="styles/print.css">`
-- **THEN** валидация принимает элемент, а стили из файла участвуют в каскаде
+#### Scenario: Referencing a stylesheet
+- **WHEN** the template contains `<link rel="stylesheet" href="styles/print.css">`
+- **THEN** validation accepts the element and the styles from the file take part in the cascade
 
-#### Scenario: Ссылка не на стили
-- **WHEN** шаблон содержит `<link rel="icon" href="favicon.ico">`
-- **THEN** валидация не выдаёт диагностик, а элемент не влияет на вёрстку
+#### Scenario: A link that is not a stylesheet
+- **WHEN** the template contains `<link rel="icon" href="favicon.ico">`
+- **THEN** validation emits no diagnostics and the element does not affect layout
 
-### Requirement: Поддерживаемые свойства блочной модели
+### Requirement: Supported box model properties
 
-Профиль ДОЛЖЕН включать свойства `display`, `width`, `height`, `margin`, `padding`, `border`, `border-collapse` и `background-color`. Значения свойств вне профиля ДОЛЖНЫ отклоняться.
+The profile SHALL include the properties `display`, `width`, `height`, `margin`, `padding`, `border`, `border-collapse` and `background-color`. Property values outside the profile SHALL be rejected.
 
-#### Scenario: Рамка и отступы
-- **WHEN** шаблон задаёт `padding: 4mm` и `border: 1pt solid #000`
-- **THEN** валидация принимает оба объявления и layout применяет их к боксу
+#### Scenario: Border and padding
+- **WHEN** the template sets `padding: 4mm` and `border: 1pt solid #000`
+- **THEN** validation accepts both declarations and layout applies them to the box
 
-#### Scenario: Неподдерживаемое значение display
-- **WHEN** шаблон задаёт `display: grid`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported display value
+- **WHEN** the template sets `display: grid`
+- **THEN** validation fails with the unsupported value named
 
-### Requirement: Поддерживаемые свойства текста
+### Requirement: Supported text properties
 
-Профиль ДОЛЖЕН включать свойства `color`, `font-family`, `font-size`, `font-weight`, `font-style`, `line-height`, `text-align`, `text-indent`, `white-space` и `vertical-align`. Значения свойств вне профиля ДОЛЖНЫ отклоняться.
+The profile SHALL include the properties `color`, `font-family`, `font-size`, `font-weight`, `font-style`, `line-height`, `text-align`, `text-indent`, `white-space` and `vertical-align`. Property values outside the profile SHALL be rejected.
 
-#### Scenario: Начертание и размер
-- **WHEN** шаблон задаёт `font-family: "PT Serif"`, `font-size: 12pt` и `font-weight: 700`
-- **THEN** валидация принимает объявления, и текст рендерится указанным начертанием
+#### Scenario: Typeface and size
+- **WHEN** the template sets `font-family: "PT Serif"`, `font-size: 12pt` and `font-weight: 700`
+- **THEN** validation accepts the declarations and the text is rendered in the specified typeface
 
-#### Scenario: Неподдерживаемое значение white-space
-- **WHEN** шаблон задаёт `white-space: pre-wrap`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported white-space value
+- **WHEN** the template sets `white-space: pre-wrap`
+- **THEN** validation fails with the unsupported value named
 
-### Requirement: Поддерживаемые свойства разрывов и списков
+### Requirement: Supported break and list properties
 
-Профиль ДОЛЖЕН включать свойства `break-before`, `break-after`, `break-inside`, `page-break-before`, `page-break-after`, `page-break-inside`, `orphans`, `widows` и `list-style-type`.
+The profile SHALL include the properties `break-before`, `break-after`, `break-inside`, `page-break-before`, `page-break-after`, `page-break-inside`, `orphans`, `widows` and `list-style-type`.
 
-#### Scenario: Запрет разрыва в шаблоне
-- **WHEN** шаблон задаёт `page-break-inside: avoid` для строки таблицы
-- **THEN** валидация принимает объявление и передаёт его в пагинацию
+#### Scenario: Prohibiting a break in the template
+- **WHEN** the template sets `page-break-inside: avoid` for a table row
+- **THEN** validation accepts the declaration and passes it to pagination
 
-#### Scenario: Неподдерживаемое значение list-style-type
-- **WHEN** шаблон задаёт `list-style-type: lower-roman`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported list-style-type value
+- **WHEN** the template sets `list-style-type: lower-roman`
+- **THEN** validation fails with the unsupported value named
 
-### Requirement: Поддерживаемые единицы измерения
+### Requirement: Supported units of measurement
 
-Движок ДОЛЖЕН поддерживать единицы `px`, `pt`, `mm`, `cm`, `in`, `%` и `em`. Проценты ДОЛЖНЫ разрешаться относительно содержащего блока, `em` — относительно вычисленного `font-size` элемента. Единицы `rem`, `vw`, `vh`, `ch` ДОЛЖНЫ отклоняться как неподдерживаемые.
+The engine SHALL support the units `px`, `pt`, `mm`, `cm`, `in`, `%` and `em`. Percentages SHALL resolve against the containing block and `em` against the element's computed `font-size`. The units `rem`, `vw`, `vh` and `ch` SHALL be rejected as unsupported.
 
-#### Scenario: Смешанные единицы
-- **WHEN** шаблон задаёт `width: 100mm` и `padding: 1.5em` при `font-size: 12pt`
-- **THEN** ширины переводятся в единую внутреннюю единицу без потери точности
-- **AND** ширина блока равна 100 мм
+#### Scenario: Mixed units
+- **WHEN** the template sets `width: 100mm` and `padding: 1.5em` with `font-size: 12pt`
+- **THEN** the widths are converted to a single internal unit without loss of precision
+- **AND** the block width equals 100 mm
 
-#### Scenario: Неподдерживаемая единица
-- **WHEN** шаблон содержит `margin: 2rem`
-- **THEN** валидация завершается ошибкой с указанием единицы `rem`
+#### Scenario: Unsupported unit
+- **WHEN** the template contains `margin: 2rem`
+- **THEN** validation fails with the `rem` unit named
 
-### Requirement: Порядок каскада и наследование
+### Requirement: Cascade order and inheritance
 
-Движок ДОЛЖЕН разрешать конфликты стилей в порядке: стили браузера по умолчанию, затем авторские стили по возрастанию специфичности селектора, затем атрибут `style`. При равной специфичности ДОЛЖЕН побеждать объявленный позже. Сокращённые свойства ДОЛЖНЫ раскрываться в длинные.
+The engine SHALL resolve style conflicts in this order: the browser's default styles, then author styles in ascending order of selector specificity, then the `style` attribute. With equal specificity the declaration made later SHALL win. Shorthand properties SHALL expand into longhands.
 
-#### Scenario: Inline-стиль важнее селектора класса
-- **WHEN** `td` имеет класс с `color: red` и атрибут `style="color: blue"`
-- **THEN** итоговый цвет текста — blue
+#### Scenario: An inline style beats a class selector
+- **WHEN** a `td` has a class with `color: red` and a `style="color: blue"` attribute
+- **THEN** the resulting text colour is blue
 
-#### Scenario: Более позднее правило при равной специфичности
-- **WHEN** два правила с одинаковой специфичностью задают разный `font-size`
-- **THEN** применяется значение из правила, объявленного последним
+#### Scenario: A later rule at equal specificity
+- **WHEN** two rules of the same specificity set different `font-size` values
+- **THEN** the value from the rule declared last applies
 
-### Requirement: Поддерживаемые селекторы
+### Requirement: Supported selectors
 
-Движок ДОЛЖЕН поддерживать селекторы по имени элемента, классу, идентификатору, их комбинации, потомку (пробел) и прямому ребёнку (`>`), а также перечисление через запятую. Псевдоклассы и атрибутные селекторы ДОЛЖНЫ отклоняться как неподдерживаемые. Единственное исключение для псевдоэлементов описано отдельным требованием.
+The engine SHALL support selectors by element name, class and identifier, their combinations, descendant (space) and direct child (`>`), as well as comma-separated lists. Pseudo-classes and attribute selectors SHALL be rejected as unsupported. The single exception for pseudo-elements is described in a separate requirement.
 
-#### Scenario: Комбинированный селектор
-- **WHEN** шаблон содержит `.invoice > td.total`
-- **THEN** правило применяется к ячейкам с классом `total` внутри строки с классом `invoice`
+#### Scenario: A combined selector
+- **WHEN** the template contains `.invoice > td.total`
+- **THEN** the rule applies to cells with class `total` inside a row with class `invoice`
 
-#### Scenario: Неподдерживаемый псевдокласс
-- **WHEN** шаблон содержит `tr:nth-child(2n)`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого селектора
+#### Scenario: Unsupported pseudo-class
+- **WHEN** the template contains `tr:nth-child(2n)`
+- **THEN** validation fails with the unsupported selector named
 
-#### Scenario: Неподдерживаемый псевдоэлемент
-- **WHEN** шаблон содержит `p::before { color: red }`
-- **THEN** валидация завершается ошибкой с указанием, что поддерживается только `a::after`
+#### Scenario: Unsupported pseudo-element
+- **WHEN** the template contains `p::before { color: red }`
+- **THEN** validation fails, stating that only `a::after` is supported
 
-### Requirement: Диагностика привязана к источнику
+### Requirement: Diagnostics are tied to their source
 
-Каждая диагностика ДОЛЖНА содержать файл, строку, столбец и путь элемента в дереве документа. Движок ДОЛЖЕН сообщать все найденные ошибки за один проход валидации, а не только первую. Порядок диагностик ДОЛЖЕН быть детерминированным.
+Every diagnostic SHALL carry the file, line, column and the element's path in the document tree. The engine SHALL report every error it finds in a single validation pass, not only the first. The order of diagnostics SHALL be deterministic.
 
-#### Scenario: Несколько ошибок за один проход
-- **WHEN** шаблон содержит три неподдерживаемых объявления в разных местах
-- **THEN** отчёт содержит три диагностики с независимыми координатами
+#### Scenario: Several errors in one pass
+- **WHEN** the template contains three unsupported declarations in different places
+- **THEN** the report contains three diagnostics with independent coordinates
 
-#### Scenario: Повторный запуск даёт тот же отчёт
-- **WHEN** валидация одного и того же шаблона выполняется дважды
-- **THEN** список диагностик совпадает по составу и порядку
+#### Scenario: A repeated run gives the same report
+- **WHEN** the same template is validated twice
+- **THEN** the list of diagnostics matches in content and order
 
-### Requirement: Псевдоэлемент `a::after` для сгенерированного содержимого
+### Requirement: The `a::after` pseudo-element for generated content
 
-Движок ДОЛЖЕН поддерживать ровно один псевдоэлемент — `a::after`, и только для свойства `content`. Значение `content` ДОЛЖНО состоять из строк, `counter(page)`, `counter(pages)` и `target-counter(attr(href), page)`. Любой другой селектор с псевдоэлементом или любое другое свойство внутри `a::after` ДОЛЖНЫ отклоняться. Вне `a::after` свойство `content` не поддерживается.
+The engine SHALL support exactly one pseudo-element — `a::after` — and only for the `content` property. A `content` value SHALL consist of strings, `counter(page)`, `counter(pages)` and `target-counter(attr(href), page)`. Any other selector with a pseudo-element, or any other property inside `a::after`, SHALL be rejected. Outside `a::after` the `content` property is not supported.
 
-#### Scenario: Номер страницы в оглавлении
-- **WHEN** шаблон содержит `a.toc::after { content: target-counter(attr(href), page) }`
-- **THEN** валидация принимает правило, а после рендеринга к тексту ссылки добавляется номер целевой страницы
+#### Scenario: A page number in the table of contents
+- **WHEN** the template contains `a.toc::after { content: target-counter(attr(href), page) }`
+- **THEN** validation accepts the rule and, after rendering, the target page number is appended to the link text
 
-#### Scenario: Другой псевдоэлемент
-- **WHEN** шаблон содержит `p::before { content: "x" }`
-- **THEN** валидация завершается ошибкой `css/unsupported-selector`
+#### Scenario: Another pseudo-element
+- **WHEN** the template contains `p::before { content: "x" }`
+- **THEN** validation fails with `css/unsupported-selector`
 
-#### Scenario: Свойство внутри a::after
-- **WHEN** шаблон содержит `a::after { color: red }`
-- **THEN** валидация завершается ошибкой `css/unsupported-property`
+#### Scenario: A property inside a::after
+- **WHEN** the template contains `a::after { color: red }`
+- **THEN** validation fails with `css/unsupported-property`
 
-#### Scenario: content вне a::after
-- **WHEN** шаблон содержит `p { content: "x" }`
-- **THEN** валидация завершается ошибкой `css/unsupported-property`
+#### Scenario: content outside a::after
+- **WHEN** the template contains `p { content: "x" }`
+- **THEN** validation fails with `css/unsupported-property`
 
-### Requirement: Валидация профиля без рендеринга
+### Requirement: Profile validation without rendering
 
-Движок ДОЛЖЕН предоставлять режим проверки шаблона, который завершается без создания PDF, с ненулевым кодом возврата при наличии ошибок. Этот режим ДОЛЖЕН быть пригоден для запуска в CI.
+The engine SHALL provide a template-check mode that finishes without producing a PDF, with a nonzero exit code when there are errors. This mode SHALL be suitable for running in CI.
 
-#### Scenario: Проверка корректного шаблона
-- **WHEN** запускается проверка шаблона, полностью входящего в профиль
-- **THEN** код возврата равен нулю, PDF не создаётся
+#### Scenario: Checking a valid template
+- **WHEN** a template that is entirely within the profile is checked
+- **THEN** the exit code is zero and no PDF is produced
 
-#### Scenario: Проверка шаблона с ошибкой
-- **WHEN** запускается проверка шаблона с неподдерживаемым свойством
-- **THEN** код возврата ненулевой, диагностика выведена, PDF не создаётся
+#### Scenario: Checking a template with an error
+- **WHEN** a template with an unsupported property is checked
+- **THEN** the exit code is nonzero, the diagnostic is printed and no PDF is produced
 
-### Requirement: Локальная таблица стилей по ссылке
+### Requirement: A local stylesheet referenced by link
 
-Элемент `link` с `rel="stylesheet"` и локальным `href` ДОЛЖЕН подключать таблицу стилей к каскаду в порядке появления в документе. Атрибут `media` со значением `print`, `all` или пустым ДОЛЖЕН применять лист; иное значение ДОЛЖНО пропускать лист без диагностики.
+A `link` element with `rel="stylesheet"` and a local `href` SHALL add the stylesheet to the cascade in document order. A `media` attribute whose value is `print`, `all` or empty SHALL apply the sheet; any other value SHALL skip the sheet without a diagnostic.
 
-#### Scenario: Порядок каскада
-- **WHEN** документ объявляет `<style>` с цветом, затем `<link>` с другим цветом, затем ещё один `<style>`
-- **THEN** применяется цвет из последнего объявления, как в обычном каскаде CSS
+#### Scenario: Cascade order
+- **WHEN** a document declares a `<style>` with a colour, then a `<link>` with another colour, then another `<style>`
+- **THEN** the colour from the last declaration applies, as in a normal CSS cascade
 
-#### Scenario: Лист только для печати
-- **WHEN** `<link rel="stylesheet" media="print" href="print.css">` задаёт отступ
-- **THEN** отступ применяется при сборке PDF
+#### Scenario: A print-only sheet
+- **WHEN** `<link rel="stylesheet" media="print" href="print.css">` sets padding
+- **THEN** the padding is applied when the PDF is built
 
-#### Scenario: Лист для экрана
-- **WHEN** `<link rel="stylesheet" media="screen" href="screen.css">` задаёт отступ
-- **THEN** лист пропускается, сборка завершается успешно, диагностик нет
+#### Scenario: A screen sheet
+- **WHEN** `<link rel="stylesheet" media="screen" href="screen.css">` sets padding
+- **THEN** the sheet is skipped, the build succeeds and there are no diagnostics
 
-#### Scenario: Обычная ссылка
-- **WHEN** документ содержит `<link rel="canonical" href="https://example.com/">`
-- **THEN** элемент игнорируется, диагностик нет
+#### Scenario: An ordinary link
+- **WHEN** the document contains `<link rel="canonical" href="https://example.com/">`
+- **THEN** the element is ignored and there are no diagnostics
 
-### Requirement: Границы путей и диагностика внешних стилей
+### Requirement: Path boundaries and diagnostics for external styles
 
-Удалённые источники стилей и `data:`-URL ДОЛЖНЫ отклоняться. Отсутствующий локальный файл ДОЛЖЕН давать ошибку с указанием пути. Если задан базовый каталог, разрешённый путь ДОЛЖЕН оставаться внутри него. Диагностика объявления из внешнего файла ДОЛЖНА указывать файл, строку и столбец в этом файле.
+Remote style sources and `data:` URLs SHALL be rejected. A missing local file SHALL produce an error naming the path. When a base directory is configured, a permitted path SHALL stay inside it. A diagnostic for a declaration from an external file SHALL name the file, line and column in that file.
 
-#### Scenario: Удалённый стиль
+#### Scenario: Remote stylesheet
 - **WHEN** `<link rel="stylesheet" href="https://example.com/site.css">`
-- **THEN** валидация завершается ошибкой `css/link-remote`, PDF не создаётся
+- **THEN** validation fails with `css/link-remote` and no PDF is produced
 
-#### Scenario: Отсутствующий файл
+#### Scenario: Missing file
 - **WHEN** `<link rel="stylesheet" href="styles/missing.css">`
-- **THEN** выводится ошибка `css/link-load` с указанием пути к файлу
+- **THEN** the error `css/link-load` is printed with the file path named
 
-#### Scenario: Выход за базовый каталог
-- **WHEN** при заданном базовом каталоге шаблон ссылается на `../../outside.css`
-- **THEN** валидация завершается ошибкой, файл не читается
+#### Scenario: Escaping the base directory
+- **WHEN** with a base directory configured, the template links `../../outside.css`
+- **THEN** validation fails and the file is not read
 
-#### Scenario: Ошибка внутри подключённого файла
-- **WHEN** в `styles/print.css` на строке 12 объявлено `display: flex`
-- **THEN** диагностика указывает `styles/print.css:12` со столбцом, а не строку HTML
+#### Scenario: An error inside a linked file
+- **WHEN** line 12 of `styles/print.css` declares `display: flex`
+- **THEN** the diagnostic points at `styles/print.css:12` with a column, not at the HTML line
 
-### Requirement: Игнорирование скриптов
+### Requirement: Ignoring scripts
 
-Элемент `script` ДОЛЖЕН игнорироваться: его содержимое не исполняется и не участвует в раскладке. Валидация ДОЛЖНА выдавать предупреждение `html/ignored-script` с позицией элемента. В строгом режиме это предупреждение ДОЛЖНО становиться ошибкой.
+A `script` element SHALL be ignored: its content is not executed and takes no part in layout. Validation SHALL emit an `html/ignored-script` warning with the element's position. In strict mode this warning SHALL become an error.
 
-#### Scenario: Скрипт в шаблоне
-- **WHEN** шаблон содержит `<script>console.log("x")</script>` и текст
-- **THEN** сборка успешна, выводится предупреждение, а содержимое скрипта не попадает в PDF
+#### Scenario: A script in the template
+- **WHEN** the template contains `<script>console.log("x")</script>` and text
+- **THEN** the build succeeds, a warning is printed and the script content does not appear in the PDF
 
-#### Scenario: Строгий режим
-- **WHEN** сборка запущена с `-strict` и шаблон содержит `<script>`
-- **THEN** валидация завершается ошибкой, PDF не создаётся
+#### Scenario: Strict mode
+- **WHEN** the build runs with `-strict` and the template contains `<script>`
+- **THEN** validation fails and no PDF is produced
 
-#### Scenario: Разметка внутри шаблонного скрипта
-- **WHEN** скрипт объявлен как `<script type="text/template"><p>шаблон</p></script>`
-- **THEN** разметка внутри не рендерится, но и не вызывает ошибки
+#### Scenario: Markup inside a template script
+- **WHEN** the script is declared as `<script type="text/template"><p>template</p></script>`
+- **THEN** the markup inside is not rendered but also does not raise an error
 
 ### Requirement: Stylesheet paths cannot escape through symlinks
 

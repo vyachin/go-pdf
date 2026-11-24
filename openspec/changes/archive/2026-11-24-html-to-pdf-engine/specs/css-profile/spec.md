@@ -2,156 +2,156 @@
 
 ## Purpose
 
-Определяет, какое подмножество HTML и CSS движок обязан понимать, и как он сообщает о неподдерживаемом. Профиль — это контракт: шаблон либо валиден целиком, либо получает диагностику до начала рендеринга.
+Defines which subset of HTML and CSS the engine must understand and how it reports the unsupported. The profile is a contract: a template is either valid as a whole or receives a diagnostic before rendering starts.
 
 ## ADDED Requirements
 
-### Requirement: Профиль как закрытый белый список
+### Requirement: Profile as a closed allow-list
 
-Движок ДОЛЖЕН принимать только элементы, свойства, значения, единицы и at-правила, перечисленные в профиле v1. Любое неподдерживаемое свойство, значение, единица или at-правило ДОЛЖНО приводить к ошибке валидации, а не к молчаливому игнорированию.
+The engine SHALL accept only the elements, properties, values, units and at-rules listed in the v1 profile. Any unsupported property, value, unit or at-rule MUST lead to a validation error rather than to silent ignoring.
 
-#### Scenario: Неподдерживаемое значение display
-- **WHEN** шаблон содержит `div { display: flex }`
-- **THEN** валидация завершается ошибкой с указанием свойства, значения, файла и позиции
-- **AND** рендеринг не запускается
+#### Scenario: Unsupported display value
+- **WHEN** the template contains `div { display: flex }`
+- **THEN** validation fails, naming the property, the value, the file and the position
+- **AND** rendering does not start
 
-#### Scenario: Неподдерживаемое свойство
-- **WHEN** шаблон содержит `box-shadow: 0 0 4px #000`
-- **THEN** валидация завершается ошибкой с указанием, что свойство не входит в профиль v1
+#### Scenario: Unsupported property
+- **WHEN** the template contains `box-shadow: 0 0 4px #000`
+- **THEN** validation fails, stating that the property is not part of the v1 profile
 
-#### Scenario: Полностью поддерживаемый шаблон
-- **WHEN** все элементы и свойства шаблона входят в профиль
-- **THEN** валидация завершается успешно без диагностик
+#### Scenario: Fully supported template
+- **WHEN** all elements and properties of the template are part of the profile
+- **THEN** validation succeeds without diagnostics
 
-### Requirement: Поддерживаемые элементы
+### Requirement: Supported elements
 
-Профиль ДОЛЖЕН включать элементы `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`. Неизвестный элемент ДОЛЖЕН отклоняться с указанием имени и позиции.
+The profile SHALL include the elements `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`. An unknown element MUST be rejected with its name and position.
 
-#### Scenario: Разрешённый элемент
-- **WHEN** шаблон содержит элемент `h2`
-- **THEN** валидация принимает элемент, а layout применяет к нему стили по умолчанию из таблицы стилей движка
+#### Scenario: Allowed element
+- **WHEN** the template contains an `h2` element
+- **THEN** validation accepts the element, and layout applies the default styles from the engine stylesheet to it
 
-#### Scenario: Неизвестный элемент
-- **WHEN** шаблон содержит элемент `video`
-- **THEN** валидация завершается ошибкой с указанием имени элемента и его позиции
+#### Scenario: Unknown element
+- **WHEN** the template contains a `video` element
+- **THEN** validation fails, naming the element and its position
 
-### Requirement: Поддерживаемые свойства блочной модели
+### Requirement: Supported box model properties
 
-Профиль ДОЛЖЕН включать свойства `display`, `width`, `height`, `margin`, `padding`, `border`, `border-collapse` и `background-color`. Значения свойств вне профиля ДОЛЖНЫ отклоняться.
+The profile SHALL include the properties `display`, `width`, `height`, `margin`, `padding`, `border`, `border-collapse` and `background-color`. Property values outside the profile MUST be rejected.
 
-#### Scenario: Рамка и отступы
-- **WHEN** шаблон задаёт `padding: 4mm` и `border: 1pt solid #000`
-- **THEN** валидация принимает оба объявления и layout применяет их к боксу
+#### Scenario: Border and padding
+- **WHEN** the template sets `padding: 4mm` and `border: 1pt solid #000`
+- **THEN** validation accepts both declarations and layout applies them to the box
 
-#### Scenario: Неподдерживаемое значение display
-- **WHEN** шаблон задаёт `display: grid`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported display value
+- **WHEN** the template sets `display: grid`
+- **THEN** validation fails, naming the unsupported value
 
-### Requirement: Поддерживаемые свойства текста
+### Requirement: Supported text properties
 
-Профиль ДОЛЖЕН включать свойства `color`, `font-family`, `font-size`, `font-weight`, `font-style`, `line-height`, `text-align`, `text-indent`, `white-space` и `vertical-align`. Значения свойств вне профиля ДОЛЖНЫ отклоняться.
+The profile SHALL include the properties `color`, `font-family`, `font-size`, `font-weight`, `font-style`, `line-height`, `text-align`, `text-indent`, `white-space` and `vertical-align`. Property values outside the profile MUST be rejected.
 
-#### Scenario: Начертание и размер
-- **WHEN** шаблон задаёт `font-family: "PT Serif"`, `font-size: 12pt` и `font-weight: 700`
-- **THEN** валидация принимает объявления, и текст рендерится указанным начертанием
+#### Scenario: Style and size
+- **WHEN** the template sets `font-family: "PT Serif"`, `font-size: 12pt` and `font-weight: 700`
+- **THEN** validation accepts the declarations, and the text is rendered in the specified style
 
-#### Scenario: Неподдерживаемое значение white-space
-- **WHEN** шаблон задаёт `white-space: pre-wrap`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported white-space value
+- **WHEN** the template sets `white-space: pre-wrap`
+- **THEN** validation fails, naming the unsupported value
 
-### Requirement: Поддерживаемые свойства разрывов и списков
+### Requirement: Supported break and list properties
 
-Профиль ДОЛЖЕН включать свойства `break-before`, `break-after`, `break-inside`, `page-break-before`, `page-break-after`, `page-break-inside`, `orphans`, `widows` и `list-style-type`.
+The profile SHALL include the properties `break-before`, `break-after`, `break-inside`, `page-break-before`, `page-break-after`, `page-break-inside`, `orphans`, `widows` and `list-style-type`.
 
-#### Scenario: Запрет разрыва в шаблоне
-- **WHEN** шаблон задаёт `page-break-inside: avoid` для строки таблицы
-- **THEN** валидация принимает объявление и передаёт его в пагинацию
+#### Scenario: Prohibition of a break in a template
+- **WHEN** the template sets `page-break-inside: avoid` for a table row
+- **THEN** validation accepts the declaration and passes it to pagination
 
-#### Scenario: Неподдерживаемое значение list-style-type
-- **WHEN** шаблон задаёт `list-style-type: lower-roman`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported list-style-type value
+- **WHEN** the template sets `list-style-type: lower-roman`
+- **THEN** validation fails, naming the unsupported value
 
-### Requirement: Поддерживаемые единицы измерения
+### Requirement: Supported units of measurement
 
-Движок ДОЛЖЕН поддерживать единицы `px`, `pt`, `mm`, `cm`, `in`, `%` и `em`. Проценты ДОЛЖНЫ разрешаться относительно содержащего блока, `em` — относительно вычисленного `font-size` элемента. Единицы `rem`, `vw`, `vh`, `ch` ДОЛЖНЫ отклоняться как неподдерживаемые.
+The engine SHALL support the units `px`, `pt`, `mm`, `cm`, `in`, `%` and `em`. Percentages MUST resolve against the containing block, `em` against the computed `font-size` of the element. The units `rem`, `vw`, `vh`, `ch` MUST be rejected as unsupported.
 
-#### Scenario: Смешанные единицы
-- **WHEN** шаблон задаёт `width: 100mm` и `padding: 1.5em` при `font-size: 12pt`
-- **THEN** ширины переводятся в единую внутреннюю единицу без потери точности
-- **AND** ширина блока равна 100 мм
+#### Scenario: Mixed units
+- **WHEN** the template sets `width: 100mm` and `padding: 1.5em` at `font-size: 12pt`
+- **THEN** widths are converted into a single internal unit without loss of precision
+- **AND** the block width equals 100 mm
 
-#### Scenario: Неподдерживаемая единица
-- **WHEN** шаблон содержит `margin: 2rem`
-- **THEN** валидация завершается ошибкой с указанием единицы `rem`
+#### Scenario: Unsupported unit
+- **WHEN** the template contains `margin: 2rem`
+- **THEN** validation fails, naming the unit `rem`
 
-### Requirement: Порядок каскада и наследование
+### Requirement: Cascade order and inheritance
 
-Движок ДОЛЖЕН разрешать конфликты стилей в порядке: стили браузера по умолчанию, затем авторские стили по возрастанию специфичности селектора, затем атрибут `style`. При равной специфичности ДОЛЖЕН побеждать объявленный позже. Сокращённые свойства ДОЛЖНЫ раскрываться в длинные.
+The engine SHALL resolve style conflicts in the order: browser default styles, then author styles by increasing selector specificity, then the `style` attribute. With equal specificity, the declaration made later MUST win. Shorthand properties MUST expand into longhand ones.
 
-#### Scenario: Inline-стиль важнее селектора класса
-- **WHEN** `td` имеет класс с `color: red` и атрибут `style="color: blue"`
-- **THEN** итоговый цвет текста — blue
+#### Scenario: Inline style beats a class selector
+- **WHEN** `td` has a class with `color: red` and the attribute `style="color: blue"`
+- **THEN** the resulting text colour is blue
 
-#### Scenario: Более позднее правило при равной специфичности
-- **WHEN** два правила с одинаковой специфичностью задают разный `font-size`
-- **THEN** применяется значение из правила, объявленного последним
+#### Scenario: A later rule with equal specificity
+- **WHEN** two rules with the same specificity set a different `font-size`
+- **THEN** the value from the rule declared last applies
 
-### Requirement: Поддерживаемые селекторы
+### Requirement: Supported selectors
 
-Движок ДОЛЖЕН поддерживать селекторы по имени элемента, классу, идентификатору, их комбинации, потомку (пробел) и прямому ребёнку (`>`), а также перечисление через запятую. Псевдоклассы и атрибутные селекторы ДОЛЖНЫ отклоняться как неподдерживаемые. Единственное исключение для псевдоэлементов описано отдельным требованием.
+The engine SHALL support selectors by element name, class, id, their combination, descendant (space) and direct child (`>`), as well as a comma-separated list. Pseudo-classes and attribute selectors MUST be rejected as unsupported. The single exception for pseudo-elements is described in a separate requirement.
 
-#### Scenario: Комбинированный селектор
-- **WHEN** шаблон содержит `.invoice > td.total`
-- **THEN** правило применяется к ячейкам с классом `total` внутри строки с классом `invoice`
+#### Scenario: Combined selector
+- **WHEN** the template contains `.invoice > td.total`
+- **THEN** the rule applies to cells with class `total` inside a row with class `invoice`
 
-#### Scenario: Неподдерживаемый псевдокласс
-- **WHEN** шаблон содержит `tr:nth-child(2n)`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого селектора
+#### Scenario: Unsupported pseudo-class
+- **WHEN** the template contains `tr:nth-child(2n)`
+- **THEN** validation fails, naming the unsupported selector
 
-#### Scenario: Неподдерживаемый псевдоэлемент
-- **WHEN** шаблон содержит `p::before { color: red }`
-- **THEN** валидация завершается ошибкой с указанием, что поддерживается только `a::after`
+#### Scenario: Unsupported pseudo-element
+- **WHEN** the template contains `p::before { color: red }`
+- **THEN** validation fails, stating that only `a::after` is supported
 
-### Requirement: Диагностика привязана к источнику
+### Requirement: Diagnostics are tied to the source
 
-Каждая диагностика ДОЛЖНА содержать файл, строку, столбец и путь элемента в дереве документа. Движок ДОЛЖЕН сообщать все найденные ошибки за один проход валидации, а не только первую. Порядок диагностик ДОЛЖЕН быть детерминированным.
+Every diagnostic MUST contain the file, the line, the column and the element path in the document tree. The engine SHALL report all errors found in one validation pass, not only the first. The order of diagnostics MUST be deterministic.
 
-#### Scenario: Несколько ошибок за один проход
-- **WHEN** шаблон содержит три неподдерживаемых объявления в разных местах
-- **THEN** отчёт содержит три диагностики с независимыми координатами
+#### Scenario: Several errors in one pass
+- **WHEN** the template contains three unsupported declarations in different places
+- **THEN** the report contains three diagnostics with independent coordinates
 
-#### Scenario: Повторный запуск даёт тот же отчёт
-- **WHEN** валидация одного и того же шаблона выполняется дважды
-- **THEN** список диагностик совпадает по составу и порядку
+#### Scenario: A repeated run gives the same report
+- **WHEN** validation of the same template runs twice
+- **THEN** the list of diagnostics matches in composition and order
 
-### Requirement: Псевдоэлемент `a::after` для сгенерированного содержимого
+### Requirement: The `a::after` pseudo-element for generated content
 
-Движок ДОЛЖЕН поддерживать ровно один псевдоэлемент — `a::after`, и только для свойства `content`. Значение `content` ДОЛЖНО состоять из строк, `counter(page)`, `counter(pages)` и `target-counter(attr(href), page)`. Любой другой селектор с псевдоэлементом или любое другое свойство внутри `a::after` ДОЛЖНЫ отклоняться. Вне `a::after` свойство `content` не поддерживается.
+The engine SHALL support exactly one pseudo-element — `a::after` — and only for the `content` property. The `content` value MUST consist of strings, `counter(page)`, `counter(pages)` and `target-counter(attr(href), page)`. Any other selector with a pseudo-element or any other property inside `a::after` MUST be rejected. Outside `a::after` the `content` property is not supported.
 
-#### Scenario: Номер страницы в оглавлении
-- **WHEN** шаблон содержит `a.toc::after { content: target-counter(attr(href), page) }`
-- **THEN** валидация принимает правило, а после рендеринга к тексту ссылки добавляется номер целевой страницы
+#### Scenario: Page number in the table of contents
+- **WHEN** the template contains `a.toc::after { content: target-counter(attr(href), page) }`
+- **THEN** validation accepts the rule, and after rendering the target page number is appended to the link text
 
-#### Scenario: Другой псевдоэлемент
-- **WHEN** шаблон содержит `p::before { content: "x" }`
-- **THEN** валидация завершается ошибкой `css/unsupported-selector`
+#### Scenario: Another pseudo-element
+- **WHEN** the template contains `p::before { content: "x" }`
+- **THEN** validation fails with `css/unsupported-selector`
 
-#### Scenario: Свойство внутри a::after
-- **WHEN** шаблон содержит `a::after { color: red }`
-- **THEN** валидация завершается ошибкой `css/unsupported-property`
+#### Scenario: A property inside a::after
+- **WHEN** the template contains `a::after { color: red }`
+- **THEN** validation fails with `css/unsupported-property`
 
-#### Scenario: content вне a::after
-- **WHEN** шаблон содержит `p { content: "x" }`
-- **THEN** валидация завершается ошибкой `css/unsupported-property`
+#### Scenario: content outside a::after
+- **WHEN** the template contains `p { content: "x" }`
+- **THEN** validation fails with `css/unsupported-property`
 
-### Requirement: Валидация профиля без рендеринга
+### Requirement: Profile validation without rendering
 
-Движок ДОЛЖЕН предоставлять режим проверки шаблона, который завершается без создания PDF, с ненулевым кодом возврата при наличии ошибок. Этот режим ДОЛЖЕН быть пригоден для запуска в CI.
+The engine SHALL provide a template check mode that finishes without creating a PDF, with a non-zero exit code when there are errors. This mode MUST be suitable for running in CI.
 
-#### Scenario: Проверка корректного шаблона
-- **WHEN** запускается проверка шаблона, полностью входящего в профиль
-- **THEN** код возврата равен нулю, PDF не создаётся
+#### Scenario: Checking a valid template
+- **WHEN** a check runs on a template that is fully inside the profile
+- **THEN** the exit code is zero and no PDF is created
 
-#### Scenario: Проверка шаблона с ошибкой
-- **WHEN** запускается проверка шаблона с неподдерживаемым свойством
-- **THEN** код возврата ненулевой, диагностика выведена, PDF не создаётся
+#### Scenario: Checking a template with an error
+- **WHEN** a check runs on a template with an unsupported property
+- **THEN** the exit code is non-zero, the diagnostic is printed and no PDF is created

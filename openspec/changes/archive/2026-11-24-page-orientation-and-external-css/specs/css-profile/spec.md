@@ -2,80 +2,80 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Поддерживаемые элементы
+### Requirement: Supported elements
 
-Профиль ДОЛЖЕН включать элементы `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`, `link` (только как подключение таблицы стилей) и `script` (только для игнорирования). Неизвестный элемент ДОЛЖЕН отклоняться с указанием имени и позиции.
+The profile SHALL include the elements `html`, `head`, `body`, `div`, `p`, `h1`–`h6`, `ul`, `ol`, `li`, `table`, `thead`, `tbody`, `tfoot`, `tr`, `td`, `th`, `img`, `span`, `br`, `hr`, `strong`, `b`, `em`, `i`, `a`, `link` (only as stylesheet inclusion) and `script` (only for ignoring). An unknown element SHALL be rejected with the element name and position.
 
-#### Scenario: Разрешённый элемент
-- **WHEN** шаблон содержит элемент `h2`
-- **THEN** валидация принимает элемент, а layout применяет к нему стили по умолчанию из таблицы стилей движка
+#### Scenario: Allowed element
+- **WHEN** the template contains an `h2` element
+- **THEN** validation accepts the element, and layout applies the default styles from the engine's stylesheet to it
 
-#### Scenario: Неизвестный элемент
-- **WHEN** шаблон содержит элемент `video`
-- **THEN** валидация завершается ошибкой с указанием имени элемента и его позиции
+#### Scenario: Unknown element
+- **WHEN** the template contains a `video` element
+- **THEN** validation fails with the element name and its position
 
-#### Scenario: Подключение таблицы стилей
-- **WHEN** шаблон содержит `<link rel="stylesheet" href="styles/print.css">`
-- **THEN** валидация принимает элемент, а стили из файла участвуют в каскаде
+#### Scenario: Stylesheet inclusion
+- **WHEN** the template contains `<link rel="stylesheet" href="styles/print.css">`
+- **THEN** validation accepts the element, and the styles from the file participate in the cascade
 
-#### Scenario: Ссылка не на стили
-- **WHEN** шаблон содержит `<link rel="icon" href="favicon.ico">`
-- **THEN** валидация не выдаёт диагностик, а элемент не влияет на вёрстку
+#### Scenario: A link that is not a stylesheet
+- **WHEN** the template contains `<link rel="icon" href="favicon.ico">`
+- **THEN** validation emits no diagnostics, and the element does not affect layout
 
 ## ADDED Requirements
 
-### Requirement: Локальная таблица стилей по ссылке
+### Requirement: Local stylesheet via a link
 
-Элемент `link` с `rel="stylesheet"` и локальным `href` ДОЛЖЕН подключать таблицу стилей к каскаду в порядке появления в документе. Атрибут `media` со значением `print`, `all` или пустым ДОЛЖЕН применять лист; иное значение ДОЛЖНО пропускать лист без диагностики.
+An `link` element with `rel="stylesheet"` and a local `href` SHALL include the stylesheet in the cascade in order of appearance in the document. The `media` attribute with the value `print`, `all` or empty SHALL apply the sheet; any other value SHALL cause the sheet to be skipped without diagnostics.
 
-#### Scenario: Порядок каскада
-- **WHEN** документ объявляет `<style>` с цветом, затем `<link>` с другим цветом, затем ещё один `<style>`
-- **THEN** применяется цвет из последнего объявления, как в обычном каскаде CSS
+#### Scenario: Cascade order
+- **WHEN** a document declares a `<style>` with a color, then a `<link>` with another color, then another `<style>`
+- **THEN** the color from the last declaration is applied, as in a normal CSS cascade
 
-#### Scenario: Лист только для печати
-- **WHEN** `<link rel="stylesheet" media="print" href="print.css">` задаёт отступ
-- **THEN** отступ применяется при сборке PDF
+#### Scenario: Print-only sheet
+- **WHEN** `<link rel="stylesheet" media="print" href="print.css">` sets a padding
+- **THEN** the padding is applied when building the PDF
 
-#### Scenario: Лист для экрана
-- **WHEN** `<link rel="stylesheet" media="screen" href="screen.css">` задаёт отступ
-- **THEN** лист пропускается, сборка завершается успешно, диагностик нет
+#### Scenario: Screen sheet
+- **WHEN** `<link rel="stylesheet" media="screen" href="screen.css">` sets a padding
+- **THEN** the sheet is skipped, the build succeeds, there are no diagnostics
 
-#### Scenario: Обычная ссылка
-- **WHEN** документ содержит `<link rel="canonical" href="https://example.com/">`
-- **THEN** элемент игнорируется, диагностик нет
+#### Scenario: Ordinary link
+- **WHEN** the document contains `<link rel="canonical" href="https://example.com/">`
+- **THEN** the element is ignored, there are no diagnostics
 
-### Requirement: Границы путей и диагностика внешних стилей
+### Requirement: Path confinement and external style diagnostics
 
-Удалённые источники стилей и `data:`-URL ДОЛЖНЫ отклоняться. Отсутствующий локальный файл ДОЛЖЕН давать ошибку с указанием пути. Если задан базовый каталог, разрешённый путь ДОЛЖЕН оставаться внутри него. Диагностика объявления из внешнего файла ДОЛЖНА указывать файл, строку и столбец в этом файле.
+Remote style sources and `data:` URLs SHALL be rejected. A missing local file SHALL produce an error indicating the path. If a base directory is set, the resolved path SHALL remain inside it. A diagnostic for a declaration from an external file SHALL indicate the file, the line and the column in that file.
 
-#### Scenario: Удалённый стиль
+#### Scenario: Remote style
 - **WHEN** `<link rel="stylesheet" href="https://example.com/site.css">`
-- **THEN** валидация завершается ошибкой `css/link-remote`, PDF не создаётся
+- **THEN** validation fails with `css/link-remote`, no PDF is created
 
-#### Scenario: Отсутствующий файл
+#### Scenario: Missing file
 - **WHEN** `<link rel="stylesheet" href="styles/missing.css">`
-- **THEN** выводится ошибка `css/link-load` с указанием пути к файлу
+- **THEN** the error `css/link-load` is emitted with the file path
 
-#### Scenario: Выход за базовый каталог
-- **WHEN** при заданном базовом каталоге шаблон ссылается на `../../outside.css`
-- **THEN** валидация завершается ошибкой, файл не читается
+#### Scenario: Escaping the base directory
+- **WHEN** with a base directory set the template references `../../outside.css`
+- **THEN** validation fails, the file is not read
 
-#### Scenario: Ошибка внутри подключённого файла
-- **WHEN** в `styles/print.css` на строке 12 объявлено `display: flex`
-- **THEN** диагностика указывает `styles/print.css:12` со столбцом, а не строку HTML
+#### Scenario: Error inside an included file
+- **WHEN** `display: flex` is declared on line 12 in `styles/print.css`
+- **THEN** the diagnostic indicates `styles/print.css:12` with a column, and not an HTML line
 
-### Requirement: Игнорирование скриптов
+### Requirement: Ignoring scripts
 
-Элемент `script` ДОЛЖЕН игнорироваться: его содержимое не исполняется и не участвует в раскладке. Валидация ДОЛЖНА выдавать предупреждение `html/ignored-script` с позицией элемента. В строгом режиме это предупреждение ДОЛЖНО становиться ошибкой.
+The `script` element SHALL be ignored: its content is neither executed nor involved in layout. Validation SHALL emit the warning `html/ignored-script` with the element position. In strict mode this warning SHALL become an error.
 
-#### Scenario: Скрипт в шаблоне
-- **WHEN** шаблон содержит `<script>console.log("x")</script>` и текст
-- **THEN** сборка успешна, выводится предупреждение, а содержимое скрипта не попадает в PDF
+#### Scenario: Script in a template
+- **WHEN** the template contains `<script>console.log("x")</script>` and text
+- **THEN** the build succeeds, a warning is emitted, and the script content does not get into the PDF
 
-#### Scenario: Строгий режим
-- **WHEN** сборка запущена с `-strict` и шаблон содержит `<script>`
-- **THEN** валидация завершается ошибкой, PDF не создаётся
+#### Scenario: Strict mode
+- **WHEN** the build is run with `-strict` and the template contains `<script>`
+- **THEN** validation fails, no PDF is created
 
-#### Scenario: Разметка внутри шаблонного скрипта
-- **WHEN** скрипт объявлен как `<script type="text/template"><p>шаблон</p></script>`
-- **THEN** разметка внутри не рендерится, но и не вызывает ошибки
+#### Scenario: Markup inside a template script
+- **WHEN** the script is declared as `<script type="text/template"><p>template</p></script>`
+- **THEN** the markup inside is not rendered, but it also does not cause an error

@@ -2,98 +2,98 @@
 
 ## Purpose
 
-Определяет требования к готовому PDF-файлу: валидность структуры, встраивание шрифтов и текстовый слой, изображения, метаданные, закладки и байтовую воспроизводимость результата.
+Defines the requirements for the finished PDF file: validity of the structure, embedding of fonts and the text layer, images, metadata, bookmarks and byte-for-byte reproducibility of the result.
 
 ## ADDED Requirements
 
-### Requirement: Валидная структура PDF
+### Requirement: Valid PDF structure
 
-Каждый созданный файл ДОЛЖЕН соответствовать спецификации PDF и ДОЛЖЕН успешно проходить независимую валидацию структуры. Файл ДОЛЖЕН содержать корректные таблицу ссылок, словарь каталога, дерево страниц и ресурсы, на которые ссылаются страницы.
+Every created file MUST conform to the PDF specification and MUST pass independent structure validation. The file MUST contain a correct cross-reference table, catalog dictionary, page tree and the resources the pages reference.
 
-#### Scenario: Файл проходит независимую валидацию
-- **WHEN** сгенерированный PDF проверяется независимым валидатором структуры
-- **THEN** ошибок структуры не обнаружено
+#### Scenario: The file passes independent validation
+- **WHEN** a generated PDF is checked by an independent structure validator
+- **THEN** no structure errors are found
 
-#### Scenario: Одностраничный документ
-- **WHEN** документ занимает ровно одну страницу
-- **THEN** PDF содержит одну страницу с корректными размерами и ресурсами
+#### Scenario: A single-page document
+- **WHEN** the document spans exactly one page
+- **THEN** the PDF contains one page with correct dimensions and resources
 
-### Requirement: Встраивание субсетов шрифтов
+### Requirement: Embedding font subsets
 
-Движок ДОЛЖЕН встраивать в PDF только те глифы шрифта, которые использованы в документе, и ДОЛЖЕН помечать шрифт как встроенный. Документ ДОЛЖЕН отображаться одинаково на машине без установленного исходного шрифта.
+The engine SHALL embed in the PDF only those glyphs of a font that are used in the document, and SHALL mark the font as embedded. The document MUST render identically on a machine without the original font installed.
 
-#### Scenario: Субсет содержит использованные глифы
-- **WHEN** документ использует 30 различных символов шрифта, содержащего 600 глифов
-- **THEN** в PDF встроен субсет, покрывающий эти 30 символов
+#### Scenario: The subset contains the used glyphs
+- **WHEN** a document uses 30 different characters of a font that contains 600 glyphs
+- **THEN** a subset covering those 30 characters is embedded in the PDF
 
-#### Scenario: Отображение без установленного шрифта
-- **WHEN** PDF открывается на машине, где исходный шрифт не установлен
-- **THEN** текст отображается тем же начертанием, что и при генерации
+#### Scenario: Rendering without the font installed
+- **WHEN** the PDF is opened on a machine where the original font is not installed
+- **THEN** the text is rendered in the same style as during generation
 
-### Requirement: Копируемый и искомый текстовый слой
+### Requirement: Copyable and searchable text layer
 
-Движок ДОЛЖЕН включать в PDF карту `ToUnicode` для каждого встроенного шрифта, чтобы текст извлекался, копировался и находился поиском в исходном виде, включая кириллицу.
+The engine SHALL include a `ToUnicode` map for every embedded font in the PDF, so that text is extracted, copied and found by search in its original form, including Cyrillic.
 
-#### Scenario: Извлечение русского текста
-- **WHEN** из сгенерированного PDF извлекается текст
-- **THEN** он содержит «Счёт № 42 от 01.02.2026» в исходной записи
+#### Scenario: Extraction of Russian text
+- **WHEN** text is extracted from the generated PDF
+- **THEN** it contains «Счёт № 42 от 01.02.2026» in the original form
 
-#### Scenario: Поиск по документу
-- **WHEN** в PDF-просмотрщике выполняется поиск по слову «договор»
-- **THEN** слово находится в тексте документа
+#### Scenario: Search through the document
+- **WHEN** a search for the word «договор» is run in a PDF viewer
+- **THEN** the word is found in the text of the document
 
-### Requirement: Изображения без потери качества
+### Requirement: Images without quality loss
 
-Движок ДОЛЖЕН встраивать JPEG без повторного сжатия и PNG с декодированием в поток без потери пиксельных данных; повторное сжатие с потерями недопустимо.
+The engine SHALL embed JPEG without recompression and PNG with decoding into a stream without loss of pixel data; lossy recompression is not acceptable.
 
-#### Scenario: JPEG встраивается как есть
-- **WHEN** документ содержит JPEG-изображение
-- **THEN** в PDF попадают исходные сжатые данные изображения
+#### Scenario: JPEG is embedded as is
+- **WHEN** the document contains a JPEG image
+- **THEN** the original compressed data of the image lands in the PDF
 
-#### Scenario: Прозрачность PNG
-- **WHEN** PNG содержит альфа-канал
-- **THEN** прозрачность либо корректно воспроизводится, либо валидация сообщает об ограничении профиля v1
+#### Scenario: PNG transparency
+- **WHEN** a PNG contains an alpha channel
+- **THEN** transparency is either reproduced correctly, or validation reports the limitation of profile v1
 
-### Requirement: Метаданные документа
+### Requirement: Document metadata
 
-Движок ДОЛЖЕН заполнять заголовок PDF из `<title>` и ДОЛЖЕН переносить `author`, `description` и `keywords` из метатегов документа, если они заданы.
+The engine SHALL fill the PDF title from `<title>` and SHALL carry over `author`, `description` and `keywords` from the document meta tags when they are set.
 
-#### Scenario: Заголовок из title
-- **WHEN** документ содержит `<title>Счёт № 42</title>`
-- **THEN** в свойствах PDF заголовок равен «Счёт № 42»
+#### Scenario: Title from title
+- **WHEN** the document contains `<title>Счёт № 42</title>`
+- **THEN** in the PDF properties the title equals «Счёт № 42»
 
-#### Scenario: Метаданные не заданы
-- **WHEN** документ не содержит метатегов автора и описания
-- **THEN** соответствующие поля остаются пустыми, без ошибки
+#### Scenario: Metadata not set
+- **WHEN** the document contains no author and description meta tags
+- **THEN** the corresponding fields stay empty, without an error
 
-### Requirement: Воспроизводимый вывод
+### Requirement: Reproducible output
 
-При одинаковом входном документе, одинаковых параметрах запуска и одинаковых шрифтах движок ДОЛЖЕН создавать байт-идентичные PDF-файлы. Идентификатор документа и дата создания ДОЛЖНЫ задаваться детерминированно, а не из системных часов.
+With the same input document, the same run parameters and the same fonts, the engine SHALL create byte-identical PDF files. The document identifier and the creation date MUST be set deterministically, and not from the system clock.
 
-#### Scenario: Два запуска дают одинаковый файл
-- **WHEN** один и тот же шаблон рендерится дважды
-- **THEN** контрольные суммы обоих файлов совпадают
+#### Scenario: Two runs give the same file
+- **WHEN** the same template is rendered twice
+- **THEN** the checksums of both files match
 
-#### Scenario: Явно заданная дата создания
-- **WHEN** запуск задаёт дату создания документа
-- **THEN** эта дата попадает в метаданные PDF, а не текущее системное время
+#### Scenario: An explicitly set creation date
+- **WHEN** the run sets the creation date of the document
+- **THEN** that date lands in the PDF metadata, and not the current system time
 
-### Requirement: Закладки документа
+### Requirement: Document bookmarks
 
-Движок ДОЛЖЕН создавать дерево закладок из заголовков `h1`–`h3` в порядке следования, с вложенностью по уровню заголовка и привязкой к странице, на которой заголовок находится.
+The engine SHALL create a bookmark tree from the `h1`–`h3` headings in order of appearance, nested by heading level and bound to the page the heading is on.
 
-#### Scenario: Вложенные закладки
-- **WHEN** документ содержит `h1`, затем два `h2`
-- **THEN** в дереве закладок `h1` — корневой узел, а `h2` вложены в него
+#### Scenario: Nested bookmarks
+- **WHEN** the document contains an `h1`, then two `h2`
+- **THEN** in the bookmark tree the `h1` is the root node, and the `h2` are nested in it
 
-#### Scenario: Закладка ведёт на нужную страницу
-- **WHEN** заголовок `h2` находится на странице 5
-- **THEN** соответствующая закладка открывает страницу 5
+#### Scenario: A bookmark leads to the right page
+- **WHEN** an `h2` heading is on page 5
+- **THEN** the corresponding bookmark opens page 5
 
-### Requirement: Атомарная запись результата
+### Requirement: Atomic write of the result
 
-Движок ДОЛЖЕН записывать результат так, чтобы при любой ошибке рендеринга на месте назначения не оставался частично записанный или повреждённый файл.
+The engine SHALL write the result so that on any rendering error no partially written or corrupt file is left at the destination.
 
-#### Scenario: Ошибка на этапе записи
-- **WHEN** в процессе создания PDF возникает ошибка
-- **THEN** целевой файл отсутствует или остаётся прежним, но не становится повреждённым
+#### Scenario: An error at the write stage
+- **WHEN** an error occurs in the process of creating the PDF
+- **THEN** the target file is absent or stays as it was, but does not become corrupt

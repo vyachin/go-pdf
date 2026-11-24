@@ -2,41 +2,41 @@
 
 ## Why
 
-Нужен конвертер HTML → PDF на Go для печатных бизнес-документов (счета, акты, договоры, отчёты), который поставляется как один статический бинарник — без cgo и без внешних процессов.
+An HTML → PDF converter in Go is needed for printed business documents (invoices, acts, contracts, reports), one that ships as a single static binary — no cgo and no external processes.
 
-Готовые пути это требование не закрывают. Chromium (`chromedp`, `go-rod`) и WeasyPrint — внешние процессы и тяжёлый рантайм. Pure-Go порт WeasyPrint (`benoitkugler/webrender` + `go-weasyprint`) — единственный серьёзный in-process кандидат, но он в статусе alpha, с одним сопровождающим и непредсказуемым покрытием CSS. Для документов, где вёрстка должна быть воспроизводимой годами, зависимость от такого ядра — риск больше, чем стоимость собственного движка.
+Off-the-shelf options do not meet this requirement. Chromium (`chromedp`, `go-rod`) and WeasyPrint are external processes with a heavy runtime. The pure-Go port of WeasyPrint (`benoitkugler/webrender` + `go-weasyprint`) is the only serious in-process candidate, but it is alpha, with one maintainer and unpredictable CSS coverage. For documents whose layout must reproduce for years, depending on such a core is a bigger risk than the cost of our own engine.
 
-Ключевое соображение: нам не нужен браузер. Нужен детерминированный движок вёрстки документов. Это позволяет отказаться от 80% CSS и получить взамен то, чего готовые движки не дают: гарантированную пагинацию, байтовую воспроизводимость и предсказуемое поведение на краях.
+The key consideration: we do not need a browser. We need a deterministic document layout engine. That lets us drop 80% of CSS and gain in return what off-the-shelf engines do not give: guaranteed pagination, byte-for-byte reproducibility and predictable behaviour at the edges.
 
 ## What Changes
 
-- Появляется новый Go-модуль — движок рендеринга HTML в PDF, собираемый с `CGO_ENABLED=0` и не запускающий дочерних процессов.
-- Конвейер из шести слоёв: HTML-токенайзер и дерево → CSS-парсер, каскад и селекторы → box tree → layout и пагинация → шейпинг текста → запись PDF.
-- **CSS-профиль фиксируется как контракт**: белый список элементов, свойств, единиц и at-правил. Всё вне профиля — ошибка валидации шаблона, а не молчаливый игнор.
-- **Пагинация проектируется с первого дня**: `break-*`, `orphans`/`widows`, повтор `thead`, `@page` с margin boxes и счётчиками `counter(page)` / `counter(pages)`.
-- **Детерминированный вывод**: фиксированные `/ID` и `/CreationDate`, одинаковый вход даёт байт-идентичный PDF.
-- **Корректный текстовый слой**: встраивание субсетов TrueType, `Identity-H` + `ToUnicode`, чтобы русский текст копировался и искался.
-- Появляется CLI и Go-библиотека с общим ядром; линтер профиля доступен как отдельная проверка для CI шаблонов.
-- Явно **не входит в v1**: `flex`, `grid`, `float`, `position: absolute/fixed` (кроме фиксированных колонтитулов), градиенты, тени, прозрачность, скругления, `hyphens: auto`, bidi, CFF/OTF и вариативные шрифты, веб-шрифты по URL, JavaScript, аннотации-ссылки.
+- A new Go module appears — an HTML-to-PDF rendering engine built with `CGO_ENABLED=0` that starts no child processes.
+- A pipeline of six layers: HTML tokenizer and tree → CSS parser, cascade and selectors → box tree → layout and pagination → text shaping → PDF writing.
+- **The CSS profile is fixed as a contract**: an allow-list of elements, properties, units and at-rules. Everything outside the profile is a template validation error, not a silent ignore.
+- **Pagination is designed from day one**: `break-*`, `orphans`/`widows`, repeated `thead`, `@page` with margin boxes and `counter(page)` / `counter(pages)` counters.
+- **Deterministic output**: fixed `/ID` and `/CreationDate`, the same input gives a byte-identical PDF.
+- **A correct text layer**: TrueType subset embedding, `Identity-H` + `ToUnicode`, so Russian text can be copied and searched.
+- A CLI and a Go library with a shared core are added; the profile linter is available as a separate check for template CI.
+- Explicitly **out of scope for v1**: `flex`, `grid`, `float`, `position: absolute/fixed` (except fixed page headers and footers), gradients, shadows, transparency, rounded corners, `hyphens: auto`, bidi, CFF/OTF and variable fonts, web fonts by URL, JavaScript, link annotations.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `css-profile`: Белый список поддерживаемого HTML и CSS, правила каскада и наследования, диагностика неподдерживаемого — то, что делает входной контракт проверяемым до рендеринга.
-- `text-shaping`: Загрузка шрифтов, разбор TrueType, отображение символов в глифы, кернинг, разбиение на строки и правила переносов.
-- `document-layout`: Построение box tree, блочная и строчная раскладка, таблицы с фиксированной раскладкой, списки.
-- `pagination`: Разбиение на страницы, `@page` и margin boxes, колонтитулы, счётчики страниц и двухпроходное разрешение `target-counter` для оглавления.
-- `pdf-output`: Сериализация PDF, встраивание субсетов шрифтов и `ToUnicode`, изображения, метаданные, закладки и детерминизм вывода.
+- `css-profile`: The allow-list of supported HTML and CSS, the cascade and inheritance rules, diagnostics for the unsupported — what makes the input contract checkable before rendering.
+- `text-shaping`: Font loading, TrueType parsing, mapping characters to glyphs, kerning, line breaking and hyphenation rules.
+- `document-layout`: Box tree construction, block and inline layout, fixed-layout tables, lists.
+- `pagination`: Page breaking, `@page` and margin boxes, page headers and footers, page counters and two-pass `target-counter` resolution for the table of contents.
+- `pdf-output`: PDF serialization, font subset embedding and `ToUnicode`, images, metadata, bookmarks and output determinism.
 
 ### Modified Capabilities
 
-Нет: проект новый, существующих спеков (`openspec/specs/`) нет.
+None: the project is new, there are no existing specs (`openspec/specs/`).
 
 ## Impact
 
-- **Код**: новый Go-модуль в пустом репозитории, ранее кода не было. Рантайм-зависимости — только стандартная библиотека Go.
-- **Тестовые оракулы, не рантайм**: `pdfcpu validate` и veraPDF подключаются в тестах для проверки корректности вывода; в бинарник не попадают.
-- **Оценка**: ~60–80 человеко-недель, 14–18 месяцев для одного инженера на полной загрузке. Веха M3 (таблицы + пагинация + колонтитулы) на 5–6-м месяце закрывает счета и акты — это первый полезный релиз.
-- **Риски**: единственный инженер (bus factor 1); объём CSS, который захочется поддержать, будет расти — профиль должен защищаться линтером и ревью; качество переносов и краевых случаев пагинации требует длительной обкатки на реальных документах.
-- **Внешние системы**: не затрагиваются. Потребители — сервисы, генерирующие документы, и CLI-пользователи.
+- **Code**: a new Go module in an empty repository; there was no code before. Runtime dependencies: the Go standard library only.
+- **Test oracles, not runtime**: `pdfcpu validate` and veraPDF are wired into tests to check output validity; they do not go into the binary.
+- **Estimate**: ~60–80 person-weeks, 14–18 months for one engineer at full load. Milestone M3 (tables + pagination + headers and footers) in month 5–6 covers invoices and acts — that is the first useful release.
+- **Risks**: a single engineer (bus factor 1); the amount of CSS we will want to support will grow, so the profile must be defended by the linter and review; the quality of hyphenation and pagination edge cases needs long seasoning on real documents.
+- **External systems**: not affected. Consumers are services that generate documents and CLI users.

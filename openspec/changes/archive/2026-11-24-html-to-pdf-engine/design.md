@@ -2,234 +2,234 @@
 
 ## Context
 
-Проект стартует с пустого репозитория: Go-модуля, кода и зависимостей ещё нет. Единственный действующий контракт — `proposal.md` и спеки `css-profile`, `text-shaping`, `document-layout`, `pagination`, `pdf-output`.
+The project starts from an empty repository: there is no Go module, code or dependencies yet. The only contract in force is `proposal.md` and the `css-profile`, `text-shaping`, `document-layout`, `pagination`, `pdf-output` specs.
 
-Ограничения, формирующие дизайн:
+Constraints that shape the design:
 
-- один статический бинарник, `CGO_ENABLED=0`, без дочерних процессов;
-- рантайм-зависимости — только стандартная библиотека Go;
-- один инженер на полной загрузке, ~60–80 человеко-недель;
-- целевые документы — счета, акты, договоры: контролируемые шаблоны, русский текст, таблицы на несколько страниц, колонтитулы, эпизодически оглавление.
+- one static binary, `CGO_ENABLED=0`, no child processes;
+- runtime dependencies: the Go standard library only;
+- one engineer at full load, ~60–80 person-weeks;
+- target documents — invoices, acts, contracts: controlled templates, Russian text, tables over several pages, page headers and footers, occasionally a table of contents.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Детерминированный конвейер: одинаковый вход даёт байт-идентичный PDF.
-- Пагинация как первичная сущность, а не надстройка над непрерывной раскладкой.
-- Один источник правды для профиля CSS, из которого генерируются парсер, каскад, линтер и документация.
-- Диагностика с координатами источника на всех этапах, пригодная для CI.
-- Тестируемость без внешних растеризаторов: собственный тестовый растр-бэкенд.
-- Возможность заменить любой слой, не трогая остальные.
+- A deterministic pipeline: the same input gives a byte-identical PDF.
+- Pagination as a primary entity, not an add-on over continuous layout.
+- One source of truth for the CSS profile, from which the parser, cascade, linter and documentation are generated.
+- Diagnostics with source coordinates at every stage, usable in CI.
+- Testability without external rasterizers: our own test raster backend.
+- The ability to replace any layer without touching the others.
 
 **Non-Goals:**
 
-- Совместимость с произвольным внешним HTML.
-- Поддержка `flex`, `grid`, `float`, абсолютного позиционирования.
-- JavaScript, веб-шрифты по URL, bidi.
-- Инкрементальная или потоковая отдача PDF (см. решение 3).
-- PDF/A и шифрование в v1.
+- Compatibility with arbitrary external HTML.
+- Support for `flex`, `grid`, `float`, absolute positioning.
+- JavaScript, web fonts by URL, bidi.
+- Incremental or streaming PDF delivery (see decision 3).
+- PDF/A and encryption in v1.
 
 ## Decisions
 
-### 1. Шесть слоёв с односторонними зависимостями
+### 1. Six layers with one-way dependencies
 
 ```
   []byte HTML
       |
       v
-  html/     токенайзер + дерево            (ни от чего не зависит)
+  html/     tokenizer + tree              (depends on nothing)
       |
       v
-  css/      токенайзер, парсер, селекторы, каскад
+  css/      tokenizer, parser, selectors, cascade
       |
       v
-  profile/  белый список, валидация, диагностики
+  profile/  allow-list, validation, diagnostics
       |
       v
-  layout/   box tree -> фрагменты + пагинация
+  layout/   box tree -> fragments + pagination
       |            \
       |             v
-      |          text/     шейпинг, строки (вызывается из layout)
+      |          text/     shaping, line breaking (called from layout)
       v
-  render/   painting в абстрактный backend
+  render/   painting into an abstract backend
       |
-      +--> pdf/    writer, шрифты, ToUnicode, изображения
-      +--> raster/ тестовый бэкенд для регрессий
+      +--> pdf/    writer, fonts, ToUnicode, images
+      +--> raster/ test backend for regressions
 ```
 
-Зависимости направлены только вниз. `pdf/` не знает о `html/`, `layout/` не знает о `pdf/`. Каждый слой тестируется изолированно.
+Dependencies point downwards only. `pdf/` knows nothing about `html/`, `layout/` knows nothing about `pdf/`. Each layer is tested in isolation.
 
-*Альтернатива*: монолитный пакет без границ — быстрее на старте, но `layout` и `pdf` тестируются только вместе и любое изменение шрифтов ломает тесты вёрстки.
+*Alternative*: a monolith without boundaries — faster at the start, but `layout` and `pdf` are then tested only together and any font change breaks the layout tests.
 
-### 2. Внутренняя единица — целочисленный миллипункт
+### 2. The internal unit is the integer millipoint
 
-Все геометрические величины хранятся как `int32` в 1/1000 pt (1 pt = 1/72 дюйма). Перевод из CSS происходит один раз, при вычислении значений.
+All geometric values are stored as `int32` in 1/1000 pt (1 pt = 1/72 inch). Conversion from CSS happens once, when values are computed.
 
-*Почему*: накопление ошибок float в длинных таблицах даёт «дрожащие» границы в 1–2 тысячных пункта, что ломает байтовый детерминизм и снапшоты. Целое в 1/1000 pt даёт разрешение 0.00035 мм — на два порядка точнее, чем нужно печати, и точно представимо в PDF (три знака после запятой).
+*Why*: accumulation of float error in long tables produces borders that "jitter" by 1–2 thousandths of a point, which breaks byte determinism and snapshots. An integer in 1/1000 pt gives a resolution of 0.00035 mm — two orders of magnitude finer than printing needs, and exactly representable in PDF (three decimal places).
 
-*Альтернатива*: `float64` с округлением при записи — проще, но разные архитектуры и порядок операций дают разные результаты, а тесты становятся хрупкими.
+*Alternative*: `float64` with rounding at write time — simpler, but different architectures and operation orders give different results, and tests become fragile.
 
-### 3. Раскладка с фрагментацией, пагинация как драйвер
+### 3. Layout with fragmentation, pagination as the driver
 
-`layout` не строит одну бесконечную страницу. Он раскладывает контейнер в **фрагментейнер** с ограниченной высотой и возвращает остаток содержимого вместе с точкой возобновления.
+`layout` does not build one endless page. It lays out a container into a **fragmentainer** of bounded height and returns the remaining content together with the resume point.
 
 ```go
-// Псевдосигнатура: раскладываем детей box в область frag,
-// пока помещается; возвращаем неизрасходованный остаток.
+// Pseudo-signature: lay the children of box out into the frag area,
+// while they fit; return the unused remainder.
 func placeChildren(ctx *ctx, box *Box, frag Fragmentainer) (Fragment, *Box, bool)
 ```
 
-Драйвер страниц вызывает раскладку страница за страницей:
+The page driver calls layout page after page:
 
 ```
 done := false
 for !done {
     page := newPage(pageNumber)
     _, rest, done := placeChildren(ctx, root, fragmentainerOf(page))
-    layoutMarginBoxes(page)   // counter(page), counter(pages) — после раскладки
+    layoutMarginBoxes(page)   // counter(page), counter(pages) — after layout
     pages = append(pages, page)
     pageNumber++
     root = rest
 }
 ```
 
-*Почему*: разрыв страницы нельзя «починить» после раскладки — он принципиально меняет раскладку (шов проходит через блок, меняя его внутренние отступы и повтор шапки таблицы). Возобновляемая раскладка — единственная модель, которая это выражает честно, и она же даёт повторные проходы для оглавления.
+*Why*: a page break cannot be "fixed up" after layout — it fundamentally changes the layout (the seam runs through a block, changing its inner padding and the repetition of the table header). Resumable layout is the only model that expresses this honestly, and it also provides the repeat passes for the table of contents.
 
-*Альтернатива*: разложить всё в одну длинную страницу и нарезать по высоте — дешево, но ломает `break-inside: avoid`, повтор `thead`, `widows`, границы на шве и колонтитулы, обтекающие содержимое. Отвергнуто как источник неустранимых дефектов.
+*Alternative*: lay everything out into one long page and cut it by height — cheap, but breaks `break-inside: avoid`, repeated `thead`, `widows`, borders at the seam and page headers and footers flowing around the content. Rejected as a source of irreducible defects.
 
-*Альтернатива*: потоковая запись PDF по мере раскладки — исключает второй проход, а значит оглавление и закладки. Отвергнуто.
+*Alternative*: stream the PDF as layout proceeds — excludes the second pass, and therefore the table of contents and bookmarks. Rejected.
 
-### 4. Два прохода для `target-counter`, сходимость по числу страниц
+### 4. Two passes for `target-counter`, converging by page count
 
-Оглавление требует номеров страниц, которые сами зависят от размера оглавления. Решение: раскладка повторяется, пока отображение «якорь → страница» не стабилизируется.
+A table of contents needs page numbers that themselves depend on the size of the table of contents. The solution: layout is repeated until the "anchor → page" mapping stabilises.
 
 ```
 pass 1: layout -> map[anchor]page
-pass 2: подставить map в target-counter -> layout -> map2
-        если map2 == map -> готово
-        иначе повторить, но не больше 4 проходов -> диагностика
+pass 2: substitute map into target-counter -> layout -> map2
+        if map2 == map -> done
+        otherwise repeat, at most 4 passes -> diagnostic
 ```
 
-*Почему* четыре: на реальных документах оглавление занимает одну страницу и сходится за 2 прохода; верхняя граница защищает от циклов «оглавление растёт от собственного номера».
+*Why four*: on real documents a table of contents occupies one page and converges in 2 passes; the upper bound protects against cycles where "the table of contents grows from its own number".
 
-### 5. Профиль как таблица данных, а не как код
+### 5. The profile as a data table, not as code
 
-Список поддерживаемых свойств — это таблица: имя, тип значения, наследуется ли, начальное значение, применимые элементы. Из неё генерируются: разбор значений в `css/`, проверка в `profile/`, таблица стилей по умолчанию, справка `--print-profile`.
+The list of supported properties is a table: name, value type, whether it is inherited, initial value, applicable elements. From it are generated: value parsing in `css/`, checking in `profile/`, the default stylesheet, the `--print-profile` help.
 
-*Почему*: три места, где профиль может разойтись (парсер, линтер, документация), — самый частый источник «шаблон прошёл проверку, но отрендерился не так».
+*Why*: three places where the profile can diverge (parser, linter, documentation) are the most common source of "the template passed validation but rendered wrong".
 
-### 6. Свой PDF-писатель с сохранением исходных номеров глифов
+### 6. Our own PDF writer that preserves the original glyph numbers
 
-PDF пишется напрямую: объекты, таблица ссылок (классическая, не потоковая), потоки с `FlateDecode` (stdlib `compress/flate`), шрифты как Type0/`Identity-H` + `CIDFontType2`/`FontFile2`, `ToUnicode` для каждого шрифта.
+The PDF is written directly: objects, cross-reference table (classic, not streamed), streams with `FlateDecode` (stdlib `compress/flate`), fonts as Type0/`Identity-H` + `CIDFontType2`/`FontFile2`, `ToUnicode` for every font.
 
-Субсеттинг не перенумеровывает глифы: неиспользуемые контуры обнуляются, номера сохраняются, `CIDToGIDMap` остаётся `/Identity`.
+Subsetting does not renumber glyphs: unused contours are zeroed out, numbers are preserved, `CIDToGIDMap` stays `/Identity`.
 
-*Почему*: перенумерация требует пересборки `cmap`, `hmtx`, `loca`, `glyf` и учёта составных глифов — самая ошибкоопасная часть писателя. Цена отказа — несколько килобайт пустых контуров на шрифт.
+*Why*: renumbering requires rebuilding `cmap`, `hmtx`, `loca`, `glyf` and accounting for composite glyphs — the most error-prone part of the writer. The price of declining it is a few kilobytes of empty contours per font.
 
-*Альтернатива*: `go-pdf/fpdf` — исключена требованием нулевых зависимостей и тем, что его API не даёт контроля над `ToUnicode` и порядком объектов.
+*Alternative*: `go-pdf/fpdf` — excluded by the zero-dependency requirement and by the fact that its API gives no control over `ToUnicode` and object order.
 
-### 7. Разбор TrueType только для TrueType-контуров
+### 7. TrueType parsing for TrueType outlines only
 
-Читаются `head`, `hhea`, `maxp`, `hmtx`, `cmap` (форматы 4 и 12), `loca`, `glyf`, `name`, `OS/2`, `GPOS` (PairPos формат 1 и 2). CFF-контуры, вариативные шрифты, WOFF/WOFF2 не поддерживаются и отклоняются на валидации.
+`head`, `hhea`, `maxp`, `hmtx`, `cmap` (formats 4 and 12), `loca`, `glyf`, `name`, `OS/2`, `GPOS` (PairPos format 1 and 2) are read. CFF outlines, variable fonts and WOFF/WOFF2 are not supported and are rejected at validation.
 
-*Почему*: CFF — это отдельный интерпретатор charstring со своим субсеттингом, сопоставимый по объёму со всем остальным шрифтовым слоем. Для русских документов хватает PT Serif, PT Sans, Liberation и DejaVu — все TrueType.
+*Why*: CFF is a separate charstring interpreter with its own subsetting, comparable in scope to the whole rest of the font layer. PT Serif, PT Sans, Liberation and DejaVu are enough for Russian documents — all of them TrueType.
 
-### 8. Упрощённый шейпинг: cmap + парный кернинг
+### 8. Simplified shaping: cmap + pair kerning
 
-Текст отображается 1:1 через `cmap`, затем применяются пары `GPOS`. Композиция диакритики решается нормализацией входного текста к NFC, а не позиционированием меток; при отсутствии композитного глифа — ошибка с указанием символа.
+Text is mapped 1:1 through `cmap`, then `GPOS` pairs are applied. Diacritic composition is solved by normalising the input text to NFC rather than by mark positioning; if the composite glyph is absent, it is an error naming the character.
 
-*Почему*: полноценный шейпинг нужен для арабского, деванагари и лигатур латиницы. Для русского текста в деловых документах это не даёт видимого выигрыша, но добавляет месяцы.
+*Why*: full shaping is needed for Arabic, Devanagari and Latin ligatures. For Russian text in business documents it gives no visible gain but adds months.
 
-### 9. Painting через абстрактный бэкенд
+### 9. Painting through an abstract backend
 
-`render/` не знает, куда рисует. Интерфейс минимален: залить прямоугольник, залить путь, нарисовать глифы, нарисовать изображение, установить клип.
+`render/` does not know where it draws. The interface is minimal: fill a rectangle, fill a path, draw glyphs, draw an image, set a clip.
 
-- `pdf/` реализует бэкенд поверх собственного писателя;
-- `raster/` реализует тот же интерфейс в `image.RGBA`: прямоугольники и пути заливаются собственным scanline-растеризатором с суперсэмплингом, глифы — по контурам `glyf` с правилом заливки nonzero, изображения копируются как есть.
+- `pdf/` implements the backend on top of our own writer;
+- `raster/` implements the same interface into `image.RGBA`: rectangles and paths are filled by our own scanline rasterizer with supersampling, glyphs by `glyf` contours with the nonzero fill rule, images are copied as is.
 
-*Почему*: появляется возможность визуальной регрессии без внешних растеризаторов и cgo. Тест рендерит фикстуру в PNG, сравнивает с эталоном с допуском на сглаживание.
+*Why*: visual regression becomes possible without external rasterizers and cgo. A test renders a fixture to PNG and compares it with the reference image with a tolerance for antialiasing.
 
-*Цена*: собственный растеризатор контуров — 1–2 недели. Это дешевле, чем зависимость от pdfium, и переиспользуется в отладочном `--render-png`.
+*Price*: our own contour rasterizer — 1–2 weeks. That is cheaper than depending on pdfium, and it is reused in the debug `--render-png`.
 
-### 10. Тестовая стратегия: снапшоты раскладки, а не эталонные PDF
+### 10. Test strategy: layout snapshots, not reference PDFs
 
-Три уровня:
+Three levels:
 
-1. **Структурные снапшоты** `layout`: текстовое дерево фрагментов с координатами, страницами и номерами строк. Читаемо в диффе, стабильно, не зависит от версии шрифта.
-2. **Валидация вывода**: каждый сгенерированный PDF проверяется `pdfcpu validate` и veraPDF в тестах (внешние инструменты, не рантайм).
-3. **Извлечение текста**: проверка, что русский текст копируется и ищется — по `ToUnicode`, без внешних библиотек.
+1. **Structural snapshots** of `layout`: a text tree of fragments with coordinates, pages and line numbers. Readable in a diff, stable, independent of the font version.
+2. **Output validation**: every generated PDF is checked by `pdfcpu validate` and veraPDF in tests (external tools, not runtime).
+3. **Text extraction**: a check that Russian text is copied and found by search — via `ToUnicode`, without external libraries.
 
-*Альтернатива*: эталонные PDF в репозитории — отвергнуто: любой апдейт шрифта или смена порядка объектов даёт диф на весь файл и тест перестаёт что-либо значить.
+*Alternative*: reference PDFs in the repository — rejected: any font update or change of object order gives a diff over the whole file and the test stops meaning anything.
 
-### 11. Детерминизм как инвариант писателя
+### 11. Determinism as a writer invariant
 
-`/ID` — SHA-256 от содержимого документа; `/CreationDate` — из явного параметра, по умолчанию фиксированная константа. Объекты пишутся в порядке создания, без обхода `map`. Отсюда бесплатно следует байтовая воспроизводимость.
+`/ID` — SHA-256 of the document content; `/CreationDate` — from an explicit parameter, a fixed constant by default. Objects are written in creation order, without iterating over `map`. From this, byte-for-byte reproducibility follows for free.
 
-### 12. Границы пакетов
+### 12. Package boundaries
 
 ```
 cmd/pdfgen/            CLI: convert, validate, --render-png
 internal/html/         tokenizer, tree builder
 internal/css/          tokenizer, parser, selector, cascade
-internal/profile/      таблица свойств, валидация
+internal/profile/      property table, validation
 internal/font/         ttf, cmap, subset, gpos
 internal/text/         shape, linebreak
 internal/layout/       boxes, block, inline, table, fragment, paginate
 internal/render/       painting
-internal/backend/pdf/  PDF-бэкенд
-internal/backend/raster/ тестовый бэкенд
-internal/diag/         диагностики с координатами
+internal/backend/pdf/  PDF backend
+internal/backend/raster/ test backend
+internal/diag/         diagnostics with positions
 ```
 
-### 13. Сгенерированное содержимое: только `a::after`, двухпроходный `target-counter`
+### 13. Generated content: only `a::after`, two-pass `target-counter`
 
-Оглавлению нужны номера страниц, а в CSS они выражаются только через `content` псевдоэлемента. Профиль остаётся закрытым: разрешён ровно один псевдоэлемент — `a::after`, и ровно одно свойство — `content` со строками, `counter(page)`, `counter(pages)` и `target-counter(attr(href), page)`.
+A table of contents needs page numbers, and in CSS they are expressed only through the `content` of a pseudo-element. The profile stays closed: exactly one pseudo-element is allowed — `a::after` — and exactly one property — `content` with strings, `counter(page)`, `counter(pages)` and `target-counter(attr(href), page)`.
 
-Разрешение ссылок — цикл сходимости в движке, а не в раскладке:
+Reference resolution is a convergence loop in the engine, not in layout:
 
 ```
 targets := {}
 repeat at most 4 times:
     pages := layout(doc, targets)
-    next := { id -> страница для каждого href из <a> }
+    next := { id -> page for every href of an <a> }
     if next == targets: stop
     targets = next
 ```
 
-*Почему лимит 4*: номера меняются только при переходе через границу страницы, а выросшая на один символ цифра почти никогда не сдвигает разбиение. Четыре прохода с запасом покрывают «оглавление сдвинуло разделы», а лимит защищает от цикла.
+*Why a limit of 4*: numbers change only when a page boundary is crossed, and a digit that grew by one character almost never shifts the break. Four passes cover "the table of contents shifted the sections" with margin, and the limit protects against a cycle.
 
-*Почему не общий `content`*: генерация содержимого для произвольных элементов — это ещё один слой (счётчики, строки, кавычки) с неясной пользой для документов. Один сценарий (оглавление) закрывается одним псевдоэлементом.
+*Why not a general `content`*: generating content for arbitrary elements is another layer (counters, strings, quotes) with unclear value for documents. One scenario (the table of contents) is covered by one pseudo-element.
 
-*Неизвестная цель* (`href` на отсутствующий id) даёт диагностику и число `0`, документ при этом создаётся: оглавление не должно валить весь счёт.
+*An unknown target* (`href` to a missing id) gives a diagnostic and the number `0`, and the document is still created: the table of contents must not fail the whole invoice.
 
 ## Risks / Trade-offs
 
-- **Пагинация краевых случаев** — самая дорогая часть: `rowspan` через шов, вложенные таблицы, плавающие по высоте абзацы. → Ограничить профиль: `rowspan` не пересекает страницу (ошибка валидации), вложенные таблицы запрещены в v1, раз в неделю гонять корпус реальных документов.
-- **Ошибки субсеттинга дают битый PDF**, который ломается только в Acrobat. → `pdfcpu validate` и veraPDF в CI на каждой фикстуре, плюс fuzz на таблицы шрифта.
-- **Bus factor 1** → профиль и спеки как контракт, снапшоты раскладки вместо устных договорённостей, документированные решения в этом файле.
-- **Соблазн расширять профиль** («давайте добавим flex») съест график. → Изменение профиля — через изменение спеки, а не через коммит в таблицу.
-- **Свой растеризатор** может дать картинку, не совпадающую с PDF-выводом, и создать ложную уверенность в тестах. → Растр считается вспомогательным; истина — снапшоты раскладки и валидация PDF.
-- **Производительность на таблицах в сотни строк** может оказаться хуже ожиданий. → Целевые бюджеты: страница < 20 мс, 50 страниц < 300 мс, пик памяти < 100 МБ; бенчмарки с M2.
-- **Отказ от переиспользования HTML/CSS-токенайзеров** стоит ~8 недель. → Решение осознанное (нулевые зависимости), границы слоёв позволяют позже заменить реализацию, не меняя остальное.
+- **Pagination edge cases** — the most expensive part: `rowspan` across the seam, nested tables, paragraphs that float in height. → Constrain the profile: `rowspan` does not cross a page (validation error), nested tables are forbidden in v1, run a corpus of real documents once a week.
+- **Subsetting errors give a broken PDF** that only fails in Acrobat. → `pdfcpu validate` and veraPDF in CI on every fixture, plus fuzzing of the font tables.
+- **Bus factor 1** → profile and specs as the contract, layout snapshots instead of verbal agreements, decisions documented in this file.
+- **The temptation to widen the profile** ("let's add flex") will eat the schedule. → A profile change goes through a spec change, not through a commit to the table.
+- **Our own rasterizer** may give a picture that does not match the PDF output and create false confidence in tests. → The raster counts as auxiliary; the truth is layout snapshots and PDF validation.
+- **Performance on tables of hundreds of rows** may turn out worse than expected. → Target budgets: page < 20 ms, 50 pages < 300 ms, peak memory < 100 MB; benchmarks on M2.
+- **Declining to reuse HTML/CSS tokenizers** costs ~8 weeks. → The decision is deliberate (zero dependencies), and the layer boundaries allow replacing the implementation later without changing the rest.
 
 ## Migration Plan
 
-Миграции нет: репозиторий пустой, потребителей нет. Поставка идёт вехами, каждая веха — работоспособный срез, не «половина слоя»:
+There is no migration: the repository is empty, there are no consumers. Delivery goes by milestones, each milestone a working slice, not "half a layer":
 
-| Веха | Содержимое | Критерий готовности |
+| Milestone | Content | Definition of done |
 |---|---|---|
-| M0 | токенайзер HTML, минимальный CSS, TTF + `cmap`, PDF-писатель, одна строка текста | русский текст извлекается из PDF, файл проходит валидатор |
-| M1 | блоки, абзацы, инлайн, списки, шрифты по семействам | одностраничные документы верстаются по снапшотам |
-| M2 | таблицы (fixed), фрагментация, разрывы, `thead` | счёт на 3 страницы с повторённой шапкой |
-| M3 | `@page`, поля, margin boxes, `counter(page)`/`counter(pages)` | колонтитулы на всех страницах, номера верны |
-| M4 | `target-counter`, оглавление, закладки, метаданные, детерминизм | байт-идентичные прогоны, оглавление сходится |
+| M0 | HTML tokenizer, minimal CSS, TTF + `cmap`, PDF writer, one line of text | Russian text is extracted from the PDF, the file passes the validator |
+| M1 | blocks, paragraphs, inline, lists, fonts by family | single-page documents lay out according to snapshots |
+| M2 | tables (fixed), fragmentation, breaks, `thead` | an invoice over 3 pages with a repeated header |
+| M3 | `@page`, margins, margin boxes, `counter(page)`/`counter(pages)` | headers and footers on every page, numbers correct |
+| M4 | `target-counter`, table of contents, bookmarks, metadata, determinism | byte-identical runs, the table of contents converges |
 
-Откат: до M3 движок не подключается к генерации боевых документов; CLI и библиотека публикуются как экспериментальные, чтобы не создавать обратной совместимости раньше времени.
+Rollback: until M3 the engine is not connected to the generation of production documents; the CLI and the library are published as experimental so as not to create backward compatibility ahead of time.
 
 ## Open Questions
 
-- Нужен ли PDF/A-2b в перспективе (влияет на требования к шрифтам, метаданным и цветовым профилям, но не на архитектуру).
-- Нужна ли склейка нескольких HTML-файлов в один документ (обложка + приложения) — сейчас вне scope, реализуется как композиция на уровне драйвера страниц.
-- Доставлять ли шрифты вместе с бинарником через `embed` (плюс ~1.5 МБ на семейство) или требовать их в шаблоне.
-- Поддержка альфа-канала PNG: в v1 прозрачность отклоняется валидацией; `SMask` — кандидат в v2.
+- Is PDF/A-2b needed in the long run (it affects the requirements for fonts, metadata and colour profiles, but not the architecture).
+- Is merging several HTML files into one document needed (cover + appendices) — currently out of scope, implemented as a composition at the page driver level.
+- Whether to ship fonts together with the binary via `embed` (plus ~1.5 MB per family) or require them in the template.
+- PNG alpha channel support: in v1 transparency is rejected by validation; `SMask` is a candidate for v2.

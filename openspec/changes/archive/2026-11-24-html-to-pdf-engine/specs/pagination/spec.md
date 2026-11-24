@@ -2,106 +2,106 @@
 
 ## Purpose
 
-Определяет, как непрерывный поток боксов разрезается на страницы: размеры и поля страницы, колонтитулы, нумерация, приоритеты разрывов и двухпроходное разрешение номеров страниц для оглавления.
+Defines how a continuous flow of boxes is cut into pages: page dimensions and margins, page headers and footers, numbering, break priorities and two-pass resolution of page numbers for the table of contents.
 
 ## ADDED Requirements
 
-### Requirement: Размер и поля страницы
+### Requirement: Page size and margins
 
-Движок ДОЛЖЕН определять размер страницы из `@page { size }`, а при его отсутствии — из параметра запуска. Значения `A4`, `A5`, `Letter`, а также явные размеры в единицах длины ДОЛЖНЫ поддерживаться. Поля, заданные в `@page`, ДОЛЖНЫ уменьшать область содержимого и не пересекаться с колонтитулами.
+The engine SHALL determine the page size from `@page { size }` and, when it is absent, from the run parameter. The values `A4`, `A5`, `Letter` as well as explicit dimensions in length units MUST be supported. Margins set in `@page` MUST shrink the content area and MUST NOT overlap the page headers and footers.
 
-#### Scenario: Размер из CSS
-- **WHEN** шаблон объявляет `@page { size: A4 }`, а запуск задаёт A5
-- **THEN** PDF создаётся в формате A4
+#### Scenario: Size from CSS
+- **WHEN** the template declares `@page { size: A4 }` and the run sets A5
+- **THEN** the PDF is created in A4 format
 
-#### Scenario: Размер по умолчанию
-- **WHEN** шаблон не объявляет `@page size`, а запуск задаёт A5
-- **THEN** PDF создаётся в формате A5
+#### Scenario: Default size
+- **WHEN** the template does not declare `@page size` and the run sets A5
+- **THEN** the PDF is created in A5 format
 
-### Requirement: Колонтитулы в margin boxes
+### Requirement: Page headers and footers in margin boxes
 
-Движок ДОЛЖЕН поддерживать margin boxes `@top-left`, `@top-center`, `@top-right`, `@bottom-left`, `@bottom-center`, `@bottom-right` с содержимым из строк и счётчиков. Содержимое margin box ДОЛЖНО повторяться на каждой странице, включая первую и последнюю.
+The engine SHALL support the margin boxes `@top-left`, `@top-center`, `@top-right`, `@bottom-left`, `@bottom-center`, `@bottom-right` with content from strings and counters. The content of a margin box MUST repeat on every page, including the first and the last.
 
-#### Scenario: Колонтитул на всех страницах
-- **WHEN** шаблон задаёт `@bottom-center { content: "Стр. " counter(page) " из " counter(pages) }`
-- **THEN** каждая страница документа содержит этот колонтитул с корректными числами
+#### Scenario: A footer on every page
+- **WHEN** the template sets `@bottom-center { content: "Стр. " counter(page) " из " counter(pages) }`
+- **THEN** every page of the document contains this footer with the correct numbers
 
-#### Scenario: Пустой колонтитул
-- **WHEN** margin box не объявлен
-- **THEN** соответствующая область остаётся пустой и не влияет на область содержимого
+#### Scenario: An empty footer
+- **WHEN** a margin box is not declared
+- **THEN** the corresponding area stays empty and does not affect the content area
 
-### Requirement: Счётчики страниц
+### Requirement: Page counters
 
-Движок ДОЛЖЕН поддерживать `counter(page)` и `counter(pages)` внутри margin boxes, возвращая номер текущей страницы и общее число страниц. Значения ДОЛЖНЫ быть согласованы по всему документу: ни одна страница не может получить номер больше общего числа страниц.
+The engine SHALL support `counter(page)` and `counter(pages)` inside margin boxes, returning the number of the current page and the total number of pages. The values MUST be consistent throughout the document: no page may get a number greater than the total number of pages.
 
-#### Scenario: Нумерация с первой страницы
-- **WHEN** документ занимает три страницы
-- **THEN** колонтитулы содержат «из 3» на всех страницах, а номера идут 1, 2, 3
+#### Scenario: Numbering from the first page
+- **WHEN** the document spans three pages
+- **THEN** the footers contain "из 3" on every page, and the numbers run 1, 2, 3
 
-#### Scenario: Согласованность общего числа
-- **WHEN** документ отрендерен, и общее число страниц известно
-- **THEN** ни на одной странице `counter(pages)` не расходится с фактическим количеством
+#### Scenario: Consistency of the total
+- **WHEN** the document has been rendered and the total number of pages is known
+- **THEN** on no page does `counter(pages)` diverge from the actual count
 
-### Requirement: Приоритеты разрывов страниц
+### Requirement: Page break priorities
 
-Движок ДОЛЖЕН поддерживать `break-before`, `break-after` и `break-inside` со значениями `auto`, `page` и `avoid`, а также устаревшие `page-break-*`. При конфликте запрета разрыва с необходимостью разрыва ДОЛЖЕН побеждать принудительный разрыв `page`.
+The engine SHALL support `break-before`, `break-after` and `break-inside` with the values `auto`, `page` and `avoid`, as well as the legacy `page-break-*`. When a prohibition of a break conflicts with the need to break, the forced break `page` MUST win.
 
-#### Scenario: Запрет разрыва внутри блока
-- **WHEN** блок с `break-inside: avoid` не помещается в остаток страницы
-- **THEN** блок целиком переносится на следующую страницу, оставляя пустое место
+#### Scenario: Prohibition of a break inside a block
+- **WHEN** a block with `break-inside: avoid` does not fit in the remainder of the page
+- **THEN** the block moves to the next page as a whole, leaving empty space
 
-#### Scenario: Конфликт запрета и принудительного разрыва
-- **WHEN** внутри элемента с `break-inside: avoid` потомок требует `break-before: page`
-- **THEN** разрыв выполняется, и элемент продолжается на следующей странице
+#### Scenario: Conflict of a prohibition and a forced break
+- **WHEN** inside an element with `break-inside: avoid` a descendant requires `break-before: page`
+- **THEN** the break happens, and the element continues on the next page
 
-### Requirement: Висячие строки
+### Requirement: Orphans and widows
 
-Движок ДОЛЖЕН соблюдать `orphans` и `widows`; значения по умолчанию — 2 и 2. Если разрыв оставил бы меньше строк, чем разрешено, разрыв ДОЛЖЕН смещаться, чтобы условие выполнялось.
+The engine SHALL honour `orphans` and `widows`; the default values are 2 and 2. If a break would leave fewer lines than allowed, the break MUST shift so that the condition holds.
 
-#### Scenario: Одинокая первая строка
-- **WHEN** на странице помещается только одна строка абзаца, а `orphans` равно 2
-- **THEN** абзац начинается на следующей странице
+#### Scenario: A lone first line
+- **WHEN** only one line of a paragraph fits on the page and `orphans` equals 2
+- **THEN** the paragraph starts on the next page
 
-#### Scenario: Одинокая последняя строка
-- **WHEN** после разрыва на новой странице осталась одна строка абзаца, а `widows` равно 2
-- **THEN** разрыв смещается так, чтобы на новую страницу перешли минимум две строки
+#### Scenario: A lone last line
+- **WHEN** after a break one line of the paragraph is left on the new page and `widows` equals 2
+- **THEN** the break shifts so that at least two lines move to the new page
 
-### Requirement: Повтор заголовка таблицы
+### Requirement: Repetition of the table header
 
-Движок ДОЛЖЕН повторять содержимое `thead` в начале каждой страницы, на которую продолжается таблица, и ДОЛЖЕН выводить `tfoot` только на последней странице таблицы. Строка таблицы с `break-inside: avoid` не должна разрываться между страницами.
+The engine SHALL repeat the content of `thead` at the start of every page the table continues onto, and SHALL output `tfoot` only on the last page of the table. A table row with `break-inside: avoid` must not break between pages.
 
-#### Scenario: Таблица на трёх страницах
-- **WHEN** таблица занимает три страницы и имеет `thead`
-- **THEN** каждая из трёх страниц начинается с повторённой шапки
+#### Scenario: A table over three pages
+- **WHEN** a table spans three pages and has a `thead`
+- **THEN** each of the three pages starts with the repeated header
 
-#### Scenario: Строка не разрывается
-- **WHEN** строка таблицы объявлена с `break-inside: avoid` и не помещается в остаток страницы
-- **THEN** строка целиком переходит на следующую страницу
+#### Scenario: A row does not break
+- **WHEN** a table row is declared with `break-inside: avoid` and does not fit in the remainder of the page
+- **THEN** the row moves to the next page as a whole
 
-### Requirement: Элемент выше страницы
+### Requirement: An element taller than the page
 
-Если блок не помещается на пустой странице, движок ДОЛЖЕН разместить его с переполнением и вывести диагностику о том, что содержимое выходит за границы страницы. Движок не ДОЛЖЕН зацикливаться на таком элементе.
+If a block does not fit on an empty page, the engine SHALL place it with overflow and emit a diagnostic that the content goes beyond the page boundaries. The engine MUST NOT loop on such an element.
 
-#### Scenario: Таблица выше страницы
-- **WHEN** одна строка таблицы выше высоты области содержимого
-- **THEN** рендеринг завершается, содержимое обрезается по границе страницы, выводится диагностика
+#### Scenario: A table taller than the page
+- **WHEN** one table row is taller than the height of the content area
+- **THEN** rendering finishes, the content is clipped at the page boundary, a diagnostic is emitted
 
-### Requirement: Оглавление по номерам страниц
+### Requirement: Table of contents by page numbers
 
-Движок ДОЛЖЕН разрешать `target-counter(attr(href), page)` в свойстве `content` псевдоэлемента `a::after` и ДОЛЖЕН выполнять для этого повторный рендер до сходимости: номера в оглавлении совпадают с фактическими страницами целей. Сходимость ДОЛЖНА достигаться не более чем за оговорённое число проходов, после чего выводится диагностика.
+The engine SHALL resolve `target-counter(attr(href), page)` in the `content` property of the `a::after` pseudo-element and SHALL perform a repeated render for it until convergence: the numbers in the table of contents match the actual pages of the targets. Convergence MUST be reached in no more than the agreed number of passes, after which a diagnostic is emitted.
 
-#### Scenario: Номера страниц в оглавлении
-- **WHEN** ссылка `<a class="toc" href="#sec1">` с правилом `a.toc::after { content: target-counter(attr(href), page) }` указывает на раздел, начинающийся на странице 4
-- **THEN** в оглавлении указано 4, и это совпадает с фактической страницей раздела
+#### Scenario: Page numbers in the table of contents
+- **WHEN** the link `<a class="toc" href="#sec1">` with the rule `a.toc::after { content: target-counter(attr(href), page) }` points to a section that starts on page 4
+- **THEN** the table of contents shows 4, and it matches the actual page of the section
 
-#### Scenario: Ссылка на несуществующий якорь
-- **WHEN** `href` ссылается на идентификатор, которого нет в документе
-- **THEN** выводится диагностика о неизвестной цели, а документ всё равно создаётся
+#### Scenario: A link to a non-existent anchor
+- **WHEN** the `href` references an identifier that does not exist in the document
+- **THEN** a diagnostic about an unknown target is emitted, and the document is still created
 
-#### Scenario: Оглавление меняет разбиение
-- **WHEN** после подстановки номеров оглавление выросло и сдвинуло разделы
-- **THEN** движок выполняет повторный проход и выдаёт согласованные номера
+#### Scenario: The table of contents changes the pagination
+- **WHEN** after the numbers are substituted the table of contents grew and shifted the sections
+- **THEN** the engine performs a repeated pass and produces consistent numbers
 
-#### Scenario: Сходимость не достигнута
-- **WHEN** за отведённое число проходов номера не стабилизировались
-- **THEN** выводится диагностика о недостигнутой сходимости с указанием числа проходов
+#### Scenario: Convergence not reached
+- **WHEN** the numbers did not stabilise within the allotted number of passes
+- **THEN** a diagnostic about the unreached convergence is emitted, naming the number of passes

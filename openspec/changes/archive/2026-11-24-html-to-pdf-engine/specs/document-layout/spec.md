@@ -2,106 +2,106 @@
 
 ## Purpose
 
-Определяет, как дерево документа превращается в позиционированные боксы: блочная и строчная раскладка, блочная модель, таблицы, списки и изображения. Это слой, который решает, где окажется каждый элемент на странице.
+Defines how the document tree turns into positioned boxes: block and inline layout, the box model, tables, lists and images. This is the layer that decides where every element ends up on the page.
 
 ## ADDED Requirements
 
-### Requirement: Построение дерева боксов
+### Requirement: Box tree construction
 
-Движок ДОЛЖЕН строить из дерева документа дерево боксов, в котором каждый блок и строка получают тип: блочный, строчный, строчно-блочный, элемент списка, строка или ячейка таблицы. Смешанное содержимое, где строчные элементы соседствуют с блочными, ДОЛЖНО оборачиваться в анонимные блочные боксы.
+The engine SHALL build a box tree from the document tree in which every block and line gets a type: block, inline, inline-block, list item, table row or table cell. Mixed content, where inline elements sit next to block elements, MUST be wrapped in anonymous block boxes.
 
-#### Scenario: Текст и блок в одном контейнере
-- **WHEN** `div` содержит текст и вложенный `p`
-- **THEN** текст и `p` попадают в отдельные анонимные блочные боксы, а не смешиваются в одной строке
+#### Scenario: Text and a block in one container
+- **WHEN** a `div` contains text and a nested `p`
+- **THEN** the text and the `p` land in separate anonymous block boxes instead of mixing on one line
 
-#### Scenario: Отключённый элемент
-- **WHEN** элемент имеет `display: none`
-- **THEN** он не порождает бокс и не занимает места, включая потомков
+#### Scenario: Suppressed element
+- **WHEN** an element has `display: none`
+- **THEN** it produces no box and takes up no space, descendants included
 
-### Requirement: Блочная модель и схлопывание внешних отступов
+### Requirement: Box model and collapsing of outer margins
 
-Движок ДОЛЖЕН рассчитывать ширину и высоту по модели `content-box`, где `width` не включает `padding` и `border`. Вертикальные внешние отступы соседних блоков ДОЛЖНЫ схлопываться: результирующий отступ равен большему из двух. `box-sizing: border-box` ДОЛЖЕН отклоняться как неподдерживаемое значение.
+The engine SHALL compute width and height by the `content-box` model, where `width` does not include `padding` and `border`. Vertical outer margins of adjacent blocks MUST collapse: the resulting margin equals the larger of the two. `box-sizing: border-box` MUST be rejected as an unsupported value.
 
-#### Scenario: Схлопывание отступов
-- **WHEN** у одного блока `margin-bottom: 10mm`, у следующего `margin-top: 6mm`
-- **THEN** расстояние между ними равно 10 мм
+#### Scenario: Margin collapsing
+- **WHEN** one block has `margin-bottom: 10mm` and the next has `margin-top: 6mm`
+- **THEN** the distance between them equals 10 mm
 
-#### Scenario: Ширина с рамкой и отступами
-- **WHEN** блок имеет `width: 100mm`, `padding: 5mm` и `border: 1mm`
-- **THEN** его внешняя ширина равна 112 мм
+#### Scenario: Width with border and padding
+- **WHEN** a block has `width: 100mm`, `padding: 5mm` and `border: 1mm`
+- **THEN** its outer width equals 112 mm
 
-#### Scenario: Неподдерживаемая модель
-- **WHEN** шаблон содержит `box-sizing: border-box`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unsupported model
+- **WHEN** the template contains `box-sizing: border-box`
+- **THEN** validation fails, naming the unsupported value
 
-### Requirement: Строчная раскладка и выравнивание по базовой линии
+### Requirement: Inline layout and baseline alignment
 
-Движок ДОЛЖЕН формировать строковые боксы и выравнивать строчные элементы по базовой линии согласно `vertical-align` (`baseline`, `top`, `middle`, `bottom`) и `line-height`. Заменяемые элементы внутри строки ДОЛЖНЫ влиять на высоту строки по своим размерам.
+The engine SHALL form line boxes and align inline elements along the baseline according to `vertical-align` (`baseline`, `top`, `middle`, `bottom`) and `line-height`. Replaced elements inside a line MUST affect the line height by their own dimensions.
 
-#### Scenario: Изображение в строке текста
-- **WHEN** строка содержит изображение высотой 20 мм и текст
-- **THEN** высота строкового бокса не меньше 20 мм, а текст выровнен по базовой линии
+#### Scenario: An image in a line of text
+- **WHEN** a line contains an image 20 mm high and text
+- **THEN** the line box height is at least 20 mm, and the text is aligned along the baseline
 
-#### Scenario: Явная высота строки
-- **WHEN** для абзаца задан `line-height: 18pt` и `font-size: 12pt`
-- **THEN** базовая линия соседних строк отстоит на 18 pt
+#### Scenario: Explicit line height
+- **WHEN** a paragraph sets `line-height: 18pt` and `font-size: 12pt`
+- **THEN** the baseline of adjacent lines is 18 pt apart
 
-### Requirement: Таблицы с фиксированной раскладкой
+### Requirement: Tables with fixed layout
 
-Движок ДОЛЖЕН поддерживать только `table-layout: fixed`, при котором ширины колонок определяются первой строкой ячеек и атрибутами `width`. Значение `table-layout: auto` ДОЛЖНО отклоняться. Движок ДОЛЖЕН поддерживать `colspan` и `rowspan` в пределах одной страницы.
+The engine SHALL support only `table-layout: fixed`, in which column widths are determined by the first row of cells and by `width` attributes. The value `table-layout: auto` MUST be rejected. The engine SHALL support `colspan` and `rowspan` within a single page.
 
-#### Scenario: Ширины из первой строки
-- **WHEN** первая строка таблицы задаёт ячейки 30 мм и 60 мм
-- **THEN** все последующие строки используют эти же ширины колонок
+#### Scenario: Widths from the first row
+- **WHEN** the first row of a table sets cells of 30 mm and 60 mm
+- **THEN** all subsequent rows use the same column widths
 
-#### Scenario: Автоматическая раскладка
-- **WHEN** шаблон содержит `table-layout: auto`
-- **THEN** валидация завершается ошибкой, указывающей, что поддерживается только фиксированная раскладка
+#### Scenario: Automatic layout
+- **WHEN** the template contains `table-layout: auto`
+- **THEN** validation fails, stating that only fixed layout is supported
 
-#### Scenario: Объединение ячеек
-- **WHEN** ячейка объявлена с `colspan="2"`
-- **THEN** она занимает суммарную ширину двух колонок, а смежные ячейки сдвигаются
+#### Scenario: Merging cells
+- **WHEN** a cell is declared with `colspan="2"`
+- **THEN** it occupies the combined width of two columns, and the adjacent cells shift
 
-### Requirement: Границы таблиц
+### Requirement: Table borders
 
-Движок ДОЛЖЕН поддерживать `border-collapse: collapse` и `separate`. При схлопывании смежные границы ДОЛЖНЫ сливаться в одну линию, при разделении — сохраняться у каждой ячейки.
+The engine SHALL support `border-collapse: collapse` and `separate`. When collapsing, adjacent borders MUST merge into one line; when separating, they MUST be kept on each cell.
 
-#### Scenario: Схлопнутые границы
-- **WHEN** таблица использует `border-collapse: collapse` и границы 1 pt
-- **THEN** между соседними ячейками рисуется одна линия толщиной 1 pt, а не две
+#### Scenario: Collapsed borders
+- **WHEN** a table uses `border-collapse: collapse` and 1 pt borders
+- **THEN** one line 1 pt thick is drawn between adjacent cells instead of two
 
-#### Scenario: Раздельные границы
-- **WHEN** таблица использует `border-collapse: separate`
-- **THEN** каждая ячейка сохраняет собственную рамку
+#### Scenario: Separate borders
+- **WHEN** a table uses `border-collapse: separate`
+- **THEN** each cell keeps its own border
 
-### Requirement: Списки
+### Requirement: Lists
 
-Движок ДОЛЖЕН отображать маркеры для `list-style-type: disc` и нумерацию для `decimal`, выравнивая маркер вне текстового блока элемента списка. Вложенные списки ДОЛЖНЫ получать дополнительный отступ, атрибут `start` ДОЛЖЕН задавать начальный номер.
+The engine SHALL render markers for `list-style-type: disc` and numbering for `decimal`, aligning the marker outside the content box of the list item. Nested lists MUST get an additional indent, and the `start` attribute MUST set the initial number.
 
-#### Scenario: Нумерованный список с start
-- **WHEN** `ol` объявлен с `start="5"` и содержит два элемента
-- **THEN** элементы получают номера 5 и 6
+#### Scenario: A numbered list with start
+- **WHEN** an `ol` is declared with `start="5"` and contains two items
+- **THEN** the items get the numbers 5 and 6
 
-#### Scenario: Вложенный список
-- **WHEN** список вложен в элемент другого списка
-- **THEN** его маркеры и текст смещены вправо относительно родительского уровня
+#### Scenario: A nested list
+- **WHEN** a list is nested inside an item of another list
+- **THEN** its markers and text are shifted to the right relative to the parent level
 
-### Requirement: Изображения
+### Requirement: Images
 
-Движок ДОЛЖЕН поддерживать изображения PNG и JPEG, определять их исходные размеры и масштабировать по заданным `width` и `height` с сохранением пропорций, если задан только один размер. Неподдерживаемый формат ДОЛЖЕН приводить к ошибке с указанием формата и пути.
+The engine SHALL support PNG and JPEG images, determine their intrinsic dimensions and scale them by the given `width` and `height` while preserving proportions when only one dimension is set. An unsupported format MUST lead to an error naming the format and the path.
 
-#### Scenario: Масштабирование по ширине
-- **WHEN** изображение 200x100 px задано с `width: 50mm`
-- **THEN** высота вычисляется пропорционально и составляет 25 мм
+#### Scenario: Scaling by width
+- **WHEN** a 200x100 px image is set with `width: 50mm`
+- **THEN** the height is computed proportionally and equals 25 mm
 
-#### Scenario: Неподдерживаемый формат
-- **WHEN** документ ссылается на изображение в формате GIF
-- **THEN** рендеринг завершается ошибкой с указанием формата и пути к файлу
+#### Scenario: Unsupported format
+- **WHEN** the document references an image in GIF format
+- **THEN** rendering fails, naming the format and the file path
 
-### Requirement: Схлопывание пробелов
+### Requirement: Whitespace collapsing
 
-При `white-space: normal` движок ДОЛЖЕН схлопывать последовательности пробелов, табуляций и переводов строк в один пробел и удалять пробелы в начале и конце строки. При `white-space: pre` все пробелы и переводы строк ДОЛЖНЫ сохраняться, а строка ДОЛЖНА обрезаться по краю области, не переносясь.
+With `white-space: normal` the engine SHALL collapse sequences of spaces, tabs and newlines into one space and remove spaces at the start and end of a line. With `white-space: pre` all spaces and newlines MUST be preserved, and the line MUST be clipped at the edge of the area without wrapping.
 
-#### Scenario: Переносы строк в исходнике
-- **WHEN** исходный HTML содержит текст, разбитый переводами строк внутри абзаца
-- **THEN** в выводе это один абзац с одинарными пробелами
+#### Scenario: Line breaks in the source
+- **WHEN** the source HTML contains text broken by newlines inside a paragraph
+- **THEN** the output is one paragraph with single spaces

@@ -2,35 +2,35 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Размер и поля страницы
+### Requirement: Page size and margins
 
-Движок ДОЛЖЕН определять размер страницы из `@page { size }`, а при его отсутствии — из параметра запуска. Поддерживаются имена `A4`, `A5`, `Letter`, явные размеры в единицах длины и ориентация `portrait` или `landscape` — отдельно либо вместе с именем. Ориентация без имени размера применяется к размеру из параметров запуска. Поля из `@page` ДОЛЖНЫ уменьшать область содержимого и не пересекаться с колонтитулами.
+The engine SHALL determine the page size from `@page { size }`, and in its absence — from the launch parameter. The names `A4`, `A5`, `Letter`, explicit sizes in length units and the orientation `portrait` or `landscape` are supported — separately or together with a name. Orientation without a size name applies to the size from the launch parameters. Margins from `@page` SHALL reduce the content area and SHALL NOT overlap the headers and footers.
 
-#### Scenario: Размер из CSS
-- **WHEN** шаблон объявляет `@page { size: A4 }`, а запуск задаёт A5
-- **THEN** PDF создаётся в формате A4
+#### Scenario: Size from CSS
+- **WHEN** the template declares `@page { size: A4 }` and the run specifies A5
+- **THEN** the PDF is created in A4 format
 
-#### Scenario: Размер по умолчанию
-- **WHEN** шаблон не объявляет `@page size`, а запуск задаёт A5
-- **THEN** PDF создаётся в формате A5
+#### Scenario: Default size
+- **WHEN** the template does not declare `@page size` and the run specifies A5
+- **THEN** the PDF is created in A5 format
 
-#### Scenario: Альбомная ориентация именованного размера
-- **WHEN** шаблон объявляет `@page { size: A4 landscape }`
-- **THEN** страница имеет ширину 297 мм и высоту 210 мм
-- **AND** колонтитулы и поля располагаются по новым сторонам
+#### Scenario: Landscape orientation of a named size
+- **WHEN** the template declares `@page { size: A4 landscape }`
+- **THEN** the page has width 297 mm and height 210 mm
+- **AND** the headers, footers and margins are placed on the new sides
 
-#### Scenario: Портретная ориентация
-- **WHEN** шаблон объявляет `@page { size: A4 portrait }`
-- **THEN** страница имеет ширину 210 мм и высоту 297 мм
+#### Scenario: Portrait orientation
+- **WHEN** the template declares `@page { size: A4 portrait }`
+- **THEN** the page has width 210 mm and height 297 mm
 
-#### Scenario: Ориентация без именованного размера
-- **WHEN** шаблон объявляет `@page { size: landscape }`, а запуск задаёт A5
-- **THEN** страница имеет ширину 210 мм и высоту 148 мм
+#### Scenario: Orientation without a named size
+- **WHEN** the template declares `@page { size: landscape }` and the run specifies A5
+- **THEN** the page has width 210 mm and height 148 mm
 
-#### Scenario: Ориентация вместе с явными размерами
-- **WHEN** шаблон объявляет `@page { size: 210mm 297mm landscape }`
-- **THEN** валидация завершается ошибкой, потому что грамматика CSS не допускает ориентацию вместе с длинами
+#### Scenario: Orientation together with explicit sizes
+- **WHEN** the template declares `@page { size: 210mm 297mm landscape }`
+- **THEN** validation fails because the CSS grammar does not allow orientation together with lengths
 
-#### Scenario: Неизвестное слово в размере
-- **WHEN** шаблон объявляет `@page { size: A4 sideways }`
-- **THEN** валидация завершается ошибкой с указанием неподдерживаемого значения
+#### Scenario: Unknown word in the size
+- **WHEN** the template declares `@page { size: A4 sideways }`
+- **THEN** validation fails with an indication of the unsupported value

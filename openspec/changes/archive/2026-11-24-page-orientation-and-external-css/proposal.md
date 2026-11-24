@@ -2,37 +2,37 @@
 
 ## Why
 
-Реальные шаблоны упираются в две вещи, которых у движка нет: альбомная страница и CSS в отдельном файле. Первый же прогон четырёх документов из публичного набора html-to-pdf-tests показал, что три из четырёх блокируются именно этим: `@page { size: landscape }` не разбирается, а `<link rel="stylesheet">` отклоняется целиком. Обе возможности стандартны, дёшевы и нужны не тестам, а продукту.
+Real templates run into two things the engine lacks: a landscape page and CSS in a separate file. The very first run of four documents from the public html-to-pdf-tests set showed that three of the four are blocked by exactly this: `@page { size: landscape }` is not parsed, and `<link rel="stylesheet">` is rejected outright. Both capabilities are standard, cheap, and needed not by the tests but by the product.
 
-Третий документ из того же набора — таблица 35 на 11 — вскрыл ещё одно: в корпусе нет ни одного реального большого документа. Счета на 12 строк не проверяют ни разрывы страниц, ни повтор шапки на длинной таблице.
+The third document from the same set — a 35 by 11 table — revealed one more thing: the corpus has no single real large document. Twelve-row invoices verify neither page breaks nor header repetition on a long table.
 
 ## What Changes
 
-- **Ориентация страницы.** `@page { size }` ДОЛЖЕН принимать `landscape` и `portrait`, как отдельно, так и вместе с именованным размером (`A4 landscape`). Ориентация без имени размера применяется к размеру по умолчанию из параметров запуска.
-- **Внешние таблицы стилей.** `<link rel="stylesheet">` с локальным путём ДОЛЖЕН загружаться и участвовать в каскаде в порядке документа. Удалённые URL ДОЛЖНЫ отклоняться: движок не ходит в сеть. `media` допускает `print` и `all`; прочие `rel` игнорируются.
-- **Диагностики внешнего CSS.** Ошибка в подключённом файле ДОЛЖНА указывать файл, строку и столбец в этом файле, а не в HTML.
-- **Скрипты.** `<script>` ДОЛЖЕН игнорироваться с предупреждением `html/ignored-script`: содержимое не исполняется и не рендерится. В строгом режиме (`-strict`) это ошибка.
-- **Строгий режим.** Флаг `-strict` у `validate` и `convert` превращает предупреждения профиля в ошибки.
-- **Фикстура «большая таблица».** Собственный документ 35×11 для проверки пагинации и повтора `thead`, без копирования чужих файлов.
+- **Page orientation.** `@page { size }` SHALL accept `landscape` and `portrait`, both separately and together with a named size (`A4 landscape`). Orientation without a size name applies to the default size from the launch parameters.
+- **External stylesheets.** `<link rel="stylesheet">` with a local path SHALL be loaded and SHALL participate in the cascade in document order. Remote URLs SHALL be rejected: the engine does not go to the network. `media` accepts `print` and `all`; other `rel` values are ignored.
+- **External CSS diagnostics.** An error in an included file SHALL point to the file, line and column in that file, not in the HTML.
+- **Scripts.** `<script>` SHALL be ignored with the warning `html/ignored-script`: the content is neither executed nor rendered. In strict mode (`-strict`) this is an error.
+- **Strict mode.** The `-strict` flag on `validate` and `convert` turns profile warnings into errors.
+- **"Big table" fixture.** An own 35×11 document for verifying pagination and `thead` repetition, without copying third-party files.
 
-Не входит: удалённые стили и шрифты, `media` кроме `print`/`all`, исполнение JavaScript, `size` с явными размерами плюс ориентацией (грамматика CSS этого не допускает).
+Not included: remote styles and fonts, `media` other than `print`/`all`, JavaScript execution, `size` with explicit dimensions plus orientation (the CSS grammar does not allow this).
 
 ## Capabilities
 
 ### New Capabilities
 
-Нет: обе возможности ложатся в существующие capability.
+None: both capabilities fit into existing capabilities.
 
 ### Modified Capabilities
 
-- `pagination`: требование «Размер и поля страницы» расширяется ориентацией и запасным размером.
-- `css-profile`: требование «Поддерживаемые элементы» получает `<link>` и `<script>` с оговорками; добавляются требования про локальные таблицы стилей и про игнорирование скриптов.
+- `pagination`: the "Page size and margins" requirement is extended with orientation and a fallback size.
+- `css-profile`: the "Supported elements" requirement gains `<link>` and `<script>` with caveats; requirements are added about local stylesheets and about ignoring scripts.
 
 ## Impact
 
-- **Код**: `internal/css` (грамматика `size`, источник правил), `internal/profile` (загрузка `<link>`, политика скриптов, строгий режим), `internal/layout` (запасной размер в `ParsePageStyle`), `internal/engine` (доступ к `BaseDir` для CSS, `Options.Strict`), `cmd/pdfgen` (флаг `-strict`).
-- **Диагностики**: позиции правил перестают быть смещениями внутри HTML — каждое правило несёт собственный источник. Это затрагивает существующие тесты позиций и форматирование.
-- **Тесты**: новые сценарии на ориентацию, порядок стилей, `media`, отсутствующий файл, удалённый URL, политику скриптов и строгий режим; фикстура большой таблицы с золотым текстом.
-- **Документация**: `docs/profile.md` (элементы и at-правила), `README.md` (флаг `-strict`).
-- **Лицензии**: документы из html-to-pdf-tests не копируются — у репозитория нет лицензии. Фикстура пишется с нуля по мотивам, upstream используется только как ориентир.
-- **Совместимость**: поведение меняется для шаблонов со `<script>` (раньше ошибка, теперь предупреждение) и для `<link>` (раньше ошибка, теперь загрузка). Это расширение, существующие документы не ломаются.
+- **Code**: `internal/css` (`size` grammar, rule source), `internal/profile` (loading `<link>`, script policy, strict mode), `internal/layout` (fallback size in `ParsePageStyle`), `internal/engine` (access to `BaseDir` for CSS, `Options.Strict`), `cmd/pdfgen` (the `-strict` flag).
+- **Diagnostics**: rule positions stop being offsets inside the HTML — every rule carries its own source. This affects the existing position tests and formatting.
+- **Tests**: new scenarios for orientation, stylesheet order, `media`, a missing file, a remote URL, the script policy and strict mode; a big-table fixture with golden text.
+- **Documentation**: `docs/profile.md` (elements and at-rules), `README.md` (the `-strict` flag).
+- **Licenses**: documents from html-to-pdf-tests are not copied — the repository has no license. The fixture is written from scratch based on the idea, upstream is used only as a reference.
+- **Compatibility**: behavior changes for templates with `<script>` (previously an error, now a warning) and for `<link>` (previously an error, now loading). This is an extension, existing documents do not break.
