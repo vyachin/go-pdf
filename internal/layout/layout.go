@@ -24,6 +24,13 @@ type layouter struct {
 	// limitReported records that the work budget was already reported, so a
 	// stopped layout adds one diagnostic instead of one per loop.
 	limitReported bool
+	// maxPages bounds the number of pages a document may create; zero means
+	// unlimited.
+	maxPages int
+	// pagesExhausted records that the page limit stopped pagination.
+	pagesExhausted bool
+	// pageLimitReported records that the page limit diagnostic was added.
+	pageLimitReported bool
 }
 
 // Run lays out a validated document and returns its pages.
@@ -35,6 +42,7 @@ func Run(doc *html.Document, ctx Context) (*Document, diag.List) {
 		faces:     map[string]*FontFace{},
 		anchors:   map[string]Anchor{},
 		targets:   ctx.TargetPages,
+		maxPages:  ctx.MaxPages,
 	}
 	root, buildDiags := Build(doc, ctx)
 	l.diags = append(l.diags, buildDiags...)
@@ -71,6 +79,15 @@ func (l *layouter) stopReason() error {
 		l.diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
 	}
 	return err
+}
+
+// reportPageLimit records the page limit diagnostic once.
+func (l *layouter) reportPageLimit() {
+	if l.pageLimitReported {
+		return
+	}
+	l.pageLimitReported = true
+	l.diags.Errorf("resource/limit", diag.Position{}, "", "the document needs more than %d pages", l.maxPages)
 }
 
 // tick records one unit of pagination work and reports why layout must stop.

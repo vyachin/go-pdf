@@ -1018,6 +1018,22 @@ func TestResourceLimits(t *testing.T) {
 	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
 		t.Fatalf("page limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
+
+	// Forced breaks create pages inside one block; the limit must stop them
+	// at creation instead of after the whole layout.
+	var forced strings.Builder
+	for i := 0; i < 200; i++ {
+		forced.WriteString(`<p style="break-after:page">Страница.</p>`)
+	}
+	forced.WriteString("<p>Последний абзац.</p>")
+	res, err = Convert(context.Background(), []byte(forced.String()), Options{
+		FallbackFont: fontPath,
+		File:         "forced-pages.html",
+		Limits:       Limits{MaxPages: 1},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("page limit did not stop forced breaks: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
 }
 
 func TestImageAndFontLimits(t *testing.T) {

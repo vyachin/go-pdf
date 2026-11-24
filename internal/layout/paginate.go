@@ -19,8 +19,16 @@ type flow struct {
 	empty   bool
 }
 
-func (f *flow) newPage() {
+// newPage starts a new page and reports false when the page limit is reached.
+// It is the single place where a page is created, so forced breaks, tables and
+// the page loop all obey the same limit.
+func (f *flow) newPage() bool {
 	l := f.l
+	if l.maxPages > 0 && len(l.doc.Pages) >= l.maxPages {
+		l.pagesExhausted = true
+		l.reportPageLimit()
+		return false
+	}
 	ps := l.pageStyle
 	f.pageNum++
 	p := &Page{Number: f.pageNum, Size: ps.Size, Margin: ps.Margin}
@@ -33,6 +41,7 @@ func (f *flow) newPage() {
 	f.y = f.top
 	f.pending = 0
 	f.empty = true
+	return true
 }
 
 func (f *flow) contentHeight() int32 { return f.bottom - f.top }
@@ -87,13 +96,16 @@ func (l *layouter) paginate(root *Box) *Document {
 	}
 	iterations := 0
 	for {
-		if l.tick() != nil {
+		if l.tick() != nil || l.pagesExhausted {
 			break
 		}
 		opsBefore := l.ops
 		yBefore := f.y
 		done := l.placeBlock(f, root, f.left, f.width, true)
 		if done {
+			break
+		}
+		if l.pagesExhausted {
 			break
 		}
 		iterations++

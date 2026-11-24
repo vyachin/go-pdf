@@ -22,7 +22,7 @@
   **Воспроизведение:** `<style>@page{size:100000pt 100000pt;margin:0}</style><p>A</p>` проходит `Validate`, в том числе с `RenderPNG:true`. При 96 DPI `Render` попытается создать RGBA примерно **133333 × 133333**, то есть **71,1 GB**. `MaxImagePixels` ограничивает исходное изображение, но не страницу и не буфер `scaled` в `drawImage`: маленький PNG с огромным CSS-размером создаёт аналогичную проблему.
   **Исправление / приёмка:** проверять размеры и безопасное произведение до `image.NewRGBA`, возвращать `resource/limit`; масштабировать только видимую область. Опасный сценарий должен завершаться диагностикой, не panic/OOM. Сам OOM при ревью не запускался.
 
-- [ ] **REV-03 · P2: применять `MaxPages` при создании страницы, а не после всей раскладки.**
+- [x] **REV-03 · P2: применять `MaxPages` при создании страницы, а не после всей раскладки.**
 
   **Код:** [internal/engine/convert.go:125](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:125), [internal/layout/paginate.go:22](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:22), `flow.newPage`.
   **Воспроизведение:** 200 абзацев с `break-after:page`, затем ещё один абзац, при `Limits{MaxPages:1}` дают ошибку **«produced 201 pages, the limit is 1»**: все страницы уже созданы. Внутренний `maxIterations` не считает страницы, созданные вынужденными разрывами внутри одного `placeBlock`.

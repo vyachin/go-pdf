@@ -406,3 +406,32 @@ func TestLayoutStopsWhenCancelled(t *testing.T) {
 		t.Fatalf("a cancelled layout produced %d pages", len(doc.Pages))
 	}
 }
+
+func TestPageLimitStopsForcedBreaks(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.MaxPages = 1
+	var b strings.Builder
+	for i := 0; i < 50; i++ {
+		b.WriteString(`<p style="break-after:page">A</p>`)
+	}
+	doc, diags := h.runRaw(b.String(), h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("page limit was not enforced: %v", diags.Lines())
+	}
+	if len(doc.Pages) != 1 {
+		t.Fatalf("layout created %d pages, want at most 1", len(doc.Pages))
+	}
+}
+
+func TestPageLimitStopsBeforeLayoutEnds(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.MaxPages = 2
+	src := strings.Repeat("<p>Строка документа для проверки лимита страниц.</p>", 400)
+	doc, diags := h.runRaw(src, h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("page limit was not enforced: %v", diags.Lines())
+	}
+	if len(doc.Pages) > 2 {
+		t.Fatalf("layout created %d pages, want at most 2", len(doc.Pages))
+	}
+}

@@ -156,6 +156,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			Ctx:           ctx,
 			Budget:        p.guard,
 			MaxTableCells: limits.MaxTableCells,
+			MaxPages:      limits.MaxPages,
 			Fonts:         registry,
 			Images:        images,
 			PageSize:      pageSize,
@@ -172,10 +173,6 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		}
 		if layoutDiags.HasErrors() {
 			break
-		}
-		if pages != nil && len(pages.Pages) > limits.MaxPages {
-			diags.Errorf("resource/limit", diag.Position{}, "", "the document produced %d pages, the limit is %d", len(pages.Pages), limits.MaxPages)
-			return Result{Diagnostics: diags}, diags.Error()
 		}
 		next := referencedTargets(doc, pages)
 		if sameTargets(next, targets) {

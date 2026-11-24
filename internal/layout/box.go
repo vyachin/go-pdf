@@ -229,6 +229,10 @@ type Context struct {
 	// MaxTableCells bounds the grid area of one table: its column count times
 	// its row count. Zero means unlimited.
 	MaxTableCells int
+	// MaxPages bounds the number of pages a document may create. Zero means
+	// unlimited. The limit is applied when a page is created, including pages
+	// created by forced breaks inside one block.
+	MaxPages int
 	// TargetPages maps an element id to the page it landed on. It is filled
 	// by the engine between layout passes to resolve target-counter().
 	TargetPages map[string]int
