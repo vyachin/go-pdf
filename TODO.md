@@ -106,7 +106,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-2/main.go`: `<table><tr><td><p style="width:40pt;margin:0;font-size:10pt;line-height:12pt">AAAAA BBBBB</p></td></tr></table>` — в ячейке одна строка, `BBBBB` X=57384..91684 при content box [20000,60000], переполнение 31684 mp; контроль вне ячейки — две строки.
   **Исправление / приёмка:** использовать ту же used-геометрию (width, margin), что и `placeBlock`. Приёмка: две базовые линии 29282/41282, `BBBBB` X=20000, правые границы ≤60000, высота строки таблицы 24000.
 
-- [ ] **RV2-16 · P2: реально схлопывать границы при `border-collapse: collapse`.**
+- [x] **RV2-16 · P2: реально схлопывать границы при `border-collapse: collapse`.**
 
   **Код:** [internal/layout/table.go:279](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:279), `paintCell` в collapse-режиме; рамка таблицы рисуется отдельно в [internal/layout/paint.go:56](/Users/vyachin/Projects/go-pdf/internal/layout/paint.go:56).
   **Воспроизведение:** `go run ./testdata/probe/layout-4/main.go`: `table{border:2pt solid red;border-collapse:collapse} td{border:2pt solid blue;padding:0}` — внешняя кромка 4000 mp (красная 2000 + синяя 2000) с обеих сторон, как в `separate`; между ячейками зазор `[52000,54000]` не закрашен, текст `B` начинается с X=54000.

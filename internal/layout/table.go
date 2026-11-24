@@ -259,7 +259,10 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 				cellH += t.rowHeights[r]
 			}
 		}
-		l.paintCell(page, cell, x, y, w, cellH, index == 0, cell.col == 0)
+		lastRow := index == len(t.Rows)-1
+		lastCol := cell.col+span >= len(t.columns)
+		l.paintCell(page, cell, x, y, w, cellH, index == 0, cell.col == 0, lastRow, lastCol,
+			[4]int32{t.borderTop(), t.borderRight(), t.borderBottom(), t.borderLeft()})
 	}
 	return h
 }
@@ -267,7 +270,7 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 // paintCell draws one cell: background, borders and content. With collapsed
 // borders each cell draws only the edges it owns, so a shared border is painted
 // exactly once.
-func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol bool) {
+func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol, lastRow, lastCol bool, frame [4]int32) {
 	cell.x = x
 	cell.width = w
 	if cell.Style.Background.Set {
@@ -276,7 +279,7 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	}
 	paintSide := func(side int, rect Rect) {
 		border := cell.Style.Border[side]
-		if !border.IsVisible() {
+		if !border.IsVisible() || rect.W <= 0 || rect.H <= 0 {
 			return
 		}
 		color := border.Color
@@ -289,15 +292,32 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	bl, br := visibleWidth(cell.Style.Border[3]), visibleWidth(cell.Style.Border[1])
 	bt, bb := visibleWidth(cell.Style.Border[0]), visibleWidth(cell.Style.Border[2])
 	collapse := cell.Style.BorderCollapse == css.BorderCollapseCollapse
+	leftInset, rightInset, topInset, bottomInset := bl, br, bt, bb
 	if collapse {
-		if firstCol {
-			paintSide(3, Rect{X: x, Y: y, W: bl, H: h})
+		// A shared grid line is drawn once by the cell on the right or below;
+		// the table's own border is the frame where it exists. A cell that
+		// inherits the frame does not reserve its own edge, so the border is
+		// neither doubled nor separated from the content by an empty stripe.
+		if firstCol && frame[3] > 0 {
+			leftInset = 0
 		}
-		if firstRow {
-			paintSide(0, Rect{X: x, Y: y, W: w, H: bt})
+		if firstRow && frame[0] > 0 {
+			topInset = 0
 		}
-		paintSide(1, Rect{X: x + w - br, Y: y, W: br, H: h})
-		paintSide(2, Rect{X: x, Y: y + h - bb, W: w, H: bb})
+		if !lastCol || frame[1] > 0 {
+			rightInset = 0
+		}
+		if !lastRow || frame[2] > 0 {
+			bottomInset = 0
+		}
+		paintSide(3, Rect{X: x, Y: y, W: leftInset, H: h})
+		paintSide(0, Rect{X: x, Y: y, W: w, H: topInset})
+		if lastCol && rightInset > 0 {
+			paintSide(1, Rect{X: x + w - rightInset, Y: y, W: rightInset, H: h})
+		}
+		if lastRow && bottomInset > 0 {
+			paintSide(2, Rect{X: x, Y: y + h - bottomInset, W: w, H: bottomInset})
+		}
 	} else {
 		paintSide(3, Rect{X: x, Y: y, W: bl, H: h})
 		paintSide(1, Rect{X: x + w - br, Y: y, W: br, H: h})
@@ -305,17 +325,17 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		paintSide(2, Rect{X: x, Y: y + h - bb, W: w, H: bb})
 	}
 
-	inner := w - cell.padLeft() - cell.padRight() - bl - br
+	inner := w - cell.padLeft() - cell.padRight() - leftInset - rightInset
 	if inner < 0 {
 		inner = 0
 	}
-	contentX := x + bl + cell.padLeft()
-	contentY := y + bt + cell.padTop()
+	contentX := x + leftInset + cell.padLeft()
+	contentY := y + topInset + cell.padTop()
 	contentH := int32(0)
 	for _, c := range cell.Children {
 		contentH += l.measure(c, inner)
 	}
-	availH := h - bt - bb - cell.padTop() - cell.padBottom()
+	availH := h - topInset - bottomInset - cell.padTop() - cell.padBottom()
 	switch cell.Style.VerticalAlign {
 	case css.VAMiddle:
 		contentY += (availH - contentH) / 2

@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1210,4 +1211,106 @@ func TestCellContentUsesBlockWidth(t *testing.T) {
 	if len(marginedYs) != 2 {
 		t.Fatalf("the margined block produced %d baselines, want 2", len(marginedYs))
 	}
+}
+
+// TestCollapsedBordersDrawOneLine guards RV2-16: with border-collapse the
+// table border and the cell border were painted side by side, so an outer edge
+// was twice as thick as declared, and the same doubling left an unpainted
+// stripe before the next cell's text.
+func TestCollapsedBordersDrawOneLine(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 300000, Height: 200000}
+	margin := [4]int32{}
+	style := func(collapse string) string {
+		return `<style>table{width:100pt;border:2pt solid #ff0000;border-collapse:` + collapse + `}
+		td{border:2pt solid #0000ff;padding:0;font-size:10pt}</style>
+		<table><tr><td>A</td><td>B</td></tr></table>`
+	}
+	edgeThickness := func(doc *Document) (left, right, top, bottom int32) {
+		for _, op := range doc.Pages[0].Ops {
+			if op.Kind != FillOpKind {
+				continue
+			}
+			r := op.Rect
+			// Only the strips along each edge count; the frame sides meet in
+			// the corners and would otherwise be counted twice.
+			if r.X == 0 && r.H == 20000 {
+				left += r.W
+			}
+			if r.X+r.W == 104000 && r.H == 20000 {
+				right += r.W
+			}
+			if r.Y == 0 && r.W == 104000 {
+				top += r.H
+			}
+			if r.Y+r.H == 20000 && r.W == 104000 {
+				bottom += r.H
+			}
+		}
+		return
+	}
+
+	collapsed, _ := h.runRaw(style("collapse"), size, margin)
+	left, right, top, bottom := edgeThickness(collapsed)
+	if left != 2000 || right != 2000 || top != 2000 || bottom != 2000 {
+		t.Fatalf("collapsed outer edges = %d/%d/%d/%d mp, want 2000 everywhere", left, right, top, bottom)
+	}
+	// One shared line between the cells, and the second cell's text starts right
+	// after it: no unpainted stripe.
+	shared := 0
+	for _, op := range collapsed.Pages[0].Ops {
+		if op.Kind == FillOpKind && op.Rect.X == 52000 && op.Rect.W == 2000 {
+			shared++
+		}
+	}
+	if shared != 1 {
+		t.Fatalf("the shared vertical border is painted %d times, want 1", shared)
+	}
+	var textBX int32 = -1
+	for _, op := range collapsed.Pages[0].Ops {
+		if op.Kind == TextOpKind && op.Text != nil && string(rune(op.Text.Run.Glyphs[0].Rune)) == "B" {
+			textBX = op.Text.X
+		}
+	}
+	if textBX != 54000 {
+		t.Fatalf("the second cell's text starts at X=%d, want 54000 (right after the shared border)", textBX)
+	}
+
+	// Separate borders keep their own edges: the outer edge is twice as thick.
+	separate, _ := h.runRaw(style("separate"), size, margin)
+	collapseEdge := contiguousEdge(t, collapsed, 10000)
+	separateEdge := contiguousEdge(t, separate, 10000)
+	if collapseEdge != 2000 {
+		t.Fatalf("the collapsed left edge is %d mp thick, want 2000", collapseEdge)
+	}
+	if separateEdge != 4000 {
+		t.Fatalf("the separate left edge is %d mp thick, want 4000 (table border plus cell border)", separateEdge)
+	}
+}
+
+// contiguousEdge returns how far the painted area extends from X=0 along the
+// given horizontal line, so an empty stripe stops the count.
+func contiguousEdge(t *testing.T, doc *Document, y int32) int32 {
+	t.Helper()
+	var spans [][2]int32
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != FillOpKind {
+			continue
+		}
+		r := op.Rect
+		if y >= r.Y && y < r.Y+r.H {
+			spans = append(spans, [2]int32{r.X, r.X + r.W})
+		}
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	var end int32
+	for _, sp := range spans {
+		if sp[0] > end {
+			break
+		}
+		if sp[1] > end {
+			end = sp[1]
+		}
+	}
+	return end
 }
