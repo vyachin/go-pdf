@@ -174,7 +174,7 @@
   **Воспроизведение:** при `width:200pt;text-align:right` добавление `text-indent:20pt` сдвигает AAA **на 20000 mp влево**, хотя правая граница должна остаться общей. Natural уже включает indent, затем painter повторно уменьшает доступную ширину.
   **Исправление / приёмка:** согласовать определение Natural и Indent для line builder/painter. Проверить right/center/justify, первую и последующие строки, а также отрицательный indent.
 
-- [ ] **REV-27 · P2: переносить inline-якорь вместе с текстом, которому он принадлежит.**
+- [x] **REV-27 · P2: переносить inline-якорь вместе с текстом, которому он принадлежит.**
 
   **Код:** [internal/layout/lines.go:223](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:223), anchorPiece и последующий flush; [internal/layout/paginate.go:377](/Users/vyachin/Projects/go-pdf/internal/layout/paginate.go:377), регистрация line anchors.
   **Воспроизведение:** `<p style="width:30pt">AAA <a id="dest">BBB</a></p>`. BBB переходит на вторую строку, но dest остаётся у первой: anchor Y **56693**, AAA baseline **67832**, BBB baseline **82232 mp**. Если перенос совпадает с границей страницы, target-counter может указывать предыдущую страницу.

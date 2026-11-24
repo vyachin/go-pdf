@@ -767,3 +767,30 @@ func TestTextIndentDoesNotShiftAlignment(t *testing.T) {
 		t.Fatalf("negative indent moved the right edge to %d, want %d", rightEdge(negative), rightEdge(rightPlain))
 	}
 }
+
+func TestInlineAnchorMovesWithItsText(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="width:30pt;margin:0">AAA <a id="dest">BBB</a></p>`)
+	anchor, ok := doc.Anchors["dest"]
+	if !ok {
+		t.Fatal("the anchor was not registered")
+	}
+	var aaaY, bbbY int32 = -1, -1
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil || len(op.Text.Run.Glyphs) == 0 {
+			continue
+		}
+		switch op.Text.Run.Glyphs[0].Rune {
+		case 'A':
+			aaaY = op.Text.Y
+		case 'B':
+			bbbY = op.Text.Y
+		}
+	}
+	if bbbY <= aaaY {
+		t.Fatalf("BBB did not wrap: AAA=%d BBB=%d", aaaY, bbbY)
+	}
+	if anchor.Y <= aaaY {
+		t.Fatalf("the anchor stayed on the first line: anchor Y=%d, AAA baseline=%d", anchor.Y, aaaY)
+	}
+}

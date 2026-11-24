@@ -195,6 +195,17 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	// space or a forced break. An inline element boundary alone is not one, so
 	// "ab<span>cd</span>ef" stays a single word.
 	canWrap := false
+	// Anchors wait until the first item they introduce is actually placed, so
+	// an anchor before a word that wraps moves to the new line with it.
+	var pendingAnchors []string
+	attachAnchors := func() {
+		if len(pendingAnchors) == 0 {
+			return
+		}
+		cur.Anchors = append(cur.Anchors, pendingAnchors...)
+		pendingAnchors = nil
+	}
+
 	firstLine := true
 	ensureIndent := func() {
 		if firstLine && len(lines) == 0 && indent != 0 {
@@ -228,15 +239,17 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		switch p.kind {
 		case anchorPiece:
 			if p.anchor != "" {
-				cur.Anchors = append(cur.Anchors, p.anchor)
+				pendingAnchors = append(pendingAnchors, p.anchor)
 			}
 		case breakPiece:
 			spacePending = false
 			canWrap = false
+			attachAnchors()
 			flush(true)
 			firstLine = false
 		case spacePiece:
 			if p.preserve {
+				attachAnchors()
 				addSpace(p.style)
 				canWrap = true
 				continue
@@ -266,6 +279,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				addSpace(p.style)
 				spacePending = false
 			}
+			attachAnchors()
 			item := LineItem{Kind: ImageItem, Image: p.image, W: w, H: h, Style: p.style}
 			cur.Items = append(cur.Items, item)
 			cur.Height = max32(cur.Height, h)
@@ -300,6 +314,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				addSpace(p.style)
 				spacePending = false
 			}
+			attachAnchors()
 			ensureIndent()
 			item := LineItem{Kind: TextItem, Face: face, Run: run, Color: p.style.Color, Style: p.style, W: run.Width}
 			cur.Items = append(cur.Items, item)
@@ -311,6 +326,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			_ = firstLine
 		}
 	}
+	// A trailing anchor belongs to the line it follows.
+	attachAnchors()
 	// A block without inline content must not produce a line; explicit breaks
 	// already flushed their own.
 	flush(false)
