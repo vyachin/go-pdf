@@ -200,3 +200,18 @@ func TestDiagnosticFormat(t *testing.T) {
 		t.Fatalf("Format:\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestValidationHonoursCancellationAfterStart(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 20000; i++ {
+		b.WriteString("<p>Строка документа для проверки отмены.</p>")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(time.Millisecond)
+		cancel()
+	}()
+	if _, err := pdfgen.Validate(ctx, []byte(b.String()), testOptions(t)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Validate returned %v, want context.Canceled", err)
+	}
+}

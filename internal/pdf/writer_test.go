@@ -3,6 +3,8 @@ package pdf
 import (
 	"bytes"
 	"compress/zlib"
+	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/font"
 )
 
@@ -626,5 +629,22 @@ func TestSharedGlyphKeepsBothRunes(t *testing.T) {
 	}
 	if !strings.Contains(content, "<0000>") || !strings.Contains(content, "<0001>") {
 		t.Fatalf("content does not address both CIDs: %q", content)
+	}
+}
+
+func TestBytesHonoursCancellationAfterStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	guard := budget.New(ctx, 0)
+	d := New(Options{Budget: guard})
+	ops := []Op{{Kind: FillOpKind, Rect: Rect{W: 1000, H: 1000}, Color: RGB{Set: true}}}
+	for i := 0; i < 1000; i++ {
+		d.AddPage(595276, 841890, ops)
+	}
+	go func() {
+		time.Sleep(time.Millisecond)
+		cancel()
+	}()
+	if _, err := d.Bytes(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Bytes returned %v, want context.Canceled", err)
 	}
 }

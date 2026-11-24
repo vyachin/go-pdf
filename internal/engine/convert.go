@@ -235,8 +235,15 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	}
 	var pngData []byte
 	if opts.RenderPNG && len(pages.Pages) > 0 {
-		img, err := raster.Render(pages.Pages[0], raster.Options{DPI: 96, MaxPixels: limits.MaxRasterPixels})
+		img, err := raster.Render(pages.Pages[0], raster.Options{
+			DPI:       96,
+			MaxPixels: limits.MaxRasterPixels,
+			Budget:    p.guard,
+		})
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Result{Diagnostics: diags}, ctxErr
+			}
 			if errors.Is(err, budget.ErrExceeded) {
 				diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
 				diags.Sort()

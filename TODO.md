@@ -34,7 +34,7 @@
   **Воспроизведение:** `Convert` для `<p>A</p>` с комплектным `FallbackFont` и `Limits{MaxFontBytes:10}` успешно выдаёт PDF; то же подтверждено через публичный `pdfgen.Convert`. Для `@font-face` проверка есть, но только после полного `Read`/`io.ReadAll`. Системный fallback также не проверяется.
   **Исправление / приёмка:** единое ограниченное чтение всех шрифтов, проверка максимум `limit+1` байт до разбора. Аналогичные бюджеты нужны для внешних CSS и закодированных изображений; CLI читает HTML целиком до `MaxInputBytes`. Одного `Stat` недостаточно для ограничения растущего файла. Часть ENG-02.
 
-- [ ] **REV-05 · P2: завершить поддержку отмены в `Validate`, подготовке и записи PDF.**
+- [x] **REV-05 · P2: завершить поддержку отмены в `Validate`, подготовке и записи PDF.**
 
   **Код:** [internal/engine/engine.go:94](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go:94), `Validate`; [internal/engine/convert.go:35](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:35), `prepare`, `Convert`; [pdfgen/pdfgen.go:248](/Users/vyachin/Projects/go-pdf/pdfgen/pdfgen.go:248).
   **Воспроизведение:** валидация 15000 `<div>A</div>` с отменой через 1 ms заканчивается при `ctx.Err()==context.Canceled`, но возвращает `err=nil` и пустую диагностику. Публичный `pdfgen.Validate` ведёт себя так же. У `Convert` уже есть проверки между стадиями и в части layout, однако парсеры, построение дерева, чтение ресурсов, `writer.Bytes` и растр не получают context; после записи нет финальной проверки.

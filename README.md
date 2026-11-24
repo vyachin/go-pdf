@@ -172,9 +172,9 @@ for _, d := range diags { // warnings only
   `*pdfgen.Error` with code `resource/limit` before the expensive allocation,
   not an OOM.
 - **Cancellation.** Pass a context that can be cancelled: parsing, stylesheet
-  collection, font loading, layout between pages, rows and lines, and PDF
-  serialization all stop when it is done, and `Convert` returns the context
-  error instead of a partial PDF.
+  collection, font loading, layout between pages, rows and lines, PDF
+  serialization and the debug raster all stop when it is done, and `Convert`
+  returns the context error instead of a partial PDF.
 - **Strict mode.** `Options.Strict` turns warnings into errors, the same way
   `pdfgen validate -strict` does.
 

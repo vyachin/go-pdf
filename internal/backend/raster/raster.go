@@ -28,6 +28,9 @@ type Options struct {
 	// scaled image. Zero means the default of 40,000,000 pixels. A page and an
 	// image are checked before the buffer is allocated.
 	MaxPixels int
+	// Budget records rasterization work and reports cancellation. Nil means
+	// unlimited work and no cancellation.
+	Budget *budget.Guard
 }
 
 // defaultMaxPixels matches the image pixel budget of the engine. A page is
@@ -71,6 +74,9 @@ func Render(page *layout.Page, opts Options) (*image.RGBA, error) {
 	if opts.MaxPixels <= 0 {
 		opts.MaxPixels = defaultMaxPixels
 	}
+	if err := opts.Budget.Err(); err != nil {
+		return nil, err
+	}
 	w := int(float64(page.Size.Width) / 1000 * float64(opts.DPI) / 72)
 	h := int(float64(page.Size.Height) / 1000 * float64(opts.DPI) / 72)
 	if w <= 0 || h <= 0 {
@@ -87,6 +93,9 @@ func Render(page *layout.Page, opts Options) (*image.RGBA, error) {
 	scaleX := float64(w) / float64(page.Size.Width)
 	scaleY := float64(h) / float64(page.Size.Height)
 	for _, op := range page.Ops {
+		if err := opts.Budget.Add(1); err != nil {
+			return nil, err
+		}
 		switch op.Kind {
 		case layout.FillOpKind:
 			col := toColor(op.Color)

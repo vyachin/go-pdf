@@ -2,6 +2,7 @@ package raster
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"image"
 	"image/color"
@@ -253,5 +254,14 @@ func TestOversizedImageIsClippedToThePage(t *testing.T) {
 	r, g, b, _ := img.At(0, 0).RGBA()
 	if r < 0xfe00 || g < 0xfe00 || b < 0xfe00 {
 		t.Fatalf("the visible corner was not painted: %#x,%#x,%#x", r, g, b)
+	}
+}
+
+func TestRenderHonoursCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	page := newPage(100000, 100000, layout.Op{Kind: layout.FillOpKind, Rect: layout.Rect{W: 1000, H: 1000}, Color: css.Color{Set: true}})
+	if _, err := Render(page, Options{DPI: 72, Budget: budget.New(ctx, 0)}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Render returned %v, want context.Canceled", err)
 	}
 }
