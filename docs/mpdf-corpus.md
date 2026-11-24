@@ -70,7 +70,8 @@ HTML-фрагменты взяты из [mpdf/mpdf](https://github.com/mpdf/mpdf
 
 ```bash
 git clone --depth 1 https://github.com/mpdf/mpdf /tmp/mpdf
-go run ./cmd/mpdfimport -src /tmp/mpdf/tests -out testdata/mpdf
+The corpus is committed in `testdata/mpdf/cases.json`; extracting it again is
+a one-off task and the importer is no longer part of the repository.
 
 # Пересобрать золотые тексты после изменения движка
 go test ./internal/mpdfcompat -update

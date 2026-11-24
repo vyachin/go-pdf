@@ -163,7 +163,7 @@
   **Код и документация:** [README.md](/Users/vyachin/Projects/go-pdf/README.md), раздел «Библиотека»; [internal/engine/engine.go](/Users/vyachin/Projects/go-pdf/internal/engine/engine.go).
   Пример предлагает внешнему пользователю импортировать `github.com/vyachin/go-pdf/internal/engine`, что Go запрещает за пределами родительского дерева. Выбрать публичный пакет с устойчивым API и публичными типами диагностик, либо явно описать CLI как единственный внешний интерфейс. Критерий: пример из README компилируется в отдельном модуле.
 
-- [ ] **CLEAN-01 · P3: удалить одноразовый `cmd/mpdfimport` после завершённого импорта.**
+- [x] **CLEAN-01 · P3: удалить одноразовый `cmd/mpdfimport` после завершённого импорта.**
 
   Запрос пользователя: импортер больше не нужен, поскольку корпус уже сохранён. Проверено: тесты читают HTML непосредственно из [testdata/mpdf/cases.json](/Users/vyachin/Projects/go-pdf/testdata/mpdf/cases.json); для запуска Go-тестов PHP-репозиторий и импортер не требуются.
   При реализации удалить команду и её собственные тесты, обновить сообщение об отсутствующем корпусе и комментарий в [internal/mpdfcompat/corpus_test.go](/Users/vyachin/Projects/go-pdf/internal/mpdfcompat/corpus_test.go), убрать инструкцию запуска удалённой команды из [docs/mpdf-corpus.md](/Users/vyachin/Projects/go-pdf/docs/mpdf-corpus.md). Сохранить cases.json, goldens и сведения о происхождении. Проверка: `go test ./...` и отсутствие действующих ссылок на удалённую команду.
