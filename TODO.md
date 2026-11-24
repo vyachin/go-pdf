@@ -152,7 +152,7 @@
   **Код:** [internal/engine/convert.go:29](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:29), [internal/profile/profile.go](/Users/vyachin/Projects/go-pdf/internal/profile/profile.go), [internal/engine/images.go](/Users/vyachin/Projects/go-pdf/internal/engine/images.go).
   Валидация и конвертация отдельно собирают и читают листы CSS. Загружать их один раз, валидировать и использовать один неизменяемый результат; ошибки чтения не должны обходить валидацию при повторной загрузке. Кэшировать изображения между проходами layout и сохранять общую идентичность PDF-ресурса. Критерии: один снимок входных ресурсов на конвертацию, повторное изображение не встраивается заново для каждого вхождения.
 
-- [ ] **ENG-04 · P3: заменить самописные служебные операции стандартной библиотекой.**
+- [x] **ENG-04 · P3: заменить самописные служебные операции стандартной библиотекой.**
 
   [internal/profile/styles.go](/Users/vyachin/Projects/go-pdf/internal/profile/styles.go): заменить `asLinkError` на `errors.As`; границу каталога реализовать через `os.OpenRoot` / `os.Root` с учётом SEC-02.
   [cmd/pdfgen/main.go](/Users/vyachin/Projects/go-pdf/cmd/pdfgen/main.go), `writeFileAtomic`: использовать `filepath.Dir` и `filepath.Base` вместо ручного поиска `/`; сохранить `os.CreateTemp` и `os.Rename` для записи в том же каталоге.

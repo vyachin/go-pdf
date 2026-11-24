@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/engine"
@@ -217,14 +218,7 @@ func trimPDFExt(path string) string {
 // writeFileAtomic writes data through a temporary file in the same directory so
 // that a failure never leaves a truncated document behind.
 func writeFileAtomic(path string, data []byte) error {
-	dir := "."
-	name := path
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			dir, name = path[:i], path[i+1:]
-			break
-		}
-	}
+	dir, name := filepath.Dir(path), filepath.Base(path)
 	f, err := os.CreateTemp(dir, "."+name+".tmp-*")
 	if err != nil {
 		return err

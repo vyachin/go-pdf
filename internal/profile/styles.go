@@ -87,18 +87,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 }
 
 func asLinkError(err error, target **linkError) bool {
-	for err != nil {
-		if le, ok := err.(*linkError); ok {
-			*target = le
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
+	return errors.As(err, target)
 }
 
 // loadStylesheet resolves one link element. A non stylesheet rel, or a media
