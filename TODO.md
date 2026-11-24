@@ -20,7 +20,7 @@
   **Воспроизведение:** `go run ./testdata/probe/css-html-3/main.go` и `css-html-9/main.go`. Документ из d вложенных `<div>` и правило `table div div … div`: depth 21 — 17 мс, 25 — 191 мс, 29 — 2,9 с; depth 41/20 компаундов (HTML 206 Б, CSS 96 Б) не завершается за 10 с, бюджет 20 000 000 не тронут.
   **Исправление / приёмка:** число путей C(40,20) ≈ 1,4·10¹¹. Мемоизировать пары (узел, индекс компаунда) или передать бюджет/отмену в каскад и учитывать каждую проверку. Корректность `div p`, `div > p` и списков сохранить; regression-тест на depth 41 обязан завершаться за фиксированное время либо давать `resource/limit`.
 
-- [ ] **RV2-03 · P1: писать `/SMask` полноценным image XObject.**
+- [x] **RV2-03 · P1: писать `/SMask` полноценным image XObject.**
 
   **Код:** [internal/pdf/writer.go:591](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:591), вызов `alloc(alpha)`; `imageStream` в [:639](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:639) не применяется к маске.
   **Воспроизведение:** `go run ./testdata/probe/pdf-api-2/main.go` (PNG 2×2 с alpha в `<div style="background-color:blue">`), затем `HOME=$PWD/.cache/home /tmp/gobin/pdfcpu validate -m strict .cache/cli/alpha.pdf`. Маска — `7 0 obj << /Length 4 >> stream … endstream`, без `/Width`. pdfcpu: `xObject Image stream dict … required entry=Width missing`; relaxed-режим проходит, поэтому существующий тест молчит.

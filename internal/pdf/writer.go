@@ -322,7 +322,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	for _, im := range images {
 		body, err := imageObject(im.image, func(mask []byte) int {
 			id := w.add()
-			w.set(id, streamObject(mask, true))
+			w.set(id, mask)
 			return id
 		})
 		if err != nil {
@@ -551,7 +551,7 @@ func streamObject(data []byte, compress bool) []byte {
 }
 
 // imageObject returns the image XObject. alloc, when not nil, registers the
-// alpha mask stream of a PNG and returns its object id.
+// complete image XObject of a PNG's alpha mask and returns its object id.
 func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 	switch img.Format {
 	case "jpeg":
@@ -588,7 +588,14 @@ func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 		if alloc == nil {
 			return nil, fmt.Errorf("pdf: a transparent png needs a soft mask object")
 		}
-		maskID := alloc(alpha)
+		maskData, err := deflate(alpha)
+		if err != nil {
+			return nil, err
+		}
+		// The mask is an image XObject of its own: /SMask must point at a
+		// complete image stream, not at raw pixel bytes, or validators and
+		// viewers reject the image.
+		maskID := alloc(imageStream(w, h, "/DeviceGray", maskData, ""))
 		return imageStream(w, h, "/DeviceRGB", rgbData, fmt.Sprintf(" /SMask %d 0 R", maskID)), nil
 	default:
 		return nil, fmt.Errorf("pdf: unsupported image format %q", img.Format)

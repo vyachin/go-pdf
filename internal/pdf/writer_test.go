@@ -563,8 +563,19 @@ func TestPNGAlphaUsesASoftMask(t *testing.T) {
 	if !bytes.Equal(rgb, []byte{255, 0, 0}) {
 		t.Fatalf("translucent red stored as %v, want unpremultiplied 255,0,0", rgb)
 	}
-	if len(mask) != 1 || mask[0] != 128 {
-		t.Fatalf("soft mask = %v, want one byte of 128", mask)
+	// /SMask must reference a complete image XObject: a bare pixel stream makes
+	// strict validators reject the file even though relaxed readers cope.
+	maskText := string(mask)
+	for _, want := range []string{
+		"/Type /XObject", "/Subtype /Image", "/Width 1", "/Height 1",
+		"/ColorSpace /DeviceGray", "/BitsPerComponent 8", "/Filter /FlateDecode",
+	} {
+		if !strings.Contains(maskText, want) {
+			t.Fatalf("soft mask %q does not contain %q", maskText, want)
+		}
+	}
+	if got := []byte(decodeStream(t, maskText)); len(got) != 1 || got[0] != 128 {
+		t.Fatalf("soft mask pixels = %v, want one byte of 128", got)
 	}
 }
 

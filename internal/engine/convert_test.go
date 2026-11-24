@@ -148,7 +148,7 @@ func validateWithPDFCPU(t *testing.T, data []byte) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "validate", path)
+	cmd := exec.Command(bin, "validate", "-m", "strict", path)
 	// pdfcpu writes a configuration file into the user config directory; point
 	// HOME at the temporary directory so the test stays self contained.
 	cmd.Env = append(os.Environ(), "HOME="+filepath.Dir(path))
@@ -626,9 +626,11 @@ func TestDocumentWithImagesIsDeterministic(t *testing.T) {
 func TestRepeatedImageIsEmbeddedOnce(t *testing.T) {
 	fontPath := testFontPath(t)
 	dir := t.TempDir()
+	// Opaque: the test counts image XObjects, and a translucent source also
+	// gets a soft-mask object of its own.
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
-	for i := range img.Pix {
-		img.Pix[i] = 180
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = 180, 180, 180, 255
 	}
 	path := filepath.Join(dir, "logo.png")
 	f, err := os.Create(path)
@@ -681,9 +683,11 @@ func TestMissingStylesheetIsReportedOnce(t *testing.T) {
 
 func writeTestPNG(t *testing.T, path string) {
 	t.Helper()
+	// Opaque so that the fixture tests image placement, not transparency:
+	// a translucent source legitimately produces an extra mask object.
 	img := image.NewRGBA(image.Rect(0, 0, 5, 5))
-	for i := range img.Pix {
-		img.Pix[i] = 120
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = 120, 120, 120, 255
 	}
 	f, err := os.Create(path)
 	if err != nil {
