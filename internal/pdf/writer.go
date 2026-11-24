@@ -8,8 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"image"
-	"image/draw"
+	"image/color"
 	"image/png"
 	"math"
 	"sort"
@@ -317,9 +316,14 @@ func (d *Doc) Bytes() ([]byte, error) {
 		w.set(cidMapID, streamObject(fe.cidToGIDMap(), true))
 	}
 
-	// Image objects.
+	// Image objects. A PNG with transparency needs a second stream for its
+	// soft mask; the allocator registers it and returns its object id.
 	for _, im := range images {
-		body, err := imageObject(im.image)
+		body, err := imageObject(im.image, func(mask []byte) int {
+			id := w.add()
+			w.set(id, streamObject(mask, true))
+			return id
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -541,7 +545,9 @@ func streamObject(data []byte, compress bool) []byte {
 	return []byte(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(data), data))
 }
 
-func imageObject(img *Image) ([]byte, error) {
+// imageObject returns the image XObject. alloc, when not nil, registers the
+// alpha mask stream of a PNG and returns its object id.
+func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 	switch img.Format {
 	case "jpeg":
 		w, h, components := jpegInfo(img.Data)
@@ -563,38 +569,72 @@ func imageObject(img *Image) ([]byte, error) {
 			"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
 			w, h, colorSpace, len(img.Data), img.Data)), nil
 	case "png":
-		src, err := png.Decode(bytes.NewReader(img.Data))
+		w, h, rgb, alpha, err := pngPixels(img.Data)
 		if err != nil {
-			return nil, fmt.Errorf("pdf: decoding png: %w", err)
-		}
-		bounds := src.Bounds()
-		rgb := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-		// Composite onto white, the page colour, with draw.Over: converting to
-		// RGBA first premultiplies the channels, so flattening the result by
-		// alpha again would darken every translucent pixel.
-		draw.Draw(rgb, rgb.Bounds(), image.White, image.Point{}, draw.Src)
-		draw.Draw(rgb, rgb.Bounds(), src, bounds.Min, draw.Over)
-		raw := make([]byte, 0, bounds.Dx()*bounds.Dy()*3)
-		for y := 0; y < bounds.Dy(); y++ {
-			for x := 0; x < bounds.Dx(); x++ {
-				i := rgb.PixOffset(x, y)
-				raw = append(raw, rgb.Pix[i], rgb.Pix[i+1], rgb.Pix[i+2])
-			}
-		}
-		var buf bytes.Buffer
-		zw := zlib.NewWriter(&buf)
-		if _, err := zw.Write(raw); err != nil {
 			return nil, err
 		}
-		if err := zw.Close(); err != nil {
+		rgbData, err := deflate(rgb)
+		if err != nil {
 			return nil, err
 		}
-		return []byte(fmt.Sprintf(
-			"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream",
-			bounds.Dx(), bounds.Dy(), buf.Len(), buf.Bytes())), nil
+		if alpha == nil {
+			return imageStream(w, h, "/DeviceRGB", rgbData, ""), nil
+		}
+		if alloc == nil {
+			return nil, fmt.Errorf("pdf: a transparent png needs a soft mask object")
+		}
+		maskID := alloc(alpha)
+		return imageStream(w, h, "/DeviceRGB", rgbData, fmt.Sprintf(" /SMask %d 0 R", maskID)), nil
 	default:
 		return nil, fmt.Errorf("pdf: unsupported image format %q", img.Format)
 	}
+}
+
+// pngPixels decodes a PNG into raw RGB and, when any pixel is not opaque, an
+// alpha channel. The colour channels are unpremultiplied so that a soft mask
+// reproduces the source exactly over any page background.
+func pngPixels(data []byte) (int, int, []byte, []byte, error) {
+	src, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0, nil, nil, fmt.Errorf("pdf: decoding png: %w", err)
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	rgb := make([]byte, 0, w*h*3)
+	alpha := make([]byte, 0, w*h)
+	opaque := true
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			c := color.NRGBAModel.Convert(src.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
+			rgb = append(rgb, c.R, c.G, c.B)
+			alpha = append(alpha, c.A)
+			if c.A != 0xFF {
+				opaque = false
+			}
+		}
+	}
+	if opaque {
+		alpha = nil
+	}
+	return w, h, rgb, alpha, nil
+}
+
+func deflate(raw []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func imageStream(w, h int, colorSpace string, data []byte, extra string) []byte {
+	return []byte(fmt.Sprintf(
+		"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /FlateDecode /Length %d%s >>\nstream\n%s\nendstream",
+		w, h, colorSpace, len(data), extra, data))
 }
 
 // jpegInfo reads the frame header of a baseline JPEG.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"math"
@@ -1329,4 +1330,34 @@ func TestFontWeightKeepsItalicPreference(t *testing.T) {
 	if got := r.pick([]string{"w"}, 400, false); got != regular {
 		t.Fatal("an upright request did not prefer the upright face")
 	}
+}
+
+func TestTransparentPNGKeepsAlphaInPDF(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 128})
+	data, err := os.Create(filepath.Join(dir, "t.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(data, img); err != nil {
+		data.Close()
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+	src := `<div style="background-color:red"><img src="t.png" style="width:20pt;height:20pt"></div>`
+	res, err := Convert(context.Background(), []byte(src), Options{
+		FallbackFont: testFontPath(t),
+		BaseDir:      dir,
+		File:         "alpha.html",
+	})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Contains(res.PDF, []byte("/SMask")) {
+		t.Fatal("the translucent PNG was flattened instead of using a soft mask")
+	}
+	validateWithPDFCPU(t, res.PDF)
 }

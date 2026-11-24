@@ -86,7 +86,7 @@
 
 ### Конечный PDF
 
-- [ ] **REV-13 · P2: сохранять PNG alpha на цветном фоне или диагностировать ограничение профиля.**
+- [x] **REV-13 · P2: сохранять PNG alpha на цветном фоне или диагностировать ограничение профиля.**
 
   **Код:** [internal/pdf/writer.go:522](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go:522), `imageObject`, ветка PNG.
   **Воспроизведение:** прозрачный 1×1 PNG в `<div style="background-color:red"><img src="transparent.png" style="width:20pt;height:20pt"></div>`. Debug raster показывает красный фон; независимый Poppler для конечного PDF даёт белый прямоугольник. Пиксель `(85,85)` при 96 DPI: debug **(65535,0,0)**, PDF **(65535,65535,65535)**. Диагностики нет: writer заранее смешивает PNG с белым.

@@ -529,7 +529,7 @@ func findFontObjects(objects map[int]string) string {
 	return b.String()
 }
 
-func TestPNGAlphaIsFlattenedOnce(t *testing.T) {
+func TestPNGAlphaUsesASoftMask(t *testing.T) {
 	pixel := func(a uint8) []byte {
 		img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
 		img.SetNRGBA(0, 0, color.NRGBA{R: 255, G: 0, B: 0, A: a})
@@ -539,27 +539,32 @@ func TestPNGAlphaIsFlattenedOnce(t *testing.T) {
 		}
 		return buf.Bytes()
 	}
-	rgbOf := func(data []byte) (uint8, uint8, uint8) {
-		obj, err := imageObject(&Image{Data: data, Format: "png", PixelW: 1, PixelH: 1})
+	render := func(data []byte) (rgb, mask []byte) {
+		obj, err := imageObject(&Image{Data: data, Format: "png", PixelW: 1, PixelH: 1}, func(m []byte) int {
+			mask = append([]byte(nil), m...)
+			return 7
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		body := decodeStream(t, string(obj))
-		raw := []byte(body)
-		if len(raw) < 3 {
-			t.Fatalf("decoded stream = %v", raw)
-		}
-		return raw[0], raw[1], raw[2]
+		return []byte(body), mask
 	}
-	if r, g, b := rgbOf(pixel(255)); r != 255 || g != 0 || b != 0 {
-		t.Fatalf("opaque red = %d,%d,%d", r, g, b)
+	rgb, mask := render(pixel(255))
+	if mask != nil {
+		t.Fatalf("an opaque image must not carry a soft mask: %v", mask)
 	}
-	r, g, b := rgbOf(pixel(128))
-	if r != 255 || g < 126 || g > 129 || b < 126 || b > 129 {
-		t.Fatalf("half-transparent red flattened to %d,%d,%d, want 255,127,127", r, g, b)
+	if !bytes.Equal(rgb, []byte{255, 0, 0}) {
+		t.Fatalf("opaque red = %v, want 255,0,0", rgb)
 	}
-	if r, g, b := rgbOf(pixel(0)); r != 255 || g != 255 || b != 255 {
-		t.Fatalf("transparent pixel = %d,%d,%d, want white", r, g, b)
+	// A translucent pixel keeps its unpremultiplied colour and gets alpha in
+	// the soft mask, so a viewer composes it over the real page background.
+	rgb, mask = render(pixel(128))
+	if !bytes.Equal(rgb, []byte{255, 0, 0}) {
+		t.Fatalf("translucent red stored as %v, want unpremultiplied 255,0,0", rgb)
+	}
+	if len(mask) != 1 || mask[0] != 128 {
+		t.Fatalf("soft mask = %v, want one byte of 128", mask)
 	}
 }
 
@@ -569,7 +574,7 @@ func TestCMYKJPEGIsNotEmbeddedAsRGB(t *testing.T) {
 	if err != nil {
 		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
 	}
-	_, err = imageObject(&Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1})
+	_, err = imageObject(&Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1}, nil)
 	if err == nil || !strings.Contains(err.Error(), "CMYK") {
 		t.Fatalf("a four-component JPEG must not be embedded as RGB, got %v", err)
 	}
