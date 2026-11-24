@@ -670,7 +670,7 @@ func pageTextRun(op *TextOp) string {
 
 func TestNestedListIndentation(t *testing.T) {
 	h := newHarness(t)
-	doc := h.run(`<ol><li>A<ol><li>B</li></ol>C</li></ol>`) //nolint:staticcheck
+	doc := h.run(`<ol><li>A<ol><li>B</li></ol>C</li></ol>`)
 	xOf := func(r rune) int32 {
 		for _, op := range textOps(doc) {
 			for _, g := range op.Run.Glyphs {
@@ -901,7 +901,7 @@ func TestImageMoveUsesOnePage(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	src := `<p style="height:65pt;margin:0">A</p><img style="display:block;width:10pt;height:20pt" src="i.png"><p>B</p>`
 	doc, diags := h.runRaw(src, size, margin)
 	if diags.HasErrors() {
@@ -1340,7 +1340,7 @@ func TestInlineVerticalAlignShiftsTheRun(t *testing.T) {
 	if !okTop || !okMiddle || !okBottom || !okBase {
 		t.Fatalf("not every span was placed: %v", ys)
 	}
-	if !(top < middle && middle < baseline && baseline < bottom) {
+	if top >= middle || middle >= baseline || baseline >= bottom {
 		t.Fatalf("vertical-align offsets are wrong: top=%d middle=%d baseline=%d bottom=%d", top, middle, baseline, bottom)
 	}
 	if centre := (top + bottom) / 2; abs32(middle-centre) > 2000 {
@@ -1383,7 +1383,7 @@ func TestTablePaddingShiftsRows(t *testing.T) {
 	}
 	// The last column ends at the content edge, not past it.
 	for _, op := range doc.Pages[0].Ops {
-		if op.Kind != FillOpKind || !(op.Color == css.Color{R: 0, G: 255, Set: true}) {
+		if op.Kind != FillOpKind || op.Color != (css.Color{R: 0, G: 255, Set: true}) {
 			continue
 		}
 		right := op.Rect.X + op.Rect.W
@@ -1407,7 +1407,7 @@ func TestInlineImageAnchorIsRegistered(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	doc, diags := h.runRaw(`<style>p{margin:0}</style>
 	<a href="#fig">Figure page </a><p><img id="fig" src="fig.png" style="width:20pt;height:20pt"></p>`,

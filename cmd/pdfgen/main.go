@@ -40,14 +40,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return exitOK
 	default:
-		fmt.Fprintf(stderr, "pdfgen: unknown command %q\n\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "pdfgen: unknown command %q\n\n", args[0])
 		usage(stderr)
 		return exitUsage
 	}
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `pdfgen converts HTML templates into PDF documents.
+	_, _ = fmt.Fprint(w, `pdfgen converts HTML templates into PDF documents.
 
 Usage:
   pdfgen convert [flags] <input.html>
@@ -104,7 +104,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "pdfgen convert: exactly one input file is required")
+		_, _ = fmt.Fprintln(stderr, "pdfgen convert: exactly one input file is required")
 		return exitUsage
 	}
 	input := fs.Arg(0)
@@ -113,7 +113,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 	if dateStr != "" {
 		parsed, err := time.Parse(time.RFC3339, dateStr)
 		if err != nil {
-			fmt.Fprintf(stderr, "pdfgen convert: invalid -date: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "pdfgen convert: invalid -date: %v\n", err)
 			return exitUsage
 		}
 		date = parsed
@@ -121,7 +121,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 
 	src, err := readInput(input)
 	if err != nil {
-		fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
 		return exitFailure
 	}
 	if out == "" {
@@ -141,26 +141,26 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		File:      input,
 	})
 	for _, d := range res.Diagnostics {
-		fmt.Fprintln(stderr, d.String())
+		_, _ = fmt.Fprintln(stderr, d.String())
 	}
 	if err != nil {
 		// The diagnostics above already carry the details; printing err would
 		// repeat every line, because the engine's error joins the same list.
 		if res.Diagnostics.HasErrors() {
-			fmt.Fprintln(stderr, "pdfgen convert: template is invalid")
+			_, _ = fmt.Fprintln(stderr, "pdfgen convert: template is invalid")
 		} else {
-			fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
 		}
 		return exitFailure
 	}
 	if err := writeFileAtomic(out, res.PDF); err != nil {
-		fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
 		return exitFailure
 	}
-	fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", out, len(res.PDF))
+	_, _ = fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", out, len(res.PDF))
 	if png && len(res.PNG) > 0 {
 		if err := writeFileAtomic(trimPDFExt(out)+".png", res.PNG); err != nil {
-			fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
 			return exitFailure
 		}
 	}
@@ -181,16 +181,16 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if *printProfile {
-		fmt.Fprint(stdout, profile.Text())
+		_, _ = fmt.Fprint(stdout, profile.Text())
 		return exitOK
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "pdfgen validate: exactly one input file is required")
+		_, _ = fmt.Fprintln(stderr, "pdfgen validate: exactly one input file is required")
 		return exitUsage
 	}
 	src, err := readInput(fs.Arg(0))
 	if err != nil {
-		fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
 		return exitFailure
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -202,17 +202,17 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		Strict:  *strict,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
 		return exitFailure
 	}
 	for _, d := range diagnostics {
-		fmt.Fprintln(stdout, d.String())
+		_, _ = fmt.Fprintln(stdout, d.String())
 	}
 	if diagnostics.HasErrors() {
-		fmt.Fprintln(stderr, "pdfgen validate: template is invalid")
+		_, _ = fmt.Fprintln(stderr, "pdfgen validate: template is invalid")
 		return exitFailure
 	}
-	fmt.Fprintf(stdout, "ok: %s is valid\n", fs.Arg(0))
+	_, _ = fmt.Fprintf(stdout, "ok: %s is valid\n", fs.Arg(0))
 	return exitOK
 }
 
@@ -242,9 +242,9 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {

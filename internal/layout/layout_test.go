@@ -140,9 +140,7 @@ func (h *harness) runRaw(src string, size css.PageSize, margin [4]int32) (*Docum
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	diags := profile.Validate(doc, profile.Options{})
-	sheets, sheetDiags := profile.CollectStylesheets(doc, profile.Options{})
-	diags = append(diags, sheetDiags...)
+	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
@@ -325,7 +323,7 @@ func TestInlineImageIncreasesLineHeight(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	doc := h.run(`<p>до <img src="logo.png"> после</p>`)
 	var hasImage bool
@@ -546,7 +544,7 @@ func TestBlockImageInsideCellReservesHeight(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	doc := h.run(`<table><tr><td><img src="logo.png" style="width:50pt;height:30pt"><p style="margin:0">AFTER</p></td></tr></table>`)
 	var imageRect Rect
@@ -857,7 +855,7 @@ func TestOversizedFirstLineIsClipped(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	doc, diags = h.runRaw(`<img src="tall.png" style="width:20pt;height:100pt;display:block">`, h.ctx.PageSize, h.ctx.Margin)
 	if hasError(diags, "layout/no-progress") {
 		t.Fatalf("an oversized image was reported as no progress: %v", diags.Lines())

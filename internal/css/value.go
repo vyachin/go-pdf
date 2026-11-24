@@ -385,23 +385,6 @@ const (
 	FontItalic
 )
 
-func parseInt(t Token) (int, error) {
-	if t.Kind != NumberToken {
-		return 0, fmt.Errorf("expected a number, got %q", t.Text)
-	}
-	if t.Bad || !finiteInRange(t.Num) {
-		return 0, fmt.Errorf("number %q is out of range", t.Text)
-	}
-	return int(t.Num), nil
-}
-
-func parseIdent(t Token) (string, error) {
-	if t.Kind != IdentToken {
-		return "", fmt.Errorf("expected a keyword, got %q", t.Text)
-	}
-	return strings.ToLower(t.Text), nil
-}
-
 func filterWhitespace(toks []Token) []Token {
 	out := make([]Token, 0, len(toks))
 	for _, t := range toks {

@@ -84,7 +84,7 @@ func TestIndependentRendererSeesContent(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		img, err := png.Decode(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			t.Fatalf("%s: decoded render: %v", name, err)
 		}
@@ -123,7 +123,7 @@ func renderFirstPage(t *testing.T, ppm, pdfPath string) image.Image {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	img, err := png.Decode(f)
 	if err != nil {
 		t.Fatalf("decoding the render: %v", err)
@@ -219,7 +219,7 @@ func TestIndependentRendererCompositesTransparency(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := png.Encode(f, img); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal(err)
 	}
 	if err := f.Close(); err != nil {

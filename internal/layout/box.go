@@ -61,7 +61,7 @@ type Box struct {
 	cursor        cursor
 	started       bool
 	entered       bool
-	x, y          int32 // absolute position of the box origin
+	x             int32 // absolute position of the box origin on the x axis
 	width         int32
 	startPage     int
 	fragStartY    int32
@@ -623,18 +623,6 @@ func spanAttr(n *html.Node, name string) (int, bool) {
 		return 1, true
 	}
 	return css.ParseTableSpan(v)
-}
-
-func attrInt(n *html.Node, name string, def int) int {
-	v, ok := n.Attr(name)
-	if !ok {
-		return def
-	}
-	i, err := strconv.Atoi(v)
-	if err != nil || i < 1 {
-		return def
-	}
-	return i
 }
 
 // Describe renders a readable summary of a box for snapshots and messages.

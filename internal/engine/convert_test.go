@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/build"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -194,7 +195,7 @@ func TestImageEmbedding(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	jpgPath := filepath.Join(dir, "photo.jpg")
 	jf, err := os.Create(jpgPath)
 	if err != nil {
@@ -203,7 +204,7 @@ func TestImageEmbedding(t *testing.T) {
 	if err := jpeg.Encode(jf, img, nil); err != nil {
 		t.Fatal(err)
 	}
-	jf.Close()
+	_ = jf.Close()
 
 	src := `<p><img src="logo.png" width="20mm"></p><p><img src="photo.jpg" width="20mm"></p>`
 	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, BaseDir: dir, File: "img.html"})
@@ -605,7 +606,7 @@ func TestDocumentWithImagesIsDeterministic(t *testing.T) {
 		if err := png.Encode(f, img); err != nil {
 			t.Fatal(err)
 		}
-		f.Close()
+		_ = f.Close()
 	}
 	src := `<p>Первое <img src="a.png"> и второе <img src="b.png"></p>`
 	opts := Options{FallbackFont: fontPath, BaseDir: dir, File: "images.html"}
@@ -641,7 +642,7 @@ func TestRepeatedImageIsEmbeddedOnce(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	loader := &imageLoader{baseDir: dir}
 	if _, err := loader.Load("logo.png"); err != nil {
@@ -694,7 +695,7 @@ func writeTestPNG(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
@@ -832,7 +833,7 @@ func TestBlockImageIsPainted(t *testing.T) {
 }
 
 func TestCMYKJPEGIsRejected(t *testing.T) {
-	fixture := filepath.Join(runtime.GOROOT(), "src", "image", "testdata", "video-001.cmyk.jpeg")
+	fixture := filepath.Join(build.Default.GOROOT, "src", "image", "testdata", "video-001.cmyk.jpeg")
 	data, err := os.ReadFile(fixture)
 	if err != nil {
 		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
@@ -1270,7 +1271,7 @@ func TestValidateMatchesConvertOnAssetsAndGlyphs(t *testing.T) {
 }
 
 func TestValidateMatchesConvertOnCMYK(t *testing.T) {
-	fixture := filepath.Join(runtime.GOROOT(), "src", "image", "testdata", "video-001.cmyk.jpeg")
+	fixture := filepath.Join(build.Default.GOROOT, "src", "image", "testdata", "video-001.cmyk.jpeg")
 	data, err := os.ReadFile(fixture)
 	if err != nil {
 		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
@@ -1362,7 +1363,7 @@ func TestTransparentPNGKeepsAlphaInPDF(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := png.Encode(data, img); err != nil {
-		data.Close()
+		_ = data.Close()
 		t.Fatal(err)
 	}
 	if err := data.Close(); err != nil {
@@ -1398,7 +1399,7 @@ func TestKeywordsAreCopiedToThePDF(t *testing.T) {
 	var hex strings.Builder
 	hex.WriteString("<FEFF")
 	for _, r := range "счёт, договор, test" {
-		hex.WriteString(fmt.Sprintf("%04X", r))
+		_, _ = fmt.Fprintf(&hex, "%04X", r)
 	}
 	hex.WriteString(">")
 	if !strings.Contains(pdf, "/Keywords "+hex.String()) {

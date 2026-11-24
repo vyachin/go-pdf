@@ -130,7 +130,7 @@ func decodedStream(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(zr); err != nil {
 		return nil, err

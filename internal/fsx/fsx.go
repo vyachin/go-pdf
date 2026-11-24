@@ -80,7 +80,7 @@ func ReadFileLimit(path string, limit int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return readLimited(f, limit)
 }
 
@@ -89,7 +89,7 @@ func (r *Root) read(path string, limit int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return readLimited(f, limit)
 }
 

@@ -46,7 +46,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 	if rootErr != nil {
 		out.Errorf("css/link-load", diag.Position{}, "", "cannot open the base directory: %v", rootErr)
 	} else {
-		defer root.Close()
+		defer func() { _ = root.Close() }()
 	}
 	stopped := false
 	var walk func(*html.Node)
