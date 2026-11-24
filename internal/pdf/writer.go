@@ -331,13 +331,22 @@ func (d *Doc) Bytes() ([]byte, error) {
 	return assemble(w, catalogID, infoID, id)
 }
 
+// nominalWidth1000 returns a glyph width in thousandths of an em, rounded the
+// same way for /W and for TJ adjustments.
+func nominalWidth1000(f *font.Font, gid uint16) int32 {
+	upem := float64(f.UnitsPerEm())
+	if upem == 0 {
+		return 0
+	}
+	return int32(math.Round(float64(f.Advance(gid)) * 1000 / upem))
+}
+
 func (fe *fontEntry) widthArray() string {
 	gids := make([]int, 0, len(fe.used))
 	for gid := range fe.used {
 		gids = append(gids, int(gid))
 	}
 	sort.Ints(gids)
-	upem := float64(fe.font.UnitsPerEm())
 	var groups []string
 	i := 0
 	for i < len(gids) {
@@ -347,7 +356,7 @@ func (fe *fontEntry) widthArray() string {
 		}
 		widths := make([]string, 0, j-i+1)
 		for k := i; k <= j; k++ {
-			widths = append(widths, fmt.Sprintf("%d", int32(float64(fe.font.Advance(uint16(gids[k])))*1000/upem)))
+			widths = append(widths, fmt.Sprintf("%d", nominalWidth1000(fe.font, uint16(gids[k]))))
 		}
 		groups = append(groups, fmt.Sprintf("%d [%s]", gids[i], strings.Join(widths, " ")))
 		i = j + 1
@@ -447,8 +456,9 @@ func advanceAdjustment(f *font.Font, size int32, g Glyph) int32 {
 	if f == nil || size <= 0 || g.Advance == 0 || f.UnitsPerEm() == 0 {
 		return 0
 	}
-	// The nominal width uses the same rounding as the /W array.
-	w1000 := math.Round(float64(f.Advance(g.GID)) * 1000 / float64(f.UnitsPerEm()))
+	// The nominal width comes from the same helper as the /W array, so the
+	// viewer advance and this adjustment cannot disagree by a rounding unit.
+	w1000 := float64(nominalWidth1000(f, g.GID))
 	nominal := math.Round(w1000 * float64(size) / 1000)
 	diff := nominal - float64(g.Advance)
 	return int32(math.Round(diff * 1000 / float64(size)))

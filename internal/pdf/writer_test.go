@@ -3,6 +3,7 @@ package pdf
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -460,4 +461,66 @@ func TestPageResourcesListOnlyUsedImages(t *testing.T) {
 	if withFirst != 1 || withSecond != 1 {
 		t.Fatalf("image resources are not per page: first=%d second=%d", withFirst, withSecond)
 	}
+}
+
+func TestWidthRoundingMatchesAdjustment(t *testing.T) {
+	f := loadFont(t)
+	var gid uint16
+	found := false
+	for g := uint16(0); g < 4000; g++ {
+		units := f.Advance(g)
+		if units == 0 {
+			continue
+		}
+		exact := float64(units) * 1000 / float64(f.UnitsPerEm())
+		if exact-math.Floor(exact) > 0.5 {
+			gid, found = g, true
+			break
+		}
+	}
+	if !found {
+		t.Skip("the test font has no glyph with a fractional width above 0.5")
+	}
+	exact := float64(f.Advance(gid)) * 1000 / float64(f.UnitsPerEm())
+	want := int32(math.Round(exact))
+	const size = int32(100000)
+	nominal := int32(math.Round(float64(want) * float64(size) / 1000))
+
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 1000, Font: f, Size: size, Glyphs: []Glyph{{GID: gid, Advance: nominal}}},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := pdfObjects(t, data)
+	// The /W array must carry the rounded width, not a truncated one.
+	if !strings.Contains(findFontObjects(objects), fmt.Sprintf("/W [%d [%d]]", gid, want)) {
+		t.Fatalf("/W does not round %0.3f to %d", exact, want)
+	}
+	// An advance equal to the rounded nominal width needs no adjustment.
+	for _, body := range objects {
+		if s := decodeStream(t, body); strings.Contains(s, "TJ") {
+			open := strings.Index(s, "[")
+			closeIdx := strings.Index(s, "] TJ")
+			if open >= 0 && closeIdx > open {
+				if fields := strings.Fields(s[open+1 : closeIdx]); len(fields) != 1 {
+					t.Fatalf("a matching nominal width must need no adjustment: %q", s[open:closeIdx+3])
+				}
+			}
+		}
+	}
+}
+
+func findFontObjects(objects map[int]string) string {
+	var b strings.Builder
+	for _, body := range objects {
+		if strings.Contains(body, "/Subtype /Type0") || strings.Contains(body, "/CIDFontType2") {
+			b.WriteString(body)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
