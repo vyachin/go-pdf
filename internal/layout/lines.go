@@ -191,6 +191,10 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		x = 0
 	}
 
+	// canWrap records that the previous piece created a break opportunity: a
+	// space or a forced break. An inline element boundary alone is not one, so
+	// "ab<span>cd</span>ef" stays a single word.
+	canWrap := false
 	firstLine := true
 	ensureIndent := func() {
 		if firstLine && len(lines) == 0 && indent > 0 {
@@ -228,15 +232,18 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			}
 		case breakPiece:
 			spacePending = false
+			canWrap = false
 			flush(true)
 			firstLine = false
 		case spacePiece:
 			if p.preserve {
 				addSpace(p.style)
+				canWrap = true
 				continue
 			}
 			if len(cur.Items) > 0 {
 				spacePending = true
+				canWrap = true
 			}
 		case imagePiece:
 			if p.image == nil {
@@ -252,6 +259,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if len(cur.Items) > 0 && x+spaceW+w > width {
 				spacePending = false
 				flush(false)
+				canWrap = false
 				firstLine = false
 			}
 			if spacePending && len(cur.Items) > 0 {
@@ -282,9 +290,10 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			}
 			// Preformatted text wraps only on explicit line feeds; it may
 			// overflow the content box instead.
-			if len(cur.Items) > 0 && x+spaceW+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
+			if len(cur.Items) > 0 && canWrap && x+spaceW+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
 				spacePending = false
 				flush(false)
+				canWrap = false
 				firstLine = false
 			}
 			if spacePending && len(cur.Items) > 0 {
@@ -297,6 +306,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Height = max32(cur.Height, p.style.LineHeightMP())
 			cur.Ascent = max32(cur.Ascent, face.Ascent)
 			x += run.Width
+			// A following word can only wrap after a space or a break.
+			canWrap = false
 			_ = firstLine
 		}
 	}

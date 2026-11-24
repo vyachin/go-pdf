@@ -698,3 +698,30 @@ func TestTrailingSpaceIsDroppedOnWrap(t *testing.T) {
 		t.Fatalf("right-aligned word edges differ by %d mp: %v", edges[0]-edges[1], edges)
 	}
 }
+
+func TestInlineBorderIsNotALineBreak(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="width:35pt;margin:0">ab<span>cd</span>ef</p>`)
+	if got := textOf(doc); got != "abcdef" {
+		t.Fatalf("text = %q, want one unbroken word", got)
+	}
+	var baselines []int32
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind == TextOpKind && op.Text != nil && len(op.Text.Run.Glyphs) > 0 {
+			baselines = append(baselines, op.Text.Y)
+		}
+	}
+	if len(baselines) < 2 {
+		t.Fatalf("expected separate runs for the inline boundary, got %d", len(baselines))
+	}
+	for _, y := range baselines[1:] {
+		if y != baselines[0] {
+			t.Fatalf("the word was split across baselines %v", baselines)
+		}
+	}
+	// A space is still a break opportunity.
+	spaced := h.run(`<p style="width:35pt;margin:0">ab cd ef</p>`)
+	if textOf(spaced) == "abcdef" {
+		t.Fatal("a space no longer creates a break opportunity")
+	}
+}
