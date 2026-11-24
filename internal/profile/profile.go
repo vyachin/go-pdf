@@ -51,13 +51,21 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 	var out diag.List
 	out = append(out, sheetDiags...)
 	for _, sheet := range sheets {
+		if err := opts.Budget.Add(1); err != nil {
+			return out
+		}
 		validateSheet(doc, sheet, &out)
 	}
 
-	walkElements(doc.Root, func(n *html.Node) {
+	stopped := false
+	walkElements(doc.Root, func(n *html.Node) bool {
+		if err := opts.Budget.Add(1); err != nil {
+			stopped = true
+			return false
+		}
 		if n.Tag == "script" {
 			out.Warnf("html/ignored-script", doc.Pos(n), n.Path(), "scripts are not executed and were ignored")
-			return
+			return true
 		}
 		if !css.SupportedElements[n.Tag] {
 			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
@@ -79,8 +87,13 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 			}
 			validateDeclarations(doc, doc.Pos(n), n.Path(), decls, &out)
 		}
+		return true
 	})
-
+	if stopped {
+		// The caller reports the budget failure from Options.Budget; a partial
+		// diagnostic list must not look like a complete validation.
+		return out
+	}
 	out.Sort()
 	if opts.Strict {
 		out.EscalateWarnings()
@@ -88,13 +101,23 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 	return out
 }
 
-func walkElements(n *html.Node, fn func(*html.Node)) {
+// walkElements calls fn for every element in document order. fn returns false
+// to stop the walk.
+func walkElements(n *html.Node, fn func(*html.Node) bool) bool {
+	if n == nil {
+		return true
+	}
 	if n.Type == html.ElementNode {
-		fn(n)
+		if !fn(n) {
+			return false
+		}
 	}
 	for _, c := range n.Children {
-		walkElements(c, fn)
+		if !walkElements(c, fn) {
+			return false
+		}
 	}
+	return true
 }
 
 func validateSheet(doc *html.Document, sh *css.Stylesheet, out *diag.List) {

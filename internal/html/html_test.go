@@ -1,8 +1,12 @@
 package html
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 func TestTokenizer(t *testing.T) {
@@ -408,5 +412,34 @@ func TestNestedListKeepsItsStructure(t *testing.T) {
 	}
 	if text := outer.TextContent(); !strings.Contains(text, "C") {
 		t.Fatalf("text after the nested list left the outer item: %q", text)
+	}
+}
+
+func TestParseRejectsDeepNesting(t *testing.T) {
+	src := []byte(strings.Repeat("<div>", 20) + "x")
+	_, err := ParseWithOptions(src, ParseOptions{MaxDepth: 8})
+	if !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("deep nesting returned %v, want a budget limit error", err)
+	}
+	// A document at the limit still parses: html, body and one element.
+	if _, err := ParseWithOptions([]byte(`<div><p>x</p></div>`), ParseOptions{MaxDepth: 4}); err != nil {
+		t.Fatalf("a document at the depth limit failed: %v", err)
+	}
+}
+
+func TestParseStopsOnExhaustedBudget(t *testing.T) {
+	src := []byte(strings.Repeat("<p>строка</p>", 200))
+	_, err := ParseWithOptions(src, ParseOptions{Budget: budget.New(context.Background(), 5)})
+	if !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("parse returned %v, want a budget limit error", err)
+	}
+}
+
+func TestParseStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ParseWithOptions([]byte(strings.Repeat("<p>x</p>", 50)), ParseOptions{Budget: budget.New(ctx, 0)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("parse returned %v, want context.Canceled", err)
 	}
 }

@@ -42,7 +42,7 @@ type Options struct {
 	// Strict turns profile warnings into errors.
 	Strict bool
 	// Limits bounds the work a single conversion may do. Zero means the
-	// default: 8 MiB of HTML and 5000 pages.
+	// defaults documented on Limits.
 	Limits Limits
 }
 
@@ -50,6 +50,8 @@ type Options struct {
 type Limits struct {
 	// MaxInputBytes is the largest accepted HTML document.
 	MaxInputBytes int
+	// MaxStylesheetBytes bounds one external stylesheet.
+	MaxStylesheetBytes int
 	// MaxPages is the largest number of pages a document may produce.
 	MaxPages int
 	// MaxImagePixels bounds width*height of a decoded image, checked before
@@ -57,12 +59,24 @@ type Limits struct {
 	MaxImagePixels int
 	// MaxFontBytes bounds the size of a font file.
 	MaxFontBytes int
+	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
+	// parsing, before the tree allocates one node per level.
+	MaxDOMDepth int
+	// MaxTableCells bounds the number of cells in one table.
+	MaxTableCells int
+	// MaxOperations bounds the total work of a conversion: parsed tokens,
+	// layout boxes, placed lines and drawing operations. It is the backstop
+	// against a document that is cheap to store but expensive to lay out.
+	MaxOperations int
 }
 
 // resolved fills zero fields with their defaults.
 func (l Limits) resolved() Limits {
 	if l.MaxInputBytes <= 0 {
 		l.MaxInputBytes = 8 << 20
+	}
+	if l.MaxStylesheetBytes <= 0 {
+		l.MaxStylesheetBytes = 8 << 20
 	}
 	if l.MaxPages <= 0 {
 		l.MaxPages = 5000
@@ -72,6 +86,15 @@ func (l Limits) resolved() Limits {
 	}
 	if l.MaxFontBytes <= 0 {
 		l.MaxFontBytes = 16 << 20
+	}
+	if l.MaxDOMDepth <= 0 {
+		l.MaxDOMDepth = 256
+	}
+	if l.MaxTableCells <= 0 {
+		l.MaxTableCells = 200_000
+	}
+	if l.MaxOperations <= 0 {
+		l.MaxOperations = 20_000_000
 	}
 	return l
 }
@@ -95,8 +118,14 @@ func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	_, diags, err := prepare(src, opts)
-	return diags, err
+	_, diags, err := prepare(ctx, src, opts)
+	if err != nil {
+		return diags, err
+	}
+	if err := ctx.Err(); err != nil {
+		return diags, err
+	}
+	return diags, nil
 }
 
 func sourceName(opts Options) string {

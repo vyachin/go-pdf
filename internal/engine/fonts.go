@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/fsx"
@@ -32,8 +34,11 @@ type fontRegistry struct {
 	cache    map[string]*layout.FontFace
 }
 
-func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
+func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
 	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
+	if err := guard.Err(); err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	parsed := map[string]*font.Font{}
 	fontDir := opts.FontDir
@@ -45,9 +50,13 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 		return nil, fmt.Errorf("opening the font directory: %w", fontRootErr)
 	}
 	defer fontRoot.Close()
+	maxFontBytes := opts.Limits.resolved().MaxFontBytes
 	for _, rule := range css.RulesForPrint(sheets) {
 		if rule.Kind != css.FontFaceRule {
 			continue
+		}
+		if err := guard.Add(1); err != nil {
+			return nil, err
 		}
 		var family, src string
 		weight, italic := 400, false
@@ -92,6 +101,11 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 			if max := opts.Limits.resolved().MaxFontBytes; len(data) > max {
 				return nil, fmt.Errorf("font %q is %d bytes, the limit is %d", src, len(data), max)
 			}
+			// Parsing a font is bounded by MaxFontBytes; the charge still makes
+			// several medium fonts spend the shared work budget.
+			if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
+				return nil, err
+			}
 			f, err = font.Parse(data)
 			if err != nil {
 				return nil, fmt.Errorf("loading font %q: %w", src, err)
@@ -106,9 +120,18 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 		r.faces = append(r.faces, &registeredFace{family: family, weight: weight, italic: italic, font: f})
 	}
 	if opts.FallbackFont != "" {
+		if err := guard.Err(); err != nil {
+			return nil, err
+		}
 		data, err := os.ReadFile(opts.FallbackFont)
 		if err != nil {
 			return nil, fmt.Errorf("loading fallback font: %w", err)
+		}
+		if len(data) > maxFontBytes {
+			return nil, fmt.Errorf("fallback font %q is %d bytes, the limit is %d", opts.FallbackFont, len(data), maxFontBytes)
+		}
+		if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
+			return nil, err
 		}
 		f, err := font.Parse(data)
 		if err != nil {

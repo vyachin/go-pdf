@@ -158,6 +158,9 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	t.headerPage = f.pageNum
 
 	for t.cursor.row < len(t.Rows) {
+		if l.tick() != nil {
+			return false
+		}
 		row := t.Rows[t.cursor.row]
 		if repeated && row.Header && t.cursor.row < t.headerCount {
 			// Already painted as the repeated header above.

@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -849,7 +850,7 @@ func TestFontFamilyAliasesShareOneFile(t *testing.T) {
 		@font-face { font-family: One; src: url(f.ttf) }
 		@font-face { font-family: Two; src: url(f.ttf) }
 	`))
-	reg, err := newFontRegistry([]*css.Stylesheet{sheet}, Options{BaseDir: dir, FallbackFont: testFontPath(t)})
+	reg, err := newFontRegistry(context.Background(), nil, []*css.Stylesheet{sheet}, Options{BaseDir: dir, FallbackFont: testFontPath(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1065,5 +1066,75 @@ func TestCancellationStopsLayout(t *testing.T) {
 	}
 	if len(res.PDF) != 0 {
 		t.Fatal("no PDF may be written after cancellation")
+	}
+}
+
+func TestStageResourceBudgets(t *testing.T) {
+	fontPath := testFontPath(t)
+	cases := []struct {
+		name   string
+		src    string
+		limits Limits
+	}{
+		{
+			name:   "dom depth",
+			src:    strings.Repeat("<div>", 40) + "x",
+			limits: Limits{MaxDOMDepth: 8},
+		},
+		{
+			name:   "table cells",
+			src:    `<table>` + strings.Repeat(`<tr><td>A</td><td>B</td></tr>`, 10) + `</table>`,
+			limits: Limits{MaxTableCells: 4},
+		},
+		{
+			name:   "total operations",
+			src:    strings.Repeat("<p>Строка для бюджета операций.</p>", 20),
+			limits: Limits{MaxOperations: 20},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Convert(context.Background(), []byte(tc.src), Options{
+				FallbackFont: fontPath,
+				File:         tc.name + ".html",
+				Limits:       tc.limits,
+			})
+			if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+				t.Fatalf("limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+			}
+		})
+	}
+}
+
+func TestStylesheetByteLimit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "big.css"), bytes.Repeat([]byte("p { color: #ff0000 }\n"), 40), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := []byte(`<link rel="stylesheet" href="big.css"><p>x</p>`)
+	res, err := Convert(context.Background(), src, Options{
+		FallbackFont: testFontPath(t),
+		BaseDir:      dir,
+		File:         "stylesheet.html",
+		Limits:       Limits{MaxStylesheetBytes: 32},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("stylesheet size limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+}
+
+func TestValidateHonoursCancellationAfterStart(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 20000; i++ {
+		b.WriteString("<p>Строка документа для проверки отмены проверки.</p>")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(time.Millisecond)
+		cancel()
+	}()
+	_, err := Validate(ctx, []byte(b.String()), Options{FallbackFont: testFontPath(t), File: "cancel-validate.html"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Validate returned %v, want context.Canceled", err)
 	}
 }

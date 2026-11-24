@@ -85,12 +85,9 @@ func (l *layouter) paginate(root *Box) *Document {
 	if maxIterations <= 0 {
 		maxIterations = 5000
 	}
-	cancelled := func() bool {
-		return l.ctx.Ctx != nil && l.ctx.Ctx.Err() != nil
-	}
 	iterations := 0
 	for {
-		if cancelled() {
+		if l.tick() != nil {
 			break
 		}
 		opsBefore := l.ops
@@ -357,7 +354,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		}
 	}
 	for k := 0; k < fits && b.cursor.line < len(b.lines); k++ {
-		if l.ctx.Ctx != nil && l.ctx.Ctx.Err() != nil {
+		if l.tick() != nil {
 			return false
 		}
 		line := &b.lines[b.cursor.line]

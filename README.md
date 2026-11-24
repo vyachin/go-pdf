@@ -166,11 +166,14 @@ for _, d := range diags { // warnings only
   a server can return them as JSON instead of parsing log lines.
 - **Previews.** `Options.RenderPNG` puts a raster of the first page in
   `res.PNG`.
-- **Budgets.** `Options.Limits` bounds input size, page count, image pixels and
-  font bytes; an over-limit document returns a `*pdfgen.Error` with code
+- **Budgets.** `Options.Limits` bounds input and stylesheet size, page count,
+  image pixels, font bytes, DOM depth, one table's grid and the total work of a
+  conversion. An over-limit document returns a `*pdfgen.Error` with code
   `resource/limit` before the expensive allocation, not an OOM.
-- **Cancellation.** Pass a context that can be cancelled: the engine checks it
-  between pages, rows and lines.
+- **Cancellation.** Pass a context that can be cancelled: parsing, stylesheet
+  collection, font loading, layout between pages, rows and lines, and PDF
+  serialization all stop when it is done, and `Convert` returns the context
+  error instead of a partial PDF.
 - **Strict mode.** `Options.Strict` turns warnings into errors, the same way
   `pdfgen validate -strict` does.
 

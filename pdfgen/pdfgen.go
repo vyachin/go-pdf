@@ -81,6 +81,8 @@ type Options struct {
 type Limits struct {
 	// MaxInputBytes is the largest accepted HTML document. Default 8 MiB.
 	MaxInputBytes int
+	// MaxStylesheetBytes bounds one external stylesheet. Default 8 MiB.
+	MaxStylesheetBytes int
 	// MaxPages is the largest number of pages a document may produce.
 	// Default 5000.
 	MaxPages int
@@ -89,6 +91,17 @@ type Limits struct {
 	MaxImagePixels int
 	// MaxFontBytes bounds the size of a font file. Default 16 MiB.
 	MaxFontBytes int
+	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
+	// parsing. Default 256.
+	MaxDOMDepth int
+	// MaxTableCells bounds the grid area of one table: its column count times
+	// its row count. Default 200,000.
+	MaxTableCells int
+	// MaxOperations bounds the total work of a conversion: parsed tokens,
+	// layout boxes, placed lines and drawing operations. It is the backstop
+	// against a document that is cheap to store but expensive to lay out.
+	// Default 20,000,000.
+	MaxOperations int
 }
 
 // Severity classifies a diagnostic.
@@ -273,10 +286,14 @@ func (o Options) toEngine() engine.Options {
 		FallbackFont: o.FallbackFont,
 		Strict:       o.Strict,
 		Limits: engine.Limits{
-			MaxInputBytes:  o.Limits.MaxInputBytes,
-			MaxPages:       o.Limits.MaxPages,
-			MaxImagePixels: o.Limits.MaxImagePixels,
-			MaxFontBytes:   o.Limits.MaxFontBytes,
+			MaxInputBytes:      o.Limits.MaxInputBytes,
+			MaxStylesheetBytes: o.Limits.MaxStylesheetBytes,
+			MaxPages:           o.Limits.MaxPages,
+			MaxImagePixels:     o.Limits.MaxImagePixels,
+			MaxFontBytes:       o.Limits.MaxFontBytes,
+			MaxDOMDepth:        o.Limits.MaxDOMDepth,
+			MaxTableCells:      o.Limits.MaxTableCells,
+			MaxOperations:      o.Limits.MaxOperations,
 		},
 	}
 }

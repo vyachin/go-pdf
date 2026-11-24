@@ -3,11 +3,13 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/png"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/backend/raster"
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
@@ -28,24 +30,48 @@ type prepared struct {
 	margin    [4]int32
 	pageStyle layout.PageStyle
 	fonts     *fontRegistry
+	guard     *budget.Guard
 }
 
 // prepare validates the template and resolves everything that does not need
 // layout, so both entry points report the same problems.
-func prepare(src []byte, opts Options) (*prepared, diag.List, error) {
+func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.List, error) {
 	limits := opts.Limits.resolved()
+	guard := budget.New(ctx, limits.MaxOperations)
+	var diags diag.List
 	if len(src) > limits.MaxInputBytes {
-		diags := diag.List{}
 		diags.Errorf("resource/limit", diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
 		return nil, diags, nil
 	}
-	doc, err := html.Parse(src, sourceName(opts))
+	doc, err := html.ParseWithOptions(src, html.ParseOptions{
+		File:     sourceName(opts),
+		MaxDepth: limits.MaxDOMDepth,
+		Budget:   guard,
+	})
 	if err != nil {
-		return nil, nil, err
+		// The parser reports a depth limit as a budget error of its own; the
+		// shared guard is not the source, so it must be turned into a
+		// diagnostic here.
+		if errors.Is(err, budget.ErrExceeded) {
+			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			return nil, diags, nil
+		}
+		if failed, ctxErr := budgetFailure(guard, &diags); failed {
+			return nil, diags, ctxErr
+		}
+		return nil, diags, err
 	}
-	profileOpts := profile.Options{BaseDir: opts.BaseDir, Strict: opts.Strict}
+	profileOpts := profile.Options{
+		BaseDir:            opts.BaseDir,
+		Strict:             opts.Strict,
+		Budget:             guard,
+		MaxStylesheetBytes: limits.MaxStylesheetBytes,
+	}
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
-	diags := profile.ValidateSheets(doc, profileOpts, sheets, sheetDiags)
+	diags = profile.ValidateSheets(doc, profileOpts, sheets, sheetDiags)
+	if failed, ctxErr := budgetFailure(guard, &diags); failed {
+		return nil, diags, ctxErr
+	}
 	diags.Sort()
 	if diags.HasErrors() {
 		return nil, diags, nil
@@ -61,8 +87,11 @@ func prepare(src []byte, opts Options) (*prepared, diag.List, error) {
 		return nil, diags, nil
 	}
 	pageStyle := layout.ParsePageStyle(sheets, pageSize, margin)
-	registry, err := newFontRegistry(sheets, opts)
+	registry, err := newFontRegistry(ctx, guard, sheets, opts)
 	if err != nil {
+		if failed, ctxErr := budgetFailure(guard, &diags); failed {
+			return nil, diags, ctxErr
+		}
 		diags.Errorf("font/unavailable", diag.Position{}, "", "%v", err)
 		return nil, diags, nil
 	}
@@ -74,7 +103,24 @@ func prepare(src []byte, opts Options) (*prepared, diag.List, error) {
 		margin:    margin,
 		pageStyle: pageStyle,
 		fonts:     registry,
+		guard:     guard,
 	}, diags, nil
+}
+
+// budgetFailure reports why the shared work guard stopped. A cancelled context
+// is returned to the caller unchanged, an exhausted budget becomes a
+// resource/limit diagnostic, and a per-resource limit is left in diags by the
+// stage that detected it. It reports false when work may continue.
+func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
+	err := guard.Err()
+	if err == nil {
+		return false, nil
+	}
+	if errors.Is(err, budget.ErrExceeded) {
+		diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+		return true, nil
+	}
+	return true, err
 }
 
 func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
@@ -82,9 +128,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		return Result{}, err
 	}
 	limits := opts.Limits.resolved()
-	p, diags, err := prepare(src, opts)
+	p, diags, err := prepare(ctx, src, opts)
 	if err != nil {
-		return Result{}, err
+		return Result{Diagnostics: diags}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{Diagnostics: diags}, err
@@ -107,16 +153,21 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			return Result{Diagnostics: diags}, err
 		}
 		pages, layoutDiags = layout.Run(doc, layout.Context{
-			Ctx:         ctx,
-			Fonts:       registry,
-			Images:      images,
-			PageSize:    pageSize,
-			Margin:      margin,
-			Cascade:     cascade,
-			PageStyle:   pageStyle,
-			TargetPages: targets,
+			Ctx:           ctx,
+			Budget:        p.guard,
+			MaxTableCells: limits.MaxTableCells,
+			Fonts:         registry,
+			Images:        images,
+			PageSize:      pageSize,
+			Margin:        margin,
+			Cascade:       cascade,
+			PageStyle:     pageStyle,
+			TargetPages:   targets,
 		})
 		if err := ctx.Err(); err != nil {
+			return Result{Diagnostics: diags}, err
+		}
+		if err := stageFailure(p.guard, &layoutDiags, &diags); err != nil {
 			return Result{Diagnostics: diags}, err
 		}
 		if layoutDiags.HasErrors() {
@@ -156,6 +207,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		Subject:      metaContent(doc, "description"),
 		CreationDate: opts.Date,
 		Outline:      toPDFOutline(pages.Outline),
+		Budget:       p.guard,
 	})
 	// One pdf.Image per decoded image, shared across pages, so the writer
 	// embeds a repeated source once.
@@ -165,9 +217,20 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	}
 	data, err := writer.Bytes()
 	if err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			diags.Sort()
+			return Result{Diagnostics: diags}, diags.Error()
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{Diagnostics: diags}, ctxErr
+		}
 		diags.Errorf("pdf/write", diag.Position{}, "", "%v", err)
 		diags.Sort()
 		return Result{Diagnostics: diags}, diags.Error()
+	}
+	if err := ctx.Err(); err != nil {
+		return Result{Diagnostics: diags}, err
 	}
 	var pngData []byte
 	if opts.RenderPNG && len(pages.Pages) > 0 {
@@ -179,6 +242,27 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	}
 	diags.Sort()
 	return Result{PDF: data, PNG: pngData, Diagnostics: diags}, nil
+}
+
+// stageFailure moves a budget failure recorded by layout into the conversion
+// diagnostics and returns the context error when the conversion was cancelled.
+func stageFailure(guard *budget.Guard, stage, diags *diag.List) error {
+	err := guard.Err()
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, budget.ErrExceeded) {
+		return err
+	}
+	// Layout already reported an exceeded budget with its own diagnostic;
+	// avoid a duplicate if it did.
+	for _, d := range *stage {
+		if d.Severity == diag.Error && d.Code == "resource/limit" {
+			return nil
+		}
+	}
+	diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+	return nil
 }
 
 // ParsePageSize parses A4, A5, Letter or an explicit "<w>x<h><unit>" size.

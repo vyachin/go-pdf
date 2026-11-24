@@ -2,6 +2,7 @@ package layout
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
@@ -357,5 +359,50 @@ func TestUnsupportedValueIsAValidationError(t *testing.T) {
 	diags := profile.Validate(doc, profile.Options{})
 	if !diags.HasErrors() {
 		t.Fatal("expected a validation error")
+	}
+}
+
+func TestTableGridLimit(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.MaxTableCells = 3
+	src := `<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>`
+	_, diags := h.runRaw(src, h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("table grid limit was not enforced: %v", diags.Lines())
+	}
+}
+
+func TestTableGridLimitCountsSpans(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.MaxTableCells = 20
+	// Two cells per row, but each spans ten columns: the grid, not the cell
+	// count, is what layout allocates.
+	src := `<table><tr><td colspan="10">A</td><td colspan="10">B</td></tr>` +
+		`<tr><td>C</td><td>D</td></tr></table>`
+	_, diags := h.runRaw(src, h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("span multiplication was not counted: %v", diags.Lines())
+	}
+}
+
+func TestLayoutStopsWhenBudgetExceeded(t *testing.T) {
+	h := newHarness(t)
+	h.ctx.Budget = budget.New(context.Background(), 2)
+	src := strings.Repeat("<p>Строка для проверки бюджета раскладки.</p>", 20)
+	_, diags := h.runRaw(src, h.ctx.PageSize, h.ctx.Margin)
+	if !hasError(diags, "resource/limit") {
+		t.Fatalf("layout budget was not enforced: %v", diags.Lines())
+	}
+}
+
+func TestLayoutStopsWhenCancelled(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.ctx.Budget = budget.New(ctx, 0)
+	src := strings.Repeat("<p>Строка для проверки отмены раскладки.</p>", 20)
+	doc, _ := h.runRaw(src, h.ctx.PageSize, h.ctx.Margin)
+	if len(doc.Pages) != 0 {
+		t.Fatalf("a cancelled layout produced %d pages", len(doc.Pages))
 	}
 }

@@ -1,11 +1,16 @@
 package profile
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
 )
 
@@ -175,5 +180,49 @@ func TestSymlinkInsideBaseWorks(t *testing.T) {
 	}
 	if len(sheets) != 1 || len(sheets[0].Rules) != 1 {
 		t.Fatalf("sheets = %d, rules = %d", len(sheets), len(sheets[0].Rules))
+	}
+}
+
+func hasDiagCode(diags diag.List, code string) bool {
+	for _, d := range diags {
+		if d.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStylesheetByteLimit(t *testing.T) {
+	dir := t.TempDir()
+	writeCSS(t, dir, "big.css", strings.Repeat("p { color: #ff0000 }\n", 40))
+	doc := parseDoc(t, `<link rel="stylesheet" href="big.css"><p>x</p>`)
+	_, diags := CollectStylesheets(doc, Options{BaseDir: dir, MaxStylesheetBytes: 32})
+	if !hasDiagCode(diags, "resource/limit") {
+		t.Fatalf("stylesheet size limit was not enforced: %v", diags.Lines())
+	}
+}
+
+func TestStylesheetCollectionHonoursBudget(t *testing.T) {
+	dir := t.TempDir()
+	writeCSS(t, dir, "a.css", "p { color: #ff0000 }")
+	doc := parseDoc(t, strings.Repeat(`<p>x</p>`, 50)+`<link rel="stylesheet" href="a.css">`)
+	guard := budget.New(context.Background(), 5)
+	_, diags := CollectStylesheets(doc, Options{BaseDir: dir, Budget: guard})
+	if !errors.Is(guard.Err(), budget.ErrExceeded) {
+		t.Fatalf("collection did not stop at the budget: %v", guard.Err())
+	}
+	if hasDiagCode(diags, "css/link-load") {
+		t.Fatalf("the stop was reported as a link failure: %v", diags.Lines())
+	}
+}
+
+func TestStylesheetCollectionHonoursCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	doc := parseDoc(t, `<p>x</p>`)
+	guard := budget.New(ctx, 0)
+	CollectStylesheets(doc, Options{Budget: guard})
+	if !errors.Is(guard.Err(), context.Canceled) {
+		t.Fatalf("collection did not notice the cancellation: %v", guard.Err())
 	}
 }

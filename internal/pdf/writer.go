@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/font"
 )
 
@@ -91,6 +92,9 @@ type Options struct {
 	Subject      string
 	CreationDate time.Time
 	Outline      []OutlineEntry
+	// Budget records serialization work and reports cancellation. Nil means
+	// unlimited work and no cancellation.
+	Budget *budget.Guard
 }
 
 // DefaultCreationDate is used when no date is given, so that two runs of the
@@ -191,6 +195,9 @@ type imageEntry struct {
 
 // Bytes serializes the document.
 func (d *Doc) Bytes() ([]byte, error) {
+	if err := d.opts.Budget.Err(); err != nil {
+		return nil, err
+	}
 	if len(d.pages) == 0 {
 		return nil, fmt.Errorf("pdf: document has no pages")
 	}
@@ -199,6 +206,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 	var fonts []*fontEntry
 	fontByPtr := map[*font.Font]*fontEntry{}
 	for _, p := range d.pages {
+		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
+			return nil, err
+		}
 		for _, op := range p.ops {
 			if op.Kind != TextOpKind || op.Text == nil {
 				continue
@@ -218,6 +228,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 	var images []*imageEntry
 	imageByPtr := map[*Image]*imageEntry{}
 	for _, p := range d.pages {
+		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
+			return nil, err
+		}
 		for _, op := range p.ops {
 			if op.Kind != ImageOpKind || op.Image == nil {
 				continue
@@ -265,6 +278,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 
 	// Font objects.
 	for _, fe := range fonts {
+		if err := d.opts.Budget.Add(1); err != nil {
+			return nil, err
+		}
 		subset, err := fe.font.Subset(fe.used)
 		if err != nil {
 			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
@@ -312,6 +328,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 
 	// Page content and page objects.
 	for i, p := range d.pages {
+		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
+			return nil, err
+		}
 		content := d.contentStream(p, fonts, fontNames, imageNames)
 		w.set(contentIDs[i], streamObject(content, true))
 		var fontRes, imageRes strings.Builder
@@ -367,6 +386,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 	// Deterministic document id: a hash of every object body.
 	hash := sha256.New()
 	for _, body := range w.bodies {
+		if err := d.opts.Budget.Add(1); err != nil {
+			return nil, err
+		}
 		hash.Write(body)
 	}
 	id := hex.EncodeToString(hash.Sum(nil))[:32]

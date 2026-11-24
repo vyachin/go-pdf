@@ -1,11 +1,13 @@
 package profile
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/fsx"
@@ -19,6 +21,11 @@ type Options struct {
 	BaseDir string
 	// Strict turns profile warnings into errors.
 	Strict bool
+	// Budget records collection and validation work and reports cancellation.
+	// Nil means unlimited work and no cancellation.
+	Budget *budget.Guard
+	// MaxStylesheetBytes bounds one external stylesheet. Zero means unlimited.
+	MaxStylesheetBytes int
 }
 
 // linkError carries a diagnostic code for a bad stylesheet reference.
@@ -41,8 +48,16 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 	} else {
 		defer root.Close()
 	}
+	stopped := false
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
+		if stopped {
+			return
+		}
+		if err := opts.Budget.Add(1); err != nil {
+			stopped = true
+			return
+		}
 		if n.Type == html.ElementNode {
 			switch n.Tag {
 			case "style":
@@ -50,13 +65,20 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				if len(n.Children) > 0 && n.Children[0].Type == html.TextNode {
 					base = n.Children[0].Start
 				}
+				src := []byte(n.TextContent())
+				// One operation per token keeps the shared work budget honest
+				// for inline CSS, which is bounded by the HTML input limit only.
+				if err := opts.Budget.Add(uint64(len(src)/4) + 1); err != nil {
+					stopped = true
+					return
+				}
 				sheets = append(sheets, css.ParseSheet(css.SheetOptions{
 					Base: base,
 					Locate: func(offset int) css.Position {
 						pos := doc.Position(offset)
 						return css.Position{File: pos.File, Line: pos.Line, Col: pos.Col}
 					},
-				}, []byte(n.TextContent())))
+				}, src))
 				return
 			case "link":
 				sheet, err := loadStylesheet(doc, n, opts, root)
@@ -64,6 +86,17 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 					var le *linkError
 					if ok := asLinkError(err, &le); ok {
 						out.Errorf(le.code, doc.Pos(n), n.Path(), "%s", le.msg)
+						return
+					}
+					if errors.Is(err, budget.ErrExceeded) {
+						out.Errorf("resource/limit", doc.Pos(n), n.Path(), "%v", err)
+						stopped = true
+						return
+					}
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						// The caller returns the context error; a link failure
+						// diagnostic would misdescribe a cancelled read.
+						stopped = true
 						return
 					}
 					out.Errorf("css/link-load", doc.Pos(n), n.Path(), "%v", err)
@@ -76,6 +109,9 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 			}
 		}
 		for _, c := range n.Children {
+			if stopped {
+				return
+			}
 			walk(c)
 		}
 	}
@@ -110,6 +146,14 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 	}
 	data, err := readConfined(root, path)
 	if err != nil {
+		return nil, err
+	}
+	if opts.MaxStylesheetBytes > 0 && len(data) > opts.MaxStylesheetBytes {
+		return nil, fmt.Errorf("%w: stylesheet %q is %d bytes, the limit is %d", budget.ErrExceeded, path, len(data), opts.MaxStylesheetBytes)
+	}
+	// A stylesheet is bounded by MaxStylesheetBytes; the estimate still spends
+	// work so that many small sheets cannot bypass the shared budget.
+	if err := opts.Budget.Add(uint64(len(data)/4) + 1); err != nil {
 		return nil, err
 	}
 	return css.ParseSheet(css.SheetOptions{File: path}, data), nil

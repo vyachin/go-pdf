@@ -4,10 +4,12 @@ package layout
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
@@ -221,6 +223,12 @@ type Context struct {
 	Cascade  *css.Cascade
 	// PageStyle is the fully resolved page setup, including margin boxes.
 	PageStyle PageStyle
+	// Budget records layout work and reports cancellation. Nil means unlimited
+	// work and no cancellation.
+	Budget *budget.Guard
+	// MaxTableCells bounds the grid area of one table: its column count times
+	// its row count. Zero means unlimited.
+	MaxTableCells int
 	// TargetPages maps an element id to the page it landed on. It is filled
 	// by the engine between layout passes to resolve target-counter().
 	TargetPages map[string]int
@@ -232,7 +240,13 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 	if body == nil {
 		return nil, diag.List{{Severity: diag.Error, Code: "html/no-body", Message: "document has no body"}}
 	}
-	b := &builder{cascade: ctx.Cascade, images: ctx.Images, diags: &diag.List{}}
+	b := &builder{
+		cascade:  ctx.Cascade,
+		images:   ctx.Images,
+		diags:    &diag.List{},
+		budget:   ctx.Budget,
+		maxCells: ctx.MaxTableCells,
+	}
 	// Styles follow the real chain: html, then body.
 	var htmlStyle *css.Style
 	if htmlNode := doc.HTML(); htmlNode != nil {
@@ -245,9 +259,39 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 }
 
 type builder struct {
-	cascade *css.Cascade
-	images  ImageLoader
-	diags   *diag.List
+	cascade  *css.Cascade
+	images   ImageLoader
+	diags    *diag.List
+	budget   *budget.Guard
+	maxCells int
+	// failure is the first reason building stopped: cancellation or an
+	// exhausted budget.
+	failure error
+}
+
+// tick records one unit of building work. It reports false when the walk must
+// stop.
+func (b *builder) tick() bool {
+	if b.failure != nil {
+		return false
+	}
+	if err := b.budget.Add(1); err != nil {
+		b.stop(err)
+		return false
+	}
+	return true
+}
+
+// stop records why building ended. An exhausted budget becomes a diagnostic;
+// a cancelled context is reported by the engine after layout returns.
+func (b *builder) stop(err error) {
+	if b.failure != nil {
+		return
+	}
+	b.failure = err
+	if errors.Is(err, budget.ErrExceeded) {
+		b.diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+	}
 }
 
 // buildBlocks builds the children of a block container, wrapping runs of
@@ -263,6 +307,9 @@ func (b *builder) buildBlocks(n *html.Node, parentStyle *css.Style) []*Box {
 		inlineRun = nil
 	}
 	for _, child := range n.Children {
+		if !b.tick() {
+			return out
+		}
 		switch child.Type {
 		case html.TextNode:
 			if strings.TrimSpace(child.Data) == "" && !preservesSpace(parentStyle) {
@@ -355,6 +402,9 @@ func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.
 func (b *builder) buildInline(n *html.Node, parentStyle *css.Style) []*Box {
 	var out []*Box
 	for _, child := range n.Children {
+		if !b.tick() {
+			return out
+		}
 		switch child.Type {
 		case html.TextNode:
 			out = append(out, &Box{Kind: Text, Node: child, Style: parentStyle, Text: child.Data})
@@ -405,9 +455,13 @@ func (b *builder) span(n *html.Node, name string) int {
 
 func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 	tb := &Box{Kind: Table, Node: n, Style: style}
+	cells := 0
 	var addRows func(*html.Node, bool, *css.Style)
 	addRows = func(node *html.Node, header bool, parentStyle *css.Style) {
 		for _, c := range node.ElementChildren() {
+			if !b.tick() {
+				return
+			}
 			switch c.Tag {
 			case "thead", "tbody", "tfoot":
 				groupStyle := b.cascade.Compute(c, parentStyle)
@@ -425,9 +479,17 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 					if cellNode.Tag != "td" && cellNode.Tag != "th" {
 						continue
 					}
+					if !b.tick() {
+						return
+					}
 					cellStyle := b.cascade.Compute(cellNode, rowStyle)
 					if cellStyle.Display == css.DisplayNone {
 						continue
+					}
+					cells++
+					if b.maxCells > 0 && cells > b.maxCells {
+						b.stop(fmt.Errorf("%w: a table has more than %d cells", budget.ErrExceeded, b.maxCells))
+						return
 					}
 					// border-collapse is a property of the table, but cells
 					// need it to decide which edges they own.
@@ -443,6 +505,23 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 		}
 	}
 	addRows(n, false, style)
+	if b.failure == nil && b.maxCells > 0 && len(tb.Rows) > 0 {
+		// The grid is allocated from the column count times the row count, so
+		// an ordinary cell count is not enough: wide spans multiply too.
+		columns := 0
+		for _, row := range tb.Rows {
+			width := 0
+			for _, cell := range row.Cells {
+				width += normSpan(cell.ColSpan)
+			}
+			if width > columns {
+				columns = width
+			}
+		}
+		if area := columns * len(tb.Rows); area > b.maxCells {
+			b.stop(fmt.Errorf("%w: a table needs %d grid cells, the limit is %d", budget.ErrExceeded, area, b.maxCells))
+		}
+	}
 	return tb
 }
 

@@ -1,7 +1,10 @@
 package html
 
 import (
+	"fmt"
 	"strings"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 const (
@@ -42,26 +45,54 @@ type parser struct {
 	head  *Node
 	body  *Node
 	mode  int
+	// maxDepth bounds element nesting; zero means unlimited.
+	maxDepth int
+	budget   *budget.Guard
+}
+
+// ParseOptions configures one parse.
+type ParseOptions struct {
+	// File is used only for positions in diagnostics.
+	File string
+	// MaxDepth bounds element nesting; zero means unlimited. A document nested
+	// deeper is rejected before the tree allocates that many nodes.
+	MaxDepth int
+	// Budget records parser work and reports cancellation. Nil means unlimited
+	// work and no cancellation.
+	Budget *budget.Guard
 }
 
 // Parse tokenizes src and builds a document tree. The file argument is used
 // only for positions in diagnostics.
 func Parse(src []byte, file string) (*Document, error) {
-	d := &Document{File: file, src: src, Root: &Node{Type: DocumentNode}}
+	return ParseWithOptions(src, ParseOptions{File: file})
+}
+
+// ParseWithOptions parses src under the given limits and cancellation.
+func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
+	if err := opts.Budget.Err(); err != nil {
+		return nil, err
+	}
+	d := &Document{File: opts.File, src: src, Root: &Node{Type: DocumentNode}}
 	d.lines = lineStarts(src)
-	toks, err := tokenize(src)
+	toks, err := tokenize(src, opts.Budget)
 	if err != nil {
 		return nil, err
 	}
-	p := &parser{doc: d, toks: toks}
-	p.run()
+	p := &parser{doc: d, toks: toks, maxDepth: opts.MaxDepth, budget: opts.Budget}
+	if err := p.run(); err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 
-func tokenize(src []byte) ([]Token, error) {
+func tokenize(src []byte, g *budget.Guard) ([]Token, error) {
 	z := NewTokenizer(src)
 	var out []Token
 	for {
+		if err := g.Add(1); err != nil {
+			return out, err
+		}
 		t := z.Next()
 		if t.Kind == EOFToken {
 			return out, nil
@@ -86,8 +117,11 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
-func (p *parser) run() {
+func (p *parser) run() error {
 	for _, t := range p.toks {
+		if err := p.budget.Add(0); err != nil {
+			return err
+		}
 		switch t.Kind {
 		case TextToken:
 			p.text(t)
@@ -100,7 +134,13 @@ func (p *parser) run() {
 		case DoctypeToken:
 			p.doc.Root.AppendChild(&Node{Type: DoctypeNode, Data: t.Data, Start: t.Offset, End: t.End})
 		}
+		// The stack grows by at most one node per token, so checking after the
+		// token bounds nesting before the next node is allocated.
+		if p.maxDepth > 0 && len(p.stack) > p.maxDepth {
+			return fmt.Errorf("%w: element nesting exceeds %d levels", budget.ErrExceeded, p.maxDepth)
+		}
 	}
+	return nil
 }
 
 func (p *parser) current() *Node {
