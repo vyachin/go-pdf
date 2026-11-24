@@ -1361,3 +1361,36 @@ func TestTransparentPNGKeepsAlphaInPDF(t *testing.T) {
 	}
 	validateWithPDFCPU(t, res.PDF)
 }
+
+func TestKeywordsAreCopiedToThePDF(t *testing.T) {
+	fontPath := testFontPath(t)
+	src := `<html><head><meta name="keywords" content="счёт, договор, test"></head><body><p>A</p></body></html>`
+	res, err := Convert(context.Background(), []byte(src), Options{FallbackFont: fontPath, File: "keywords.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	pdf := string(res.PDF)
+	if !strings.Contains(pdf, "/Keywords") {
+		t.Fatal("the PDF has no /Keywords entry")
+	}
+	// The value contains Cyrillic, so it must be a UTF-16 string.
+	var hex strings.Builder
+	hex.WriteString("<FEFF")
+	for _, r := range "счёт, договор, test" {
+		hex.WriteString(fmt.Sprintf("%04X", r))
+	}
+	hex.WriteString(">")
+	if !strings.Contains(pdf, "/Keywords "+hex.String()) {
+		t.Fatalf("the PDF does not contain the UTF-16 keywords string %s", hex.String())
+	}
+	validateWithPDFCPU(t, res.PDF)
+
+	// Without the meta tag no empty /Keywords is written.
+	res, err = Convert(context.Background(), []byte(`<p>A</p>`), Options{FallbackFont: fontPath, File: "no-keywords.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(res.PDF), "/Keywords") {
+		t.Fatal("an absent keywords meta produced a /Keywords entry")
+	}
+}

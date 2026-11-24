@@ -89,6 +89,7 @@ type Options struct {
 	Title        string
 	Author       string
 	Subject      string
+	Keywords     string
 	CreationDate time.Time
 	Outline      []OutlineEntry
 	// Budget records serialization work and reports cancellation. Nil means
@@ -383,8 +384,12 @@ func (d *Doc) Bytes() ([]byte, error) {
 		w.set(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R >>", pagesID)))
 	}
 
-	info := fmt.Sprintf("<< /Title %s /Author %s /Subject %s /Creator (go-pdf) /Producer (go-pdf) /CreationDate (%s) >>",
-		pdfString(d.opts.Title), pdfString(d.opts.Author), pdfString(d.opts.Subject), pdfDate(d.opts.CreationDate))
+	keywords := ""
+	if d.opts.Keywords != "" {
+		keywords = " /Keywords " + pdfString(d.opts.Keywords)
+	}
+	info := fmt.Sprintf("<< /Title %s /Author %s /Subject %s%s /Creator (go-pdf) /Producer (go-pdf) /CreationDate (%s) >>",
+		pdfString(d.opts.Title), pdfString(d.opts.Author), pdfString(d.opts.Subject), keywords, pdfDate(d.opts.CreationDate))
 	w.set(infoID, []byte(info))
 
 	// Deterministic document id: a hash of every object body.

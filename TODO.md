@@ -98,7 +98,7 @@
   **Воспроизведение:** цепочка `h1 → h2 → h3`: root получает `/Count 1`, h1 тоже `/Count 1`. При положительных Count все эти уровни открыты, поэтому должны быть **3** у root и **2** у h1. Сейчас считается только число прямых детей; структура может неверно отображаться у потребителя PDF. Семантика описана в [PDF 32000, таблицы 152–153](https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf).
   **Исправление / приёмка:** рекурсивно рассчитывать количество видимых потомков с учётом открытого/закрытого состояния. Проверять три уровня, несколько соседних веток и дерево с пропущенными уровнями заголовков.
 
-- [ ] **REV-15 · P2: переносить `<meta name="keywords">` в PDF.**
+- [x] **REV-15 · P2: переносить `<meta name="keywords">` в PDF.**
 
   **Код:** [internal/engine/convert.go:153](/Users/vyachin/Projects/go-pdf/internal/engine/convert.go:153), создание `pdf.Options`; [internal/pdf/writer.go](/Users/vyachin/Projects/go-pdf/internal/pdf/writer.go), `Options` и Info dictionary.
   **Воспроизведение:** `<meta name="keywords" content="invoice,test"><p>A</p>` успешно конвертируется, но `/Keywords` в PDF отсутствует. В `pdf.Options` нет соответствующего поля, хотя основная спецификация `pdf-output` требует копировать author, description **и keywords**.

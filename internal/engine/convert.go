@@ -224,6 +224,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		Title:        documentTitle(doc, opts),
 		Author:       metaContent(doc, "author"),
 		Subject:      metaContent(doc, "description"),
+		Keywords:     metaContent(doc, "keywords"),
 		CreationDate: opts.Date,
 		Outline:      toPDFOutline(pages.Outline),
 		Budget:       p.guard,
