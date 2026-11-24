@@ -626,3 +626,41 @@ func TestFosterParentingIsLinear(t *testing.T) {
 		t.Fatalf("the table is at index %d, want %d (all fostered nodes before it)", tableAt, n)
 	}
 }
+
+// TestNestedTableStartClosesOuterTable guards RV2-08: a <table> start tag
+// inside table structure used to become a child of the outer table, and layout
+// silently dropped every inner row. The HTML parser closes the outer table and
+// opens a sibling instead.
+func TestNestedTableStartClosesOuterTable(t *testing.T) {
+	doc, err := Parse([]byte(`<p>BEFORE</p><table><tr><td>A</td></tr><table><tr><td>B</td></tr></table></table><p>AFTER</p>`), "nested.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := findElement(doc.Root, "body")
+	if body == nil {
+		t.Fatal("no body")
+	}
+	tables := 0
+	for _, c := range body.Children {
+		if c.Type == ElementNode && c.Tag == "table" {
+			tables++
+			for _, child := range c.Children {
+				if inner := findElement(child, "table"); inner != nil {
+					t.Fatalf("a table is nested inside another table:\n%s", Dump(doc.Root))
+				}
+			}
+		}
+	}
+	if tables != 2 {
+		t.Fatalf("body has %d top-level tables, want 2:\n%s", tables, Dump(doc.Root))
+	}
+	var cells []string
+	for _, c := range body.Children {
+		if c.Type == ElementNode && c.Tag == "table" {
+			cells = append(cells, c.TextContent())
+		}
+	}
+	if len(cells) != 2 || cells[0] != "A" || cells[1] != "B" {
+		t.Fatalf("table cells = %q, want [A B]", cells)
+	}
+}

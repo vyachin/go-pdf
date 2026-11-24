@@ -316,6 +316,11 @@ func (p *parser) implicitClose(name string) {
 
 func (p *parser) insertElement(t Token) {
 	el := &Node{Type: ElementNode, Tag: t.Name, Attrs: t.Attrs, Start: t.Offset, End: t.End}
+	// A table start tag inside table structure closes the outer table and opens
+	// a sibling: nesting it would make layout silently drop the inner rows.
+	if t.Name == "table" && p.inTableContext() {
+		p.closeOpen("table")
+	}
 	// A start tag for table structure clears a foster-parented element that is
 	// still open, as the HTML parser returns to a table context.
 	if tableStructure[t.Name] && p.inTableContext() && !p.inTableStructure() {

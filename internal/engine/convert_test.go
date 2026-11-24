@@ -1506,3 +1506,21 @@ func TestHiddenBlockInsideTableStaysHidden(t *testing.T) {
 		t.Fatalf("the table cell is missing: %q", text)
 	}
 }
+
+// TestNestedTableContentIsPrinted guards RV2-08 end to end: the inner table's
+// text used to disappear while validation still reported success.
+func TestNestedTableContentIsPrinted(t *testing.T) {
+	res, err := Convert(context.Background(),
+		[]byte(`<p>BEFORE</p><table><tr><td>A</td></tr><table><tr><td>B</td></tr></table></table><p>AFTER</p>`),
+		Options{FallbackFont: testFontPath(t), File: "nested.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "BEFOREABAFTER"; text != want {
+		t.Fatalf("PDF text = %q, want %q (both tables in document order)", text, want)
+	}
+}
