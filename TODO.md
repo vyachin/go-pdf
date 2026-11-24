@@ -66,7 +66,7 @@
   **Воспроизведение:** в копии комплектного TTF изменить только тег `glyf` в directory на `gone`. `font.Parse` возвращает успех, `GlyphIndex('A')` по-прежнему находится, но `GlyphPath` возвращает ноль контуров. Вместо ошибки получается шрифт с отсутствующими очертаниями. Основная спецификация `text-shaping` прямо требует ошибку при отсутствии `glyf`.
   **Исправление / приёмка:** проверять обязательные таблицы и согласованность `loca`/`glyf`, диапазоны и монотонность offsets до использования. Повреждённый обязательный шрифт должен отклоняться, а не превращаться в пустой subset.
 
-- [ ] **REV-10 · P2: проверять `cmap` glyph ID до приведения к `uint16` и не считать `.notdef` найденным символом.**
+- [x] **REV-10 · P2: проверять `cmap` glyph ID до приведения к `uint16` и не считать `.notdef` найденным символом.**
 
   **Код:** [internal/font/font.go:169](/Users/vyachin/Projects/go-pdf/internal/font/font.go:169), `GlyphIndex`; [internal/font/font.go:379](/Users/vyachin/Projects/go-pdf/internal/font/font.go:379), `cmapSubtable.lookup`; [internal/text/shape.go:41](/Users/vyachin/Projects/go-pdf/internal/text/shape.go:41).
   **Воспроизведение:** format 12 group для `A` со `startGID=0` возвращает `(0,true)`, а со `startGID=70000` — **`(4464,true)`**. Полученный ID не сверяется с `numGlyphs`; Shape доверяет `ok`. Это обходит гарантию ошибки отсутствующего глифа и может подменять символ другим очертанием. Ноль означает отсутствующий символ согласно [OpenType cmap](https://learn.microsoft.com/en-us/typography/opentype/spec/cmap).

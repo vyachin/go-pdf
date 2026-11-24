@@ -340,3 +340,56 @@ func TestCorruptLocaIsRejected(t *testing.T) {
 		t.Fatal("a loca offset outside glyf was accepted")
 	}
 }
+
+func cmap12Test(groups ...[3]uint32) []byte {
+	out := make([]byte, 16+12*len(groups))
+	binary.BigEndian.PutUint16(out[0:2], 12)
+	binary.BigEndian.PutUint32(out[4:8], uint32(len(out)))
+	binary.BigEndian.PutUint32(out[12:16], uint32(len(groups)))
+	for i, g := range groups {
+		base := 16 + i*12
+		binary.BigEndian.PutUint32(out[base:base+4], g[0])
+		binary.BigEndian.PutUint32(out[base+4:base+8], g[1])
+		binary.BigEndian.PutUint32(out[base+8:base+12], g[2])
+	}
+	return out
+}
+
+func TestCmapGlyphIDIsValidated(t *testing.T) {
+	// A group may not map past the uint16 glyph id space.
+	if _, err := parseCmapSubtable(cmap12Test([3]uint32{'A', 'A', 70000}), 0); err == nil {
+		t.Fatal("a cmap group with an overflowing glyph id was accepted")
+	}
+	sub, err := parseCmapSubtable(cmap12Test([3]uint32{'A', 'C', 4}), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Glyph 0 is .notdef: the character must be reported as missing.
+	notdef, err := parseCmapSubtable(cmap12Test([3]uint32{'A', 'A', 0}), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &Font{cmap: notdef, numGlyphs: 100}
+	if gid, ok := f.GlyphIndex('A'); ok || gid != 0 {
+		t.Fatalf("GlyphIndex returned (%d, %v), want (0, false) for .notdef", gid, ok)
+	}
+	// An id beyond numGlyphs is not a glyph either.
+	f = &Font{cmap: sub, numGlyphs: 5}
+	if gid, ok := f.GlyphIndex('C'); ok || gid != 0 {
+		t.Fatalf("GlyphIndex returned (%d, %v), want (0, false) beyond numGlyphs", gid, ok)
+	}
+	// A valid id inside numGlyphs still resolves.
+	f = &Font{cmap: sub, numGlyphs: 10}
+	if gid, ok := f.GlyphIndex('B'); !ok || gid != 5 {
+		t.Fatalf("GlyphIndex(B) = (%d, %v), want (5, true)", gid, ok)
+	}
+}
+
+func TestCmapGroupsMustBeSorted(t *testing.T) {
+	if _, err := parseCmapSubtable(cmap12Test([3]uint32{'Z', 'Z', 1}, [3]uint32{'A', 'A', 2}), 0); err == nil {
+		t.Fatal("unsorted cmap groups were accepted")
+	}
+	if _, err := parseCmapSubtable(cmap12Test([3]uint32{'A', 'A', 2}, [3]uint32{'A', 'B', 3}), 0); err == nil {
+		t.Fatal("overlapping cmap groups were accepted")
+	}
+}

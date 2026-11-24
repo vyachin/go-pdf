@@ -189,7 +189,13 @@ func (f *Font) GlyphIndex(r rune) (uint16, bool) {
 	if f.cmap == nil {
 		return 0, false
 	}
-	return f.cmap.lookup(r)
+	gid, ok := f.cmap.lookup(r)
+	if !ok || gid == 0 || !f.HasGlyph(gid) {
+		// Glyph 0 is .notdef and an id outside numGlyphs cannot be drawn; both
+		// mean the character has no glyph.
+		return 0, false
+	}
+	return gid, true
 }
 
 // HasGlyph reports whether the glyph index exists in the font.
@@ -353,6 +359,9 @@ func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
 			sub.startCodes[i] = binary.BigEndian.Uint16(cmap[startBase+i*2 : startBase+i*2+2])
 			sub.idDeltas[i] = int16(binary.BigEndian.Uint16(cmap[deltaBase+i*2 : deltaBase+i*2+2]))
 			sub.idRangeOff[i] = binary.BigEndian.Uint16(cmap[rangeBase+i*2 : rangeBase+i*2+2])
+			if sub.startCodes[i] > sub.endCodes[i] || (i > 0 && sub.startCodes[i] <= sub.endCodes[i-1]) {
+				return nil, fmt.Errorf("font: invalid cmap format 4 segment %d", i)
+			}
 		}
 		return sub, nil
 	case 12:
@@ -365,13 +374,22 @@ func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
 		}
 		sub := &cmapSubtable{format: 12, table: cmap, tableStart: off}
 		sub.groups = make([]cmapGroup, nGroups)
+		prevEnd := uint32(0)
 		for i := 0; i < nGroups; i++ {
 			base := off + 16 + i*12
-			sub.groups[i] = cmapGroup{
+			g := cmapGroup{
 				startChar: binary.BigEndian.Uint32(cmap[base : base+4]),
 				endChar:   binary.BigEndian.Uint32(cmap[base+4 : base+8]),
 				startGID:  binary.BigEndian.Uint32(cmap[base+8 : base+12]),
 			}
+			if g.endChar < g.startChar || (i > 0 && g.startChar <= prevEnd) {
+				return nil, fmt.Errorf("font: invalid cmap format 12 group %d", i)
+			}
+			if g.startGID+uint32(g.endChar-g.startChar) > 0xFFFF {
+				return nil, fmt.Errorf("font: cmap format 12 group %d maps past the glyph id space", i)
+			}
+			sub.groups[i] = g
+			prevEnd = g.endChar
 		}
 		return sub, nil
 	default:
@@ -395,7 +413,11 @@ func (s *cmapSubtable) lookup(r rune) (uint16, bool) {
 			case c > g.endChar:
 				lo = mid + 1
 			default:
-				return uint16(g.startGID + (c - g.startChar)), true
+				gid := g.startGID + (c - g.startChar)
+				if gid == 0 || gid > 0xFFFF {
+					return 0, false
+				}
+				return uint16(gid), true
 			}
 		}
 		return 0, false
