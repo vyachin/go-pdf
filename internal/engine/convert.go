@@ -261,7 +261,7 @@ func toPDFOps(ops []layout.Op) []pdf.Op {
 			}
 			glyphs := make([]pdf.Glyph, len(op.Text.Run.Glyphs))
 			for i, g := range op.Text.Run.Glyphs {
-				glyphs[i] = pdf.Glyph{GID: g.GID, Rune: g.Rune}
+				glyphs[i] = pdf.Glyph{GID: g.GID, Rune: g.Rune, Advance: g.Advance}
 			}
 			out = append(out, pdf.Op{
 				Kind:  pdf.TextOpKind,

@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -42,10 +43,12 @@ const (
 )
 
 // Glyph is a glyph id together with the character it came from, which is what
-// makes a searchable text layer possible.
+// makes a searchable text layer possible, and the advance calculated by layout,
+// which is what preserves kerning in the PDF.
 type Glyph struct {
-	GID  uint16
-	Rune rune
+	GID     uint16
+	Rune    rune
+	Advance int32
 }
 
 // Text is a run of glyphs drawn at a baseline.
@@ -273,8 +276,10 @@ func (d *Doc) Bytes() ([]byte, error) {
 			fmt.Fprintf(&fontRes, " /%s %d 0 R", fontNames[fi], fe.ids[0])
 			_ = fe
 		}
-		for im := range imageNames {
-			fmt.Fprintf(&imageRes, " /%s %d 0 R", imageNames[im], imageByPtr[im].id)
+		// Iterate the ordered slice, not the name map: map order is random and
+		// would make the document bytes and its /ID vary between runs.
+		for _, im := range images {
+			fmt.Fprintf(&imageRes, " /%s %d 0 R", imageNames[im.image], im.id)
 		}
 		resources := fmt.Sprintf("/Font <<%s >>", fontRes.String())
 		// Only images that the page actually uses need to be listed, but a
@@ -394,13 +399,21 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 				continue
 			}
 			name := nameOf[op.Text.Font]
-			fmt.Fprintf(&b, "BT /%s %s Tf %s %s %s rg 1 0 0 1 %s %s Tm <",
+			fmt.Fprintf(&b, "BT /%s %s Tf %s %s %s rg 1 0 0 1 %s %s Tm [",
 				name, num(op.Text.Size), f3b(op.Color.R), f3b(op.Color.G), f3b(op.Color.B),
 				num(op.Text.X), num(p.height-op.Text.Y))
-			for _, g := range op.Text.Glyphs {
-				fmt.Fprintf(&b, "%04X", g.GID)
+			for i, g := range op.Text.Glyphs {
+				if i > 0 {
+					b.WriteString(" ")
+				}
+				fmt.Fprintf(&b, "<%04X>", g.GID)
+				if i+1 < len(op.Text.Glyphs) {
+					if adj := advanceAdjustment(op.Text.Font, op.Text.Size, g); adj != 0 {
+						fmt.Fprintf(&b, " %d", adj)
+					}
+				}
 			}
-			b.WriteString("> Tj ET\n")
+			b.WriteString("] TJ ET\n")
 		case ImageOpKind:
 			if op.Image == nil {
 				continue
@@ -410,6 +423,20 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 		}
 	}
 	return []byte(b.String())
+}
+
+// advanceAdjustment is the TJ number that turns the nominal glyph width into
+// the advance calculated by layout. A positive number moves the next glyph
+// left, which is how negative kerning is expressed.
+func advanceAdjustment(f *font.Font, size int32, g Glyph) int32 {
+	if f == nil || size <= 0 || g.Advance == 0 || f.UnitsPerEm() == 0 {
+		return 0
+	}
+	// The nominal width uses the same rounding as the /W array.
+	w1000 := math.Round(float64(f.Advance(g.GID)) * 1000 / float64(f.UnitsPerEm()))
+	nominal := math.Round(w1000 * float64(size) / 1000)
+	diff := nominal - float64(g.Advance)
+	return int32(math.Round(diff * 1000 / float64(size)))
 }
 
 // streamObject wraps data in a stream object, optionally compressing it.

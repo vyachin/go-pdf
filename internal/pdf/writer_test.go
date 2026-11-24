@@ -3,6 +3,10 @@ package pdf
 import (
 	"bytes"
 	"compress/zlib"
+	"image"
+	"image/color"
+	"image/png"
+	"math"
 	"os"
 	"runtime"
 	"strconv"
@@ -274,5 +278,148 @@ func TestFontObjectGraph(t *testing.T) {
 	}
 	if !strings.Contains(decodeStream(t, objects[toUniID]), "begincmap") {
 		t.Fatal("/ToUnicode does not reference a CMap stream")
+	}
+}
+
+func testImage(t *testing.T, fill color.RGBA) *Image {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			img.SetRGBA(x, y, fill)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return &Image{Data: buf.Bytes(), Format: "png", PixelW: 4, PixelH: 4}
+}
+
+func TestImageResourcesAreDeterministic(t *testing.T) {
+	red := testImage(t, color.RGBA{R: 255, A: 255})
+	green := testImage(t, color.RGBA{G: 255, A: 255})
+	blue := testImage(t, color.RGBA{B: 255, A: 255})
+	build := func() []byte {
+		d := New(Options{})
+		d.AddPage(595276, 841890, []Op{
+			{Kind: ImageOpKind, Rect: Rect{X: 1000, Y: 1000, W: 2000, H: 2000}, Image: red},
+			{Kind: ImageOpKind, Rect: Rect{X: 4000, Y: 1000, W: 2000, H: 2000}, Image: green},
+			{Kind: ImageOpKind, Rect: Rect{X: 7000, Y: 1000, W: 2000, H: 2000}, Image: blue},
+		})
+		data, err := d.Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	first := build()
+	for i := 0; i < 30; i++ {
+		if !bytes.Equal(first, build()) {
+			t.Fatalf("serialisation %d differs", i+2)
+		}
+	}
+	// The resource dictionary must follow first-use order.
+	var pageDict string
+	for _, body := range pdfObjects(t, first) {
+		if strings.Contains(body, "/Type /Page ") {
+			pageDict = body
+		}
+	}
+	first1 := strings.Index(pageDict, "/Im1 ")
+	first2 := strings.Index(pageDict, "/Im2 ")
+	first3 := strings.Index(pageDict, "/Im3 ")
+	if first1 < 0 || first2 < 0 || first3 < 0 || !(first1 < first2 && first2 < first3) {
+		t.Fatalf("image resources are out of document order: %d %d %d", first1, first2, first3)
+	}
+}
+
+func TestKerningAdjustmentSign(t *testing.T) {
+	f := loadFont(t)
+	gid, ok := f.GlyphIndex('A')
+	if !ok {
+		t.Skip("test font has no A")
+	}
+	second, ok := f.GlyphIndex('V')
+	if !ok {
+		t.Skip("test font has no V")
+	}
+	const size = int32(12000)
+	w1000 := math.Round(float64(f.Advance(gid)) * 1000 / float64(f.UnitsPerEm()))
+	nominal := int32(math.Round(w1000 * float64(size) / 1000))
+	tightened := nominal - 500 // layout applied kerning of 500 millipoints
+
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{
+			X: 1000, Y: 1000, Font: f, Size: size,
+			Glyphs: []Glyph{
+				{GID: gid, Rune: 'A', Advance: tightened},
+				{GID: second, Rune: 'V', Advance: nominal},
+			},
+		},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := ""
+	for _, obj := range pdfObjects(t, data) {
+		if s := decodeStream(t, obj); strings.Contains(s, "TJ") {
+			stream = s
+		}
+	}
+	if stream == "" {
+		t.Fatal("no text run written as a TJ array")
+	}
+	open := strings.Index(stream, "[")
+	closeIdx := strings.Index(stream, "] TJ")
+	if open < 0 || closeIdx < 0 || closeIdx < open {
+		t.Fatalf("malformed TJ array: %q", stream)
+	}
+	array := stream[open+1 : closeIdx]
+	parts := strings.Fields(array)
+	if len(parts) < 3 {
+		t.Fatalf("TJ array = %q, want glyph, adjustment, glyph", array)
+	}
+	adj, err := strconv.Atoi(parts[1])
+	if err != nil {
+		t.Fatalf("adjustment %q is not a number", parts[1])
+	}
+	want := int(math.Round(500.0 * 1000 / float64(size)))
+	if adj != want {
+		t.Fatalf("adjustment = %d, want %d (positive moves the next glyph left)", adj, want)
+	}
+}
+
+func TestNoAdjustmentWhenAdvancesAreNominal(t *testing.T) {
+	f := loadFont(t)
+	gid, ok := f.GlyphIndex('A')
+	if !ok {
+		t.Skip("test font has no A")
+	}
+	const size = int32(12000)
+	w1000 := math.Round(float64(f.Advance(gid)) * 1000 / float64(f.UnitsPerEm()))
+	nominal := int32(math.Round(w1000 * float64(size) / 1000))
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 1000, Font: f, Size: size, Glyphs: []Glyph{{GID: gid, Rune: 'A', Advance: nominal}}},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, obj := range pdfObjects(t, data) {
+		if s := decodeStream(t, obj); strings.Contains(s, "TJ") && strings.Contains(s, "] TJ") {
+			open := strings.Index(s, "[")
+			closeIdx := strings.Index(s, "] TJ")
+			if open >= 0 && closeIdx > open {
+				if fields := strings.Fields(s[open+1 : closeIdx]); len(fields) != 1 {
+					t.Fatalf("a run without kerning must carry no adjustments: %q", s[open:closeIdx+3])
+				}
+			}
+		}
 	}
 }

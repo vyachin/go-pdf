@@ -29,7 +29,7 @@ func Pages(data []byte) ([]string, error) {
 		if err != nil {
 			continue
 		}
-		if !bytes.Contains(stream, []byte("Tj")) {
+		if !bytes.Contains(stream, []byte("Tj")) && !bytes.Contains(stream, []byte("TJ")) {
 			continue
 		}
 		pages = append(pages, entry{id: id, text: textFromStream(stream, toUni)})
@@ -52,7 +52,7 @@ func ContentStreams(data []byte) [][]byte {
 		if err != nil {
 			continue
 		}
-		if bytes.Contains(stream, []byte("Tj")) || bytes.Contains(stream, []byte(" re ")) {
+		if bytes.Contains(stream, []byte("Tj")) || bytes.Contains(stream, []byte("TJ")) || bytes.Contains(stream, []byte(" re ")) {
 			out = append(out, stream)
 		}
 	}
@@ -201,38 +201,57 @@ func decodeUTF16Hex(s string) []rune {
 	return runes
 }
 
+// textFromStream reads both plain Tj strings and TJ arrays. Adjustments in a
+// TJ array only move glyphs; extraction ignores them.
 func textFromStream(stream []byte, toUni map[uint16]rune) string {
 	var out strings.Builder
 	s := string(stream)
-	idx := 0
-	for {
-		rel := strings.Index(s[idx:], "<")
-		if rel < 0 {
-			break
-		}
-		open := idx + rel
-		closeRel := strings.Index(s[open:], ">")
-		if closeRel < 0 {
-			break
-		}
-		closeIdx := open + closeRel
-		hexStr := s[open+1 : closeIdx]
-		after := s[closeIdx+1:]
-		tail := after
-		if len(tail) > 8 {
-			tail = tail[:8]
-		}
-		if strings.Contains(tail, "Tj") {
-			if raw, err := hex.DecodeString(hexStr); err == nil {
-				for i := 0; i+1 < len(raw); i += 2 {
-					gid := uint16(raw[i])<<8 | uint16(raw[i+1])
-					if r, ok := toUni[gid]; ok {
-						out.WriteRune(r)
-					}
-				}
+	inArray := false
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] == '[':
+			inArray = true
+			i++
+		case s[i] == ']':
+			inArray = false
+			i++
+		case s[i] == '<':
+			end := strings.IndexByte(s[i:], '>')
+			if end < 0 {
+				return out.String()
 			}
+			hexStr := s[i+1 : i+end]
+			i += end + 1
+			if inArray {
+				out.WriteString(decodeHexText(hexStr, toUni))
+				continue
+			}
+			j := i
+			for j < len(s) && (s[j] == ' ' || s[j] == '\n' || s[j] == '\r' || s[j] == '\t') {
+				j++
+			}
+			if strings.HasPrefix(s[j:], "Tj") {
+				out.WriteString(decodeHexText(hexStr, toUni))
+				i = j + 2
+			}
+		default:
+			i++
 		}
-		idx = closeIdx + 1
+	}
+	return out.String()
+}
+
+func decodeHexText(hexStr string, toUni map[uint16]rune) string {
+	raw, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return ""
+	}
+	var out strings.Builder
+	for i := 0; i+1 < len(raw); i += 2 {
+		gid := uint16(raw[i])<<8 | uint16(raw[i+1])
+		if r, ok := toUni[gid]; ok {
+			out.WriteRune(r)
+		}
 	}
 	return out.String()
 }

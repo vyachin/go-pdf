@@ -7,15 +7,19 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/pdfdebug"
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 func testFontPath(t testing.TB) string {
@@ -230,7 +234,8 @@ func TestContentStreamOperators(t *testing.T) {
 	var found bool
 	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
 		s := string(stream)
-		if strings.Contains(s, "BT") && strings.Contains(s, "Tf") && strings.Contains(s, "Tj") && strings.Contains(s, "re") {
+		showsText := strings.Contains(s, "Tj") || strings.Contains(s, "TJ")
+		if strings.Contains(s, "BT") && strings.Contains(s, "Tf") && showsText && strings.Contains(s, "re") {
 			found = true
 		}
 	}
@@ -477,5 +482,104 @@ func TestConvertFailsWithoutPaginationProgress(t *testing.T) {
 	}
 	if !hasCode(res.Diagnostics, "layout/no-progress") {
 		t.Fatalf("diagnostics = %v", res.Diagnostics.Lines())
+	}
+}
+
+func TestKerningIsPreservedInPDF(t *testing.T) {
+	fontPath := testFontPath(t)
+	data, err := os.ReadFile(fontPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := font.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, ok1 := f.GlyphIndex('A')
+	right, ok2 := f.GlyphIndex('V')
+	if !ok1 || !ok2 {
+		t.Skip("test font has no A/V")
+	}
+	if f.Kerning(left, right) == 0 {
+		t.Skip("test font has no kerning for AV")
+	}
+	run, err := text.Shape(f, 12000, "AV")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := run.Glyphs[0].Advance
+
+	res, err := Convert(context.Background(), []byte(`<p>AV</p>`), Options{FallbackFont: fontPath, File: "kern.html"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stream string
+	for _, s := range pdfdebug.ContentStreams(res.PDF) {
+		if strings.Contains(string(s), "TJ") {
+			stream = string(s)
+		}
+	}
+	if stream == "" {
+		t.Fatal("the text run is not written as a TJ array")
+	}
+	open := strings.Index(stream, "[")
+	closeIdx := strings.Index(stream, "] TJ")
+	if open < 0 || closeIdx <= open {
+		t.Fatalf("malformed TJ array: %q", stream)
+	}
+	fields := strings.Fields(stream[open+1 : closeIdx])
+	if len(fields) < 3 {
+		t.Fatalf("TJ array = %q", stream[open:closeIdx])
+	}
+	adj, err := strconv.Atoi(fields[1])
+	if err != nil {
+		t.Fatalf("adjustment %q is not a number", fields[1])
+	}
+	w1000 := math.Round(float64(f.Advance(left)) * 1000 / float64(f.UnitsPerEm()))
+	nominal := math.Round(w1000 * 12000 / 1000)
+	effective := int32(math.Round(nominal - float64(adj)*12000/1000))
+	if diff := effective - expected; diff > 12 || diff < -12 {
+		t.Fatalf("PDF advance %d differs from layout %d by %d", effective, expected, diff)
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "AV") {
+		t.Fatalf("extracted text = %q", text)
+	}
+}
+
+func TestDocumentWithImagesIsDeterministic(t *testing.T) {
+	fontPath := testFontPath(t)
+	dir := t.TempDir()
+	for _, name := range []string{"a.png", "b.png"} {
+		img := image.NewRGBA(image.Rect(0, 0, 6, 6))
+		for i := range img.Pix {
+			img.Pix[i] = 200
+		}
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, img); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	src := `<p>Первое <img src="a.png"> и второе <img src="b.png"></p>`
+	opts := Options{FallbackFont: fontPath, BaseDir: dir, File: "images.html"}
+	first, err := Convert(context.Background(), []byte(src), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		next, err := Convert(context.Background(), []byte(src), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(first.PDF, next.PDF) {
+			t.Fatalf("run %d produced different bytes for a document with two images", i+2)
+		}
 	}
 }
