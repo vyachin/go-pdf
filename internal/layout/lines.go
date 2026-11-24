@@ -242,14 +242,21 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if p.image == nil {
 				continue
 			}
+			w, h := imageSize(p.style, p.image, width, l.ctx)
+			// The pending separator belongs to the previous line only when the
+			// image stays there; on a wrap it must not trail the old line.
+			spaceW := int32(0)
+			if spacePending && len(cur.Items) > 0 {
+				spaceW = l.spaceWidth(p.style)
+			}
+			if len(cur.Items) > 0 && x+spaceW+w > width {
+				spacePending = false
+				flush(false)
+				firstLine = false
+			}
 			if spacePending && len(cur.Items) > 0 {
 				addSpace(p.style)
 				spacePending = false
-			}
-			w, h := imageSize(p.style, p.image, width, l.ctx)
-			if len(cur.Items) > 0 && x+w > width {
-				flush(false)
-				firstLine = false
 			}
 			item := LineItem{Kind: ImageItem, Image: p.image, W: w, H: h, Style: p.style}
 			cur.Items = append(cur.Items, item)
@@ -262,20 +269,27 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
 				continue
 			}
-			if spacePending && len(cur.Items) > 0 {
-				addSpace(p.style)
-				spacePending = false
-			}
 			run, err := text.Shape(face.Font, face.Size, p.text)
 			if err != nil {
 				l.diags.Errorf("text/glyph", diag.Position{}, "", "%v", err)
 				continue
 			}
+			// The word is measured together with the pending separator. On a
+			// wrap that separator disappears, so the old line must not keep it.
+			spaceW := int32(0)
+			if spacePending && len(cur.Items) > 0 {
+				spaceW = l.spaceWidth(p.style)
+			}
 			// Preformatted text wraps only on explicit line feeds; it may
 			// overflow the content box instead.
-			if len(cur.Items) > 0 && x+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
+			if len(cur.Items) > 0 && x+spaceW+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
+				spacePending = false
 				flush(false)
 				firstLine = false
+			}
+			if spacePending && len(cur.Items) > 0 {
+				addSpace(p.style)
+				spacePending = false
 			}
 			ensureIndent()
 			item := LineItem{Kind: TextItem, Face: face, Run: run, Color: p.style.Color, Style: p.style, W: run.Width}
@@ -295,6 +309,19 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	}
 	b.lines = lines
 	b.built = true
+}
+
+// spaceWidth returns the advance of one collapsible space.
+func (l *layouter) spaceWidth(style *css.Style) int32 {
+	face, err := l.face(style)
+	if err != nil {
+		return 0
+	}
+	run, err := text.Shape(face.Font, face.Size, " ")
+	if err != nil {
+		return 0
+	}
+	return run.Width
 }
 
 func fitMetrics(line *Line) {

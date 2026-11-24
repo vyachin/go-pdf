@@ -678,3 +678,23 @@ func TestRowspanIsClampedToRemainingRows(t *testing.T) {
 		t.Fatalf("AFTER baseline %d does not follow the cell content that ends at %d", afterY, cY)
 	}
 }
+
+func TestTrailingSpaceIsDroppedOnWrap(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="width:30pt;text-align:right;margin:0">AAA BBB</p>`)
+	var edges []int32
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil || len(op.Text.Run.Glyphs) == 0 {
+			continue
+		}
+		if op.Text.Run.Glyphs[0].Rune == 'A' || op.Text.Run.Glyphs[0].Rune == 'B' {
+			edges = append(edges, op.Text.X+op.Text.Run.Width)
+		}
+	}
+	if len(edges) != 2 {
+		t.Fatalf("got %d word runs, want 2", len(edges))
+	}
+	if edges[0] != edges[1] {
+		t.Fatalf("right-aligned word edges differ by %d mp: %v", edges[0]-edges[1], edges)
+	}
+}

@@ -156,7 +156,7 @@
 
 ### Строки, переносы, якоря и CLI
 
-- [ ] **REV-24 · P2: удалять pending space при автоматическом переносе строки.**
+- [x] **REV-24 · P2: удалять pending space при автоматическом переносе строки.**
 
   **Код:** [internal/layout/lines.go:265](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:265), `buildLines`, также ветка imagePiece.
   **Воспроизведение:** `<p style="width:30pt;text-align:right">AAA BBB</p>`. Пробел добавляется до проверки, помещается ли BBB. Затем flush сохраняет его на конце первой строки: правые границы слов **82879** и **86693 mp**, разница ровно **3814 mp** — ширина пробела.
