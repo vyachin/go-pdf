@@ -150,3 +150,66 @@ The layout SHALL place every table cell in the grid column it occupies. A cell i
 #### Scenario: Table without spans
 - **WHEN** a table has no `colspan` or `rowspan`
 - **THEN** cells keep their sequential positions and widths
+
+### Requirement: Table spans are bounded
+
+`colspan` and `rowspan` SHALL be validated before layout uses them: a value MUST be an integer in `1..100`, and any other value MUST produce an error diagnostic naming the attribute and the cell. Layout MUST clamp every span it reads, so no span can reach integer conversion, division or grid allocation unchecked.
+
+#### Scenario: Overflowing rowspan
+- **WHEN** a cell declares `rowspan="4294967296"`
+- **THEN** conversion fails with an `html/invalid-span` diagnostic
+- **AND** no panic occurs
+
+#### Scenario: Huge colspan
+- **WHEN** a cell declares a `colspan` above the limit
+- **THEN** conversion fails with a diagnostic naming the attribute
+
+#### Scenario: Ordinary spans
+- **WHEN** a table uses `rowspan="2"` and `colspan="3"`
+- **THEN** layout places the cells as before
+
+### Requirement: Children are placed inside the parent content box
+
+A child block SHALL start at the content-box origin of its parent, that is after the parent's left border and padding, and MUST be measured within the parent's content width. The root block starts at the page content-left. A fixed child width MUST be clamped to the available content width.
+
+#### Scenario: Padding on the parent
+- **WHEN** a block declares `padding-left: 20pt` and contains a paragraph
+- **THEN** the paragraph text starts 20 pt to the right of the page content-left
+
+#### Scenario: Nested padding
+- **WHEN** two nested blocks each declare 10 pt of left padding
+- **THEN** the inner text starts 20 pt to the right of the page content-left
+
+#### Scenario: Width inside a padded parent
+- **WHEN** a child declares a width larger than the parent's content width
+- **THEN** the child is clamped to that content width
+
+### Requirement: Bottom padding and border advance the flow
+
+After a block completes, the flow SHALL advance by its bottom padding and border in addition to its bottom margin, so the next block does not overlap them.
+
+#### Scenario: Padded block followed by a paragraph
+- **WHEN** a `div` with 10 pt padding is followed by a paragraph with no margin
+- **THEN** the distance between their baselines is at least 24 pt
+
+#### Scenario: Block without bottom insets
+- **WHEN** a block has no padding, border and margin
+- **THEN** the next block starts immediately after its content
+
+### Requirement: Nested tables and lists keep their structure
+
+Implicit end tags SHALL be scoped: a cell, row or row group closes only inside its own table; a list item only inside its own list; `dt`/`dd` only inside their `dl`; `option` only inside their `select`. Text that follows a nested container MUST stay in the element that contains it.
+
+#### Scenario: Nested table
+- **WHEN** a table cell contains another table with its own row
+- **THEN** the inner row belongs to the inner table
+- **AND** the inner table stays inside the outer cell
+
+#### Scenario: Nested list
+- **WHEN** a list item contains a nested list with an item
+- **THEN** the inner item belongs to the inner list
+- **AND** text after the nested list stays in the outer item
+
+#### Scenario: Flat table
+- **WHEN** a table has several cells and rows without nesting
+- **THEN** the cells keep their positions and the layout is unchanged
