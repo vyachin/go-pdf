@@ -72,7 +72,7 @@ Only the findings that are still open are listed below. A successful existing te
 
 ### Пробелы, наследование и генерируемое содержимое CSS
 
-- [ ] **TEXT-01 · P2: схлопывать пробелы на границах inline-элементов.**
+- [x] **TEXT-01 · P2: схлопывать пробелы на границах inline-элементов.**
 
   **Код:** [internal/layout/lines.go:198](/Users/vyachin/Projects/go-pdf/internal/layout/lines.go:198), обработка `spacePiece`; `text.Split`.
   **Ошибка:** пробелы схлопываются внутри отдельного текстового узла, но состояние не переносится между узлами. Последовательные `SpaceItem` добавляются в строку и каждый увеличивает её ширину; концевые пробелы также не удаляются перед выравниванием.

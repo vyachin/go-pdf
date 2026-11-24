@@ -991,3 +991,28 @@ func TestInlineAnchorsAreRegistered(t *testing.T) {
 		t.Fatal("a target inside a table cell was not registered")
 	}
 }
+
+func TestSpacesCollapseAcrossInlineNodes(t *testing.T) {
+	h := newHarness(t)
+	count := func(doc *Document) int {
+		n := 0
+		for _, op := range textOps(doc) {
+			if pageTextRun(op) == " " {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count(h.run(`<p>A <span> B</span> C</p>`)); got != 2 {
+		t.Fatalf("collapse across nodes: %d spaces, want 2", got)
+	}
+	if got := count(h.run(`<p>A<b> B</b><i> C</i></p>`)); got != 2 {
+		t.Fatalf("collapse across nested inline: %d spaces, want 2", got)
+	}
+	if got := count(h.run(`<p>A </p>`)); got != 0 {
+		t.Fatalf("a trailing space was kept: %d", got)
+	}
+	if got := count(h.run(`<p style="white-space:pre">A   B</p>`)); got != 3 {
+		t.Fatalf("preformatted spaces were collapsed: %d, want 3", got)
+	}
+}

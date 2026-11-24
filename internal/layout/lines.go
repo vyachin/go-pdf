@@ -199,6 +199,27 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		}
 	}
 
+	// Collapsible spaces are held back until something follows them on the
+	// same line, which collapses runs across text nodes and drops trailing
+	// spaces without touching the line width afterwards.
+	spacePending := false
+	addSpace := func(style *css.Style) {
+		face, err := l.face(style)
+		if err != nil {
+			l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
+			return
+		}
+		run, err := text.Shape(face.Font, face.Size, " ")
+		if err != nil {
+			return
+		}
+		item := LineItem{Kind: SpaceItem, Face: face, Run: run, Color: style.Color, Style: style, W: run.Width, H: style.LineHeightMP()}
+		cur.Items = append(cur.Items, item)
+		cur.Height = max32(cur.Height, item.H)
+		cur.Ascent = max32(cur.Ascent, face.Ascent)
+		x += run.Width
+	}
+
 	for _, p := range pieces {
 		switch p.kind {
 		case anchorPiece:
@@ -206,29 +227,24 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				cur.Anchors = append(cur.Anchors, p.anchor)
 			}
 		case breakPiece:
+			spacePending = false
 			flush(true)
 			firstLine = false
 		case spacePiece:
-			if len(cur.Items) == 0 && !p.preserve {
-				continue // drop leading and collapsed spaces
-			}
-			face, err := l.face(p.style)
-			if err != nil {
-				l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
+			if p.preserve {
+				addSpace(p.style)
 				continue
 			}
-			run, err := text.Shape(face.Font, face.Size, " ")
-			if err != nil {
-				continue
+			if len(cur.Items) > 0 {
+				spacePending = true
 			}
-			item := LineItem{Kind: SpaceItem, Face: face, Run: run, Color: p.style.Color, Style: p.style, W: run.Width, H: p.style.LineHeightMP()}
-			cur.Items = append(cur.Items, item)
-			cur.Height = max32(cur.Height, item.H)
-			cur.Ascent = max32(cur.Ascent, face.Ascent)
-			x += run.Width
 		case imagePiece:
 			if p.image == nil {
 				continue
+			}
+			if spacePending && len(cur.Items) > 0 {
+				addSpace(p.style)
+				spacePending = false
 			}
 			w, h := imageSize(p.style, p.image, width, l.ctx)
 			if len(cur.Items) > 0 && x+w > width {
@@ -245,6 +261,10 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if err != nil {
 				l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
 				continue
+			}
+			if spacePending && len(cur.Items) > 0 {
+				addSpace(p.style)
+				spacePending = false
 			}
 			run, err := text.Shape(face.Font, face.Size, p.text)
 			if err != nil {
