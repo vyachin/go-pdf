@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/pdfdebug"
@@ -820,5 +821,38 @@ func TestCMYKJPEGIsRejected(t *testing.T) {
 	_, err = Convert(context.Background(), []byte(src), Options{BaseDir: dir, File: "cmyk.html"})
 	if err == nil || !strings.Contains(err.Error(), "CMYK") {
 		t.Fatalf("a CMYK JPEG must be rejected explicitly, got %v", err)
+	}
+}
+
+func TestFontFamilyAliasesShareOneFile(t *testing.T) {
+	data, err := os.ReadFile(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.ttf"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sheet := css.ParseSheet(css.SheetOptions{File: "aliases.css"}, []byte(`
+		@font-face { font-family: One; src: url(f.ttf) }
+		@font-face { font-family: Two; src: url(f.ttf) }
+	`))
+	reg, err := newFontRegistry([]*css.Stylesheet{sheet}, Options{BaseDir: dir, FallbackFont: testFontPath(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := reg.Face([]string{"One"}, 400, false, 12000)
+	if err != nil {
+		t.Fatalf("family One: %v", err)
+	}
+	two, err := reg.Face([]string{"Two"}, 400, false, 12000)
+	if err != nil {
+		t.Fatalf("family Two: %v", err)
+	}
+	if one.Font != two.Font {
+		t.Fatal("both aliases must resolve to the same parsed font")
+	}
+	if one.Font == reg.fallback {
+		t.Fatal("the alias must not fall back to the system font")
 	}
 }

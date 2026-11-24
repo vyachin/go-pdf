@@ -35,6 +35,7 @@ type fontRegistry struct {
 func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
 	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
 	seen := map[string]bool{}
+	parsed := map[string]*font.Font{}
 	fontDir := opts.FontDir
 	if fontDir == "" {
 		fontDir = opts.BaseDir
@@ -77,22 +78,28 @@ func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, err
 			continue
 		}
 		path := resolvePath(src, opts.FontDir, opts.BaseDir)
-		key := fmt.Sprintf("%s|%d|%v", path, weight, italic)
+		// The file is parsed once; every family alias that names it still gets
+		// its own registration.
+		f, ok := parsed[path]
+		if !ok {
+			data, err := fontRoot.Read(path)
+			if err != nil {
+				if errors.Is(err, fsx.ErrOutsideRoot) {
+					return nil, fmt.Errorf("font %q is outside the font directory", src)
+				}
+				return nil, fmt.Errorf("loading font %q: %w", src, err)
+			}
+			f, err = font.Parse(data)
+			if err != nil {
+				return nil, fmt.Errorf("loading font %q: %w", src, err)
+			}
+			parsed[path] = f
+		}
+		key := fmt.Sprintf("%s|%d|%v|%s", path, weight, italic, family)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
-		data, err := fontRoot.Read(path)
-		if err != nil {
-			if errors.Is(err, fsx.ErrOutsideRoot) {
-				return nil, fmt.Errorf("font %q is outside the font directory", src)
-			}
-			return nil, fmt.Errorf("loading font %q: %w", src, err)
-		}
-		f, err := font.Parse(data)
-		if err != nil {
-			return nil, fmt.Errorf("loading font %q: %w", src, err)
-		}
 		r.faces = append(r.faces, &registeredFace{family: family, weight: weight, italic: italic, font: f})
 	}
 	if opts.FallbackFont != "" {
