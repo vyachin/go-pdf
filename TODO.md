@@ -216,7 +216,7 @@
   **Код:** [internal/font/gpos_test.go:65](/Users/vyachin/Projects/go-pdf/internal/font/gpos_test.go:65), `TestClassDefRangeIsBounded`; [internal/font/font_test.go:166](/Users/vyachin/Projects/go-pdf/internal/font/font_test.go:166), `FuzzParse`.
   `TestClassDefRangeIsBounded` разбирает ClassDef и вызывает Kerning пустой таблицы, но **не вызывает `parsePairPos` с его защитой**. Такой тест проходит после удаления соответствующего guard и не обнаруживает REV-01. Добавить валидные seed-шрифты с мутациями directory/GPOS/cmap, контролируемый бюджет и полный `Font.Parse → Shape → Subset`. Тест бюджета должен падать при удалении проверяемого ограничения.
 
-- [ ] **REV-34 · P3: расширить CI проверкой гонок и ограниченным запуском fuzz.**
+- [x] **REV-34 · P3: расширить CI проверкой гонок и ограниченным запуском fuzz.**
 
   **Код:** [.github/workflows/ci.yml](/Users/vyachin/Projects/go-pdf/.github/workflows/ci.yml), [pdfgen/example_test.go](/Users/vyachin/Projects/go-pdf/pdfgen/example_test.go).
   CI уже проверяет минимальный Go из go.mod, vet, pdfcpu и Poppler. Добавить отдельный `go test -race ./...`, ограниченные fuzz-запуски с полезными seeds и проверку импортируемости публичного API из отдельного модуля. Регулярно проверять актуальный Go вместе с минимальным; производительные benchmarks оставить отдельно от функциональных тестов. Проверку конечного изображения довести по ENG-09 до содержательных assertions, а не только наличия краски.

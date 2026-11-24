@@ -40,3 +40,40 @@ jobs:
           PDF_REQUIRE_VALIDATOR: "1"
           PDF_REQUIRE_RENDER: "1"
         run: go test ./...
+      - name: Race
+        env:
+          PDF_REQUIRE_VALIDATOR: "1"
+          PDF_REQUIRE_RENDER: "1"
+        run: go test -race ./...
+      - name: Fuzz
+        # Short runs on the parsers that read untrusted input. A longer fuzz
+        # session belongs to a nightly job, not to every pull request.
+        run: |
+          go test ./internal/font -run '^$' -fuzz '^FuzzParse$' -fuzztime 20s
+          go test ./internal/font -run '^$' -fuzz '^FuzzParseClassDef$' -fuzztime 10s
+          go test ./internal/html -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
+          go test ./internal/css -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
+      - name: Public API from another module
+        # The package must be importable by a module outside this repository.
+        run: |
+          tmp="$(mktemp -d)"
+          cd "$tmp"
+          go mod init example.com/apicheck
+          go mod edit -replace github.com/vyachin/go-pdf="$GITHUB_WORKSPACE"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "context"
+              "fmt"
+
+              "github.com/vyachin/go-pdf/pdfgen"
+          )
+
+          func main() {
+              diags, err := pdfgen.Validate(context.Background(), []byte("<p>x</p>"), pdfgen.Options{})
+              fmt.Println(len(diags), err)
+          }
+          EOF
+          go mod tidy
+          go build ./...
