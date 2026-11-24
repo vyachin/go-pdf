@@ -769,3 +769,36 @@ func TestImageAspectRatioWithPercentageWidth(t *testing.T) {
 		t.Fatalf("explicit height was overwritten: %dx%d", w, h)
 	}
 }
+
+func TestBreakBeforeFirstContentKeepsOnePage(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p style="break-before: page">FIRST</p>`)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("got %d pages, want 1", len(doc.Pages))
+	}
+	doc = h.run(`<p>A</p><p style="break-before: page">B</p>`)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("a break after content must create a second page, got %d", len(doc.Pages))
+	}
+	if !strings.Contains(pageText(doc, 2), "B") {
+		t.Fatalf("B is not on the second page: %q", pageText(doc, 2))
+	}
+}
+
+func TestWidowsPullLinesToTheNextPage(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 100000, Height: 60000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	src := `<style>p { margin: 0; font-size: 10pt; line-height: 12pt; orphans: 2; widows: 3 }</style><p>A<br>B<br>C<br>D<br>E</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if diags.HasErrors() {
+		t.Fatalf("layout errors: %v", diags.Lines())
+	}
+	first, second := pageText(doc, 1), pageText(doc, 2)
+	if !strings.Contains(first, "A") || !strings.Contains(first, "B") || strings.Contains(first, "C") {
+		t.Fatalf("first page = %q, want AB", first)
+	}
+	if !strings.Contains(second, "C") || !strings.Contains(second, "D") || !strings.Contains(second, "E") {
+		t.Fatalf("second page = %q, want CDE", second)
+	}
+}

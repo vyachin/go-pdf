@@ -140,7 +140,9 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	cw := b.contentWidth()
 
 	if !b.entered {
-		if st.BreakBefore == css.BreakPage && !f.empty {
+		// A forced break only makes sense when the page already has content;
+		// otherwise it would create an empty leading page.
+		if st.BreakBefore == css.BreakPage && len(f.page.Ops) > 0 {
 			f.newPage()
 		}
 		if !isRoot {
@@ -250,7 +252,9 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 	if !f.empty {
 		if c.Style.BreakBefore == css.BreakPage {
-			f.newPage()
+			if len(f.page.Ops) > 0 {
+				f.newPage()
+			}
 		} else if c.Style.BreakInside == css.BreakAvoid {
 			h := l.measure(c, width)
 			if f.y+h > f.bottom && h <= f.contentHeight() {
@@ -324,8 +328,12 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 	}
 	if fits < total {
 		remaining := total - fits
-		if remaining < st.Widows && fits > st.Widows {
-			fits = total - st.Widows
+		if remaining < st.Widows {
+			// Pull lines to the next page so it keeps at least widows lines,
+			// but never leave fewer than orphans on this one.
+			if better := total - st.Widows; better >= st.Orphans && better < fits {
+				fits = better
+			}
 		}
 	}
 	for k := 0; k < fits && b.cursor.line < len(b.lines); k++ {
