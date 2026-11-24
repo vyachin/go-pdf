@@ -723,3 +723,25 @@ func TestHiddenTablePartsAreSkipped(t *testing.T) {
 		t.Fatalf("hidden row changed pagination: %d vs %d pages", len(withHidden.Pages), len(without.Pages))
 	}
 }
+
+func TestHeaderStylesComeFromTheCascade(t *testing.T) {
+	h := newHarness(t)
+	// The test font has a single weight, so alignment is the observable
+	// property: the author rule must win over the UA default.
+	styled := h.run(`<style>th { text-align: left }</style>
+		<table><tr><th>H</th></tr></table>`)
+	ops := textOps(styled)
+	if len(ops) == 0 {
+		t.Fatal("no header text")
+	}
+	leftX := ops[0].X
+
+	unstyled := h.run(`<table><tr><th>H</th></tr></table>`)
+	ops = textOps(unstyled)
+	if len(ops) == 0 {
+		t.Fatal("no header text")
+	}
+	if ops[0].X <= leftX {
+		t.Fatalf("the UA centered header is not to the right of the left-aligned one: %d vs %d", ops[0].X, leftX)
+	}
+}

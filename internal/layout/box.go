@@ -429,12 +429,6 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 					// border-collapse is a property of the table, but cells
 					// need it to decide which edges they own.
 					cellStyle.BorderCollapse = style.BorderCollapse
-					if cellNode.Tag == "th" {
-						if _, ok := cellNode.Attr("style"); !ok {
-							cellStyle.FontWeight = 700
-							cellStyle.TextAlign = css.AlignCenter
-						}
-					}
 					cell := &Box{Kind: TableCell, Node: cellNode, Style: cellStyle}
 					cell.ColSpan = b.span(cellNode, "colspan")
 					cell.RowSpan = b.span(cellNode, "rowspan")
