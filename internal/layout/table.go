@@ -225,7 +225,9 @@ func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
 func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
-	startX := t.x + t.borderLeft()
+	// The rows sit inside the table's padding box; the columns were already
+	// computed for the content width, so the origin includes the padding.
+	startX := t.x + t.borderLeft() + t.padLeft()
 	if row.Style != nil && row.Style.Background.Set {
 		// The row background is painted before the cells so that opaque cell
 		// backgrounds still cover it.

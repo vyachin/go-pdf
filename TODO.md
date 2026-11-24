@@ -118,7 +118,7 @@
   **Воспроизведение:** `go run ./testdata/probe/layout-3/main.go`: `<p>AA<span style="vertical-align:top">T</span><span style="vertical-align:middle">M</span><span style="vertical-align:bottom">D</span></p>` — все runs Y=28564, top/middle/bottom неотличимы от baseline.
   **Исправление / приёмка:** top/middle/bottom для inline и inline-картинок по правилам строчного бокса. Приёмка: четыре разные базовые линии в порядке top < middle < baseline < bottom с ожидаемыми смещениями.
 
-- [ ] **RV2-18 · P2: учитывать padding таблицы при размещении строк.**
+- [x] **RV2-18 · P2: учитывать padding таблицы при размещении строк.**
 
   **Код:** [internal/layout/table.go:218](/Users/vyachin/Projects/go-pdf/internal/layout/table.go:218): `startX := t.x + t.borderLeft()`, `padLeft` не учитывается, хотя ширина уже сужена.
   **Воспроизведение:** `go run ./testdata/probe/layout-5/main.go`: `table{width:100pt;padding:0 0 0 20pt;border:1pt solid red}` — текст `A` X=1000, хотя content box начинается с 21000; контрольный `div` даёт X=21000.

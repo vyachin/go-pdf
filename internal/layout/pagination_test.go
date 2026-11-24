@@ -1354,3 +1354,41 @@ func abs32(v int32) int32 {
 	}
 	return v
 }
+
+// TestTablePaddingShiftsRows guards RV2-18: columns were computed for the
+// table's content width but the rows started at the border, so a padded table
+// drew its cells over the padding and left the padding space empty on the right.
+func TestTablePaddingShiftsRows(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 300000, Height: 200000}
+	margin := [4]int32{}
+	doc, diags := h.runRaw(`<style>
+		table{width:100pt;padding:0 0 0 20pt;border:1pt solid #ff0000;border-collapse:separate}
+		td{padding:0;border:0;font-size:10pt;background-color:#00ff00}
+	</style><table><tr><td>A</td><td>B</td></tr></table>`, size, margin)
+	if hasError(diags, "layout/overflow") {
+		t.Fatalf("unexpected diagnostics: %v", diags.Lines())
+	}
+	xs := map[string]int32{}
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind == TextOpKind && op.Text != nil && len(op.Text.Run.Glyphs) == 1 {
+			xs[string(op.Text.Run.Glyphs[0].Rune)] = op.Text.X
+		}
+	}
+	if xs["A"] != 21000 {
+		t.Fatalf("the first cell starts at X=%d, want 21000 (border plus padding)", xs["A"])
+	}
+	if xs["B"] != 71000 {
+		t.Fatalf("the second cell starts at X=%d, want 71000", xs["B"])
+	}
+	// The last column ends at the content edge, not past it.
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != FillOpKind || !(op.Color == css.Color{R: 0, G: 255, Set: true}) {
+			continue
+		}
+		right := op.Rect.X + op.Rect.W
+		if right > 121000 {
+			t.Fatalf("a cell background ends at X=%d, past the content right edge 121000", right)
+		}
+	}
+}
