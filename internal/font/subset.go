@@ -49,7 +49,7 @@ func (f *Font) Subset(used map[uint16]bool) ([]byte, error) {
 	if len(head) < 54 {
 		return nil, fmt.Errorf("font: head table is too short to subset")
 	}
-	binary.BigEndian.PutUint32(head[8:12], 0) // checkSumAdjustment
+	binary.BigEndian.PutUint32(head[8:12], 0)  // checkSumAdjustment
 	binary.BigEndian.PutUint16(head[50:52], 1) // long loca offsets
 
 	tables := []outTable{

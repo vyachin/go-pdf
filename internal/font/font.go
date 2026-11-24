@@ -10,8 +10,8 @@ import (
 
 // Font is a parsed TrueType font.
 type Font struct {
-	data     []byte
-	tables   map[string][]byte
+	data       []byte
+	tables     map[string][]byte
 	unitsPerEm int32
 	ascent     int16
 	descent    int16
@@ -27,13 +27,13 @@ type Font struct {
 	bbox       [4]int16
 }
 
-func (f *Font) UnitsPerEm() int32   { return f.unitsPerEm }
-func (f *Font) Ascent() int16       { return f.ascent }
-func (f *Font) Descent() int16      { return f.descent }
-func (f *Font) NumGlyphs() uint16   { return f.numGlyphs }
-func (f *Font) Family() string      { return f.family }
-func (f *Font) Subfamily() string   { return f.subfamily }
-func (f *Font) BBox() [4]int16      { return f.bbox }
+func (f *Font) UnitsPerEm() int32 { return f.unitsPerEm }
+func (f *Font) Ascent() int16     { return f.ascent }
+func (f *Font) Descent() int16    { return f.descent }
+func (f *Font) NumGlyphs() uint16 { return f.numGlyphs }
+func (f *Font) Family() string    { return f.family }
+func (f *Font) Subfamily() string { return f.subfamily }
+func (f *Font) BBox() [4]int16    { return f.bbox }
 
 // Parse reads a TrueType font. CFF based OpenType fonts are rejected because
 // their outlines need a separate interpreter.
@@ -241,7 +241,7 @@ func (f *Font) parseName() {
 
 // cmapSubtable is a supported character to glyph mapping.
 type cmapSubtable struct {
-	format  uint16
+	format uint16
 	// format 4
 	endCodes   []uint16
 	startCodes []uint16

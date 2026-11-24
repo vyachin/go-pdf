@@ -8,3 +8,7 @@ dist/
 
 # IDE project files
 .idea/
+
+# Locally built binaries
+/pdfgen
+/mpdfimport

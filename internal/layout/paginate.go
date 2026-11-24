@@ -37,12 +37,12 @@ func (f *flow) newPage() {
 
 func (f *flow) contentHeight() int32 { return f.bottom - f.top }
 
-func (b *Box) padTop() int32     { return b.Style.Padding[0].Resolve(b.width) }
-func (b *Box) padRight() int32   { return b.Style.Padding[1].Resolve(b.width) }
-func (b *Box) padBottom() int32  { return b.Style.Padding[2].Resolve(b.width) }
-func (b *Box) padLeft() int32    { return b.Style.Padding[3].Resolve(b.width) }
-func (b *Box) borderTop() int32  { return visibleWidth(b.Style.Border[0]) }
-func (b *Box) borderRight() int32 { return visibleWidth(b.Style.Border[1]) }
+func (b *Box) padTop() int32       { return b.Style.Padding[0].Resolve(b.width) }
+func (b *Box) padRight() int32     { return b.Style.Padding[1].Resolve(b.width) }
+func (b *Box) padBottom() int32    { return b.Style.Padding[2].Resolve(b.width) }
+func (b *Box) padLeft() int32      { return b.Style.Padding[3].Resolve(b.width) }
+func (b *Box) borderTop() int32    { return visibleWidth(b.Style.Border[0]) }
+func (b *Box) borderRight() int32  { return visibleWidth(b.Style.Border[1]) }
 func (b *Box) borderBottom() int32 { return visibleWidth(b.Style.Border[2]) }
 func (b *Box) borderLeft() int32   { return visibleWidth(b.Style.Border[3]) }
 

@@ -23,8 +23,8 @@ h6 { font-size: 0.67em; font-weight: 700; margin: 0 0 2mm 0; }
 ul, ol { margin: 0 0 3mm 0; padding: 0 0 0 8mm; }
 ul { list-style-type: disc; }
 ol { list-style-type: decimal; }
-strong { font-weight: 700; }
-em { font-style: italic; }
+strong, b { font-weight: 700; }
+em, i { font-style: italic; }
 a { color: #0000ee; }
 hr { border: 1px solid #000; height: 0; margin: 2mm 0; }
 img, span, br { display: inline; }

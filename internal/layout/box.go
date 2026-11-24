@@ -53,19 +53,19 @@ type Box struct {
 	Level int
 
 	// Pagination state.
-	lines      []Line
-	built      bool
-	cursor     cursor
-	started    bool
-	entered    bool
-	x, y       int32 // absolute position of the box origin
-	width      int32
-	startPage  int
-	fragStartY int32
+	lines         []Line
+	built         bool
+	cursor        cursor
+	started       bool
+	entered       bool
+	x, y          int32 // absolute position of the box origin
+	width         int32
+	startPage     int
+	fragStartY    int32
 	fragStartPage int
-	fragments  int
-	listMarkerY int32
-	contentTopY int32
+	fragments     int
+	listMarkerY   int32
+	contentTopY   int32
 
 	// Table state.
 	columns     []int32

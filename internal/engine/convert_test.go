@@ -2,9 +2,7 @@ package engine
 
 import (
 	"bytes"
-	"compress/zlib"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -15,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/pdfdebug"
 )
 
 func testFontPath(t testing.TB) string {
@@ -130,203 +130,6 @@ func validateWithPDFCPU(t *testing.T, data []byte) {
 
 // extractText decodes the ToUnicode maps and the text shown in content streams
 // of a PDF produced by this package.
-func extractText(data []byte) (string, error) {
-	objects := splitObjects(data)
-	toUni := map[uint16]rune{}
-	// Collect the ToUnicode maps first.
-	for _, obj := range objects {
-		if !bytes.Contains(obj.body, []byte("/ToUnicode")) {
-			continue
-		}
-		idx := bytes.Index(obj.body, []byte("/ToUnicode"))
-		ref := parseIntToken(obj.body[idx+len("/ToUnicode"):])
-		target, ok := objects[ref]
-		if !ok {
-			continue
-		}
-		stream, err := decodedStream(target.body)
-		if err != nil {
-			continue
-		}
-		parseBFChar(stream, toUni)
-	}
-	var out strings.Builder
-	for _, obj := range objects {
-		if bytes.Contains(obj.body, []byte("/ToUnicode")) && !bytes.Contains(obj.body, []byte("/Type /Font")) {
-			continue
-		}
-		stream, err := decodedStream(obj.body)
-		if err != nil {
-			if !bytes.Contains(obj.body, []byte("Tj")) {
-				continue
-			}
-			stream = obj.body
-		}
-		out.WriteString(textFromStream(stream, toUni))
-	}
-	return out.String(), nil
-}
-
-type pdfObject struct {
-	body []byte
-}
-
-func splitObjects(data []byte) map[int]*pdfObject {
-	objects := map[int]*pdfObject{}
-	rest := data
-	for {
-		idx := bytes.Index(rest, []byte(" obj\n"))
-		if idx < 0 {
-			break
-		}
-		lineStart := bytes.LastIndexByte(rest[:idx], '\n') + 1
-		fields := strings.Fields(string(rest[lineStart:idx]))
-		if len(fields) < 1 {
-			rest = rest[idx+len(" obj\n"):]
-			continue
-		}
-		id := 0
-		if _, err := fmt.Sscanf(fields[0], "%d", &id); err != nil {
-			rest = rest[idx+len(" obj\n"):]
-			continue
-		}
-		body := rest[idx+len(" obj\n"):]
-		endIdx := bytes.Index(body, []byte("\nendobj"))
-		if endIdx < 0 {
-			break
-		}
-		objects[id] = &pdfObject{body: body[:endIdx]}
-		rest = body[endIdx+len("\nendobj"):]
-	}
-	return objects
-}
-
-func decodedStream(body []byte) ([]byte, error) {
-	idx := bytes.Index(body, []byte("stream\n"))
-	if idx < 0 {
-		return nil, fmt.Errorf("no stream")
-	}
-	start := idx + len("stream\n")
-	end := bytes.Index(body[start:], []byte("\nendstream"))
-	if end < 0 {
-		return nil, fmt.Errorf("no endstream")
-	}
-	raw := body[start : start+end]
-	if !bytes.Contains(body[:idx], []byte("FlateDecode")) {
-		return raw, nil
-	}
-	zr, err := zlib.NewReader(bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(zr); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func parseBFChar(stream []byte, out map[uint16]rune) {
-	for _, line := range bytes.Split(stream, []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if len(line) < 10 || line[0] != '<' {
-			continue
-		}
-		endA := bytes.IndexByte(line, '>')
-		if endA < 0 {
-			continue
-		}
-		hexA := string(line[1:endA])
-		rest := bytes.TrimSpace(line[endA+1:])
-		if len(rest) < 3 || rest[0] != '<' {
-			continue
-		}
-		endB := bytes.IndexByte(rest, '>')
-		if endB < 0 {
-			continue
-		}
-		hexB := string(rest[1:endB])
-		gidBytes, err := hex.DecodeString(hexA)
-		if err != nil || len(gidBytes) != 2 {
-			continue
-		}
-		gid := uint16(gidBytes[0])<<8 | uint16(gidBytes[1])
-		if runes := decodeUTF16Hex(hexB); len(runes) > 0 {
-			out[gid] = runes[0]
-		}
-	}
-}
-
-func decodeUTF16Hex(s string) []rune {
-	raw, err := hex.DecodeString(s)
-	if err != nil || len(raw)%2 != 0 {
-		return nil
-	}
-	var runes []rune
-	for i := 0; i+1 < len(raw); i += 2 {
-		runes = append(runes, rune(uint16(raw[i])<<8|uint16(raw[i+1])))
-	}
-	return runes
-}
-
-func textFromStream(stream []byte, toUni map[uint16]rune) string {
-	var out strings.Builder
-	s := string(stream)
-	idx := 0
-	for {
-		rel := strings.Index(s[idx:], "<")
-		if rel < 0 {
-			break
-		}
-		open := idx + rel
-		closeRel := strings.Index(s[open:], ">")
-		if closeRel < 0 {
-			break
-		}
-		closeIdx := open + closeRel
-		hexStr := s[open+1 : closeIdx]
-		after := s[closeIdx+1:]
-		tail := after
-		if len(tail) > 8 {
-			tail = tail[:8]
-		}
-		if strings.Contains(tail, "Tj") {
-			if raw, err := hex.DecodeString(hexStr); err == nil {
-				for i := 0; i+1 < len(raw); i += 2 {
-					gid := uint16(raw[i])<<8 | uint16(raw[i+1])
-					if r, ok := toUni[gid]; ok {
-						out.WriteRune(r)
-					}
-				}
-			}
-		}
-		idx = closeIdx + 1
-	}
-	return out.String()
-}
-
-func parseIntToken(b []byte) int {
-	i := 0
-	for i < len(b) && (b[i] == ' ' || b[i] == '\n') {
-		i++
-	}
-	start := i
-	for i < len(b) && b[i] >= '0' && b[i] <= '9' {
-		i++
-	}
-	var id int
-	fmt.Sscanf(string(b[start:i]), "%d", &id)
-	return id
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func TestRenderPNG(t *testing.T) {
 	fontPath := testFontPath(t)
 	res, err := Convert(context.Background(), []byte(`<p>Проверка PNG</p>`), Options{FallbackFont: fontPath, File: "png.html", RenderPNG: true})
@@ -424,11 +227,7 @@ func TestContentStreamOperators(t *testing.T) {
 		t.Fatal(err)
 	}
 	var found bool
-	for _, obj := range splitObjects(res.PDF) {
-		stream, err := decodedStream(obj.body)
-		if err != nil {
-			continue
-		}
+	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
 		s := string(stream)
 		if strings.Contains(s, "BT") && strings.Contains(s, "Tf") && strings.Contains(s, "Tj") && strings.Contains(s, "re") {
 			found = true
@@ -453,60 +252,6 @@ func TestOutlineIsWritten(t *testing.T) {
 		}
 	}
 	validateWithPDFCPU(t, res.PDF)
-}
-
-func buildToUni(objects map[int]*pdfObject) map[uint16]rune {
-	toUni := map[uint16]rune{}
-	for _, obj := range objects {
-		if !bytes.Contains(obj.body, []byte("/ToUnicode")) {
-			continue
-		}
-		idx := bytes.Index(obj.body, []byte("/ToUnicode"))
-		ref := parseIntToken(obj.body[idx+len("/ToUnicode"):])
-		target, ok := objects[ref]
-		if !ok {
-			continue
-		}
-		stream, err := decodedStream(target.body)
-		if err != nil {
-			continue
-		}
-		parseBFChar(stream, toUni)
-	}
-	return toUni
-}
-
-func extractPageTexts(data []byte) ([]string, error) {
-	objects := splitObjects(data)
-	toUni := buildToUni(objects)
-	type entry struct {
-		id   int
-		text string
-	}
-	var pages []entry
-	for id, obj := range objects {
-		stream, err := decodedStream(obj.body)
-		if err != nil {
-			continue
-		}
-		if !bytes.Contains(stream, []byte("Tj")) {
-			continue
-		}
-		pages = append(pages, entry{id: id, text: textFromStream(stream, toUni)})
-	}
-	// The writer allocates content streams in page order.
-	for i := 0; i < len(pages); i++ {
-		for j := i + 1; j < len(pages); j++ {
-			if pages[j].id < pages[i].id {
-				pages[i], pages[j] = pages[j], pages[i]
-			}
-		}
-	}
-	out := make([]string, len(pages))
-	for i, p := range pages {
-		out[i] = p.text
-	}
-	return out, nil
 }
 
 func TestTableOfContentsNumbers(t *testing.T) {
@@ -580,3 +325,9 @@ func TestUnknownTargetWarns(t *testing.T) {
 		t.Fatalf("expected an unknown target warning, got %v", res.Diagnostics.Lines())
 	}
 }
+
+// extractText and extractPageTexts delegate to the shared reader so that the
+// engine tests and the mPDF compatibility corpus use one implementation.
+func extractText(data []byte) (string, error) { return pdfdebug.Text(data) }
+
+func extractPageTexts(data []byte) ([]string, error) { return pdfdebug.Pages(data) }

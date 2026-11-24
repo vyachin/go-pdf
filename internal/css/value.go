@@ -177,7 +177,7 @@ func ParseColor(toks []Token) (Color, error) {
 				g, ok2 := hexNibble(hex[1])
 				b, ok3 := hexNibble(hex[2])
 				if ok1 && ok2 && ok3 {
-					return Color{R: r*17, G: g*17, B: b*17, Set: true}, nil
+					return Color{R: r * 17, G: g * 17, B: b * 17, Set: true}, nil
 				}
 			case 6:
 				parse := func(s string) (uint8, bool) {

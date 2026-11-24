@@ -34,7 +34,7 @@ var PropOrder = []string{
 // truth for parsing, validation and documentation.
 var Table = map[string]PropSpec{
 	"display": {
-		Name:  "display",
+		Name: "display",
 		Parse: parseKeyword(map[string]Display{
 			"block": DisplayBlock, "inline": DisplayInline, "inline-block": DisplayInlineBlock,
 			"list-item": DisplayListItem, "table": DisplayTable, "table-row": DisplayTableRow,
@@ -68,8 +68,11 @@ var Table = map[string]PropSpec{
 		},
 	},
 	"background-color": {
-		Name:  "background-color",
-		Parse: func(toks []Token) (Value, error) { c, err := ParseColor(toks); return Value{Kind: "color", Color: c}, err },
+		Name: "background-color",
+		Parse: func(toks []Token) (Value, error) {
+			c, err := ParseColor(toks)
+			return Value{Kind: "color", Color: c}, err
+		},
 		Set: func(s *Style, v Value, _ int32) error {
 			s.Background = v.Color
 			return nil
@@ -78,7 +81,10 @@ var Table = map[string]PropSpec{
 	"color": {
 		Name:      "color",
 		Inherited: true,
-		Parse:     func(toks []Token) (Value, error) { c, err := ParseColor(toks); return Value{Kind: "color", Color: c}, err },
+		Parse: func(toks []Token) (Value, error) {
+			c, err := ParseColor(toks)
+			return Value{Kind: "color", Color: c}, err
+		},
 		Set: func(s *Style, v Value, _ int32) error {
 			s.Color = v.Color
 			return nil
@@ -498,7 +504,7 @@ var SupportedElements = map[string]bool{
 	"table": true, "thead": true, "tbody": true, "tfoot": true,
 	"tr": true, "td": true, "th": true,
 	"img": true, "span": true, "br": true, "hr": true,
-	"strong": true, "em": true, "a": true,
+	"strong": true, "b": true, "em": true, "i": true, "a": true,
 	"title": true, "meta": true, "style": true,
 }
 

@@ -109,15 +109,15 @@ type harness struct {
 func newHarness(t *testing.T) *harness {
 	f := loadTestFont(t)
 	h := &harness{
-		t:     t,
-		fonts: &testFonts{f: f, faces: map[string]*FontFace{}},
+		t:      t,
+		fonts:  &testFonts{f: f, faces: map[string]*FontFace{}},
 		images: &testImages{dir: t.TempDir()},
 	}
 	h.ctx = Context{
-		Fonts:     h.fonts,
-		Images:    h.images,
-		PageSize:  css.PageSize{Width: 595276, Height: 841890},
-		Margin:    [4]int32{56693, 56693, 56693, 56693},
+		Fonts:    h.fonts,
+		Images:   h.images,
+		PageSize: css.PageSize{Width: 595276, Height: 841890},
+		Margin:   [4]int32{56693, 56693, 56693, 56693},
 	}
 	return h
 }
@@ -335,4 +335,3 @@ func TestUnsupportedValueIsAValidationError(t *testing.T) {
 		t.Fatal("expected a validation error")
 	}
 }
-

@@ -5,9 +5,9 @@ package raster
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
-	"fmt"
 	"image/jpeg"
 	"image/png"
 	"math"

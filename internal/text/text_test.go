@@ -46,7 +46,7 @@ func TestNormalize(t *testing.T) {
 		"И\u0306": "Й",
 		"a\u0301": "á",
 		"Счёт":    "Счёт",
-		"":       "",
+		"":        "",
 	}
 	for in, want := range cases {
 		if got := Normalize(in); got != want {

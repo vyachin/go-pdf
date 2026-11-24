@@ -11,7 +11,7 @@ pdfgen validate -print-profile
 ```
 html head body div p h1 h2 h3 h4 h5 h6
 ul ol li table thead tbody tfoot tr td th
-img span br hr strong em a title meta style
+img span br hr strong b em i a title meta style
 ```
 
 Неизвестный элемент — ошибка `html/unsupported-element`. Поддерживаются атрибуты `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (для `ol`), `name`/`content` (для `meta`).

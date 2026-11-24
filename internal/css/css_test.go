@@ -143,14 +143,14 @@ func TestSelectorMatching(t *testing.T) {
 		t.Fatal("no p")
 	}
 	cases := map[string]bool{
-		"p":        true,
-		"div p":    true,
-		"div > p":  true,
-		".a p":     true,
-		".a > p":   true,
-		"p#x":      true,
-		"p.t":      true,
-		"td":       false,
+		"p":         true,
+		"div p":     true,
+		"div > p":   true,
+		".a p":      true,
+		".a > p":    true,
+		"p#x":       true,
+		"p.t":       true,
+		"td":        false,
 		"div > div": false,
 	}
 	for sel, want := range cases {

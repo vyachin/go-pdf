@@ -131,11 +131,14 @@ go test ./...
 go test ./internal/engine -run TestCorpus        # корпус документов
 go test ./internal/engine -run TestCorpus -update # пересобрать золотые тексты
 go test ./internal/engine -bench .
+go test ./internal/mpdfcompat              # корпус mPDF
+go test ./internal/mpdfcompat -update      # пересобрать золотые тексты
 ```
 
 - Снапшоты раскладки проверяют геометрию, а не пиксели.
 - Сгенерированные PDF проверяются независимым валидатором `pdfcpu` (если он есть в `PATH`; в тестах путь задаётся через `PDFCPU`).
 - Корпус `testdata/*.html` — счёт, акт и договор с реальной вёрсткой.
+- Корпус mPDF (`internal/mpdfcompat`): 149 документов, извлечённых из тестов mPDF. Проверяет, что документ внутри профиля даёт валидный детерминированный PDF, а документ вне профиля отклоняется с диагностиками, а не с падением. Подробности и карта ограничений — [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
 - Fuzz-тесты покрывают HTML- и CSS-токенайзеры, разбор TrueType и писатель PDF.
 - Визуальные регрессии — через собственный растр-бэкенд и `raster.Diff`.
 
