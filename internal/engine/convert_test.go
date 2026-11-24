@@ -973,3 +973,22 @@ func TestInlineBlockIsRejected(t *testing.T) {
 		t.Fatalf("display:inline-block was accepted: %v", diags.Lines())
 	}
 }
+
+func TestConversionHonoursCancellation(t *testing.T) {
+	fontPath := testFontPath(t)
+	var b strings.Builder
+	for i := 0; i < 1500; i++ {
+		b.WriteString("<p>Строка документа для проверки отмены.</p>")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		cancel()
+	}()
+	res, err := Convert(ctx, []byte(b.String()), Options{FallbackFont: fontPath, File: "cancel.html"})
+	if err == nil {
+		t.Fatalf("a cancelled conversion must fail, got a %d-byte PDF", len(res.PDF))
+	}
+	if len(res.PDF) != 0 {
+		t.Fatal("no PDF may be written after cancellation")
+	}
+}

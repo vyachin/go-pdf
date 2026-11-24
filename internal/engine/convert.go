@@ -79,6 +79,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{Diagnostics: diags}, err
+	}
 	if diags.HasErrors() {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
@@ -93,6 +96,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	var layoutDiags diag.List
 	const maxPasses = 4
 	for pass := 0; pass < maxPasses; pass++ {
+		if err := ctx.Err(); err != nil {
+			return Result{Diagnostics: diags}, err
+		}
 		pages, layoutDiags = layout.Run(doc, layout.Context{
 			Fonts:       registry,
 			Images:      images,
@@ -102,6 +108,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			PageStyle:   pageStyle,
 			TargetPages: targets,
 		})
+		if err := ctx.Err(); err != nil {
+			return Result{Diagnostics: diags}, err
+		}
 		if layoutDiags.HasErrors() {
 			break
 		}
