@@ -1,10 +1,8 @@
 # CSS profile
 
-The profile is a closed allow-list. Anything that is not in it is rejected by validation with a position in the source. The current list is always available with the command:
-
-```bash
-pdfgen validate -print-profile
-```
+The profile is a closed allow-list. Anything that is not in it is rejected by
+validation with a position in the source. The list below is the profile, and
+`internal/profile` makes it executable.
 
 ## Elements
 
@@ -14,7 +12,7 @@ ul ol li table thead tbody tfoot tr td th
 img span br hr strong b em i a title meta style link
 ```
 
-`<script>` is allowed but ignored with the warning `html/ignored-script`: the code is not executed or rendered. In strict mode (`-strict`) this is an error.
+`<script>` is allowed but ignored with the warning `html/ignored-script`: the code is not executed or rendered. With `Options.Strict` this is an error.
 
 An unknown element is the error `html/unsupported-element`. The supported attributes are `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (for `ol`), `name`/`content` (for `meta`).
 

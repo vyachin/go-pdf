@@ -1,134 +1,23 @@
 # go-pdf
 
-An HTML → PDF converter written in pure Go for printed business documents:
-invoices, acts, contracts and reports.
+`github.com/vyachin/go-pdf/pdfgen` converts HTML into a PDF from Go: a pure
+library with no cgo, no Chromium and no child process. It is built for printed
+business documents — invoices, acts, contracts, reports — where the same
+template must reproduce the same file today and in a year.
 
-One static binary. No cgo. No Chromium, WeasyPrint or child processes. The only
-runtime dependency is the standard library.
-
-```bash
-pdfgen convert -o invoice.pdf invoice.html
-pdfgen validate invoice.html
+```go
+import "github.com/vyachin/go-pdf/pdfgen"
 ```
 
-Flags come before the input path: the standard Go flag parser stops at the
-first positional argument.
+Go 1.26 or newer. The module has no dependencies.
 
-## Why a custom engine
-
-Off-the-shelf options did not fit: Chromium and WeasyPrint are external
-processes with a heavy runtime, and the pure-Go port of WeasyPrint (alpha, one
-maintainer) is too risky for documents that must reproduce for years.
-
-Instead of CSS breadth, the engine offers three things those engines cannot:
-
-- **Determinism.** Same input → byte-identical PDF. `/CreationDate` is fixed and
-  `/ID` is a content hash.
-- **Pagination as a first-class concept.** `break-*`, `orphans`/`widows`,
-  repeated `thead`, `@page` with margin boxes and counters are part of layout,
-  not an add-on.
-- **A checkable profile.** An unknown property is an error with a position in the
-  template instead of a silent no-op.
-
-## Features
-
-- HTML tokenizer and tree with implicit tags and table foster-parenting.
-- CSS: cascade, specificity, inheritance, shorthands and physical longhands
-  (`margin-top`, `padding-left`, …), `@page` (including `landscape`/`portrait`),
-  `@font-face`, `@media print`, margin boxes, local
-  `<link rel="stylesheet">`.
-- Layout: blocks, inline, lists, fixed table layout, `colspan`/`rowspan`,
-  collapsed borders.
-- Pagination: `break-before/after/inside`, `orphans`, `widows`, repeated table
-  headers, overflow with diagnostics.
-- Fonts: TrueType, `cmap` 4/12, `GPOS` kerning, subsetting, `Identity-H` +
-  `ToUnicode` (Russian text can be copied and searched).
-- Images: PNG and JPEG (JPEG without recompression), from files or base64
-  `data:` URIs, including a full-bleed cover with `background-image` and
-  `background-size: cover`.
-- Generated content: `a::after` with `target-counter(attr(href), page)` — a table
-  of contents with page numbers in two layout passes.
-- PDF: metadata, bookmarks from `h1`–`h3`, `FlateDecode`, deterministic output,
-  atomic file writing.
-- Browser import: lowers a single-line flex column, an absolutely positioned
-  cover image, `rem`, `vw`/`vh`, `min()`/`clamp()`, CSS variables, screen
-  `@media` rules, `text-transform` and `box-sizing` to the profile, with a
-  warning for every transformation. See [docs/browser-import.md](docs/browser-import.md).
-- Debug raster: `--render-png` and `-print-profile`.
-
-## CLI
-
-```bash
-pdfgen convert [flags] <input.html>
-pdfgen validate [flags] <input.html>
-pdfgen help
-```
-
-| `convert` flag | Meaning |
-|---|---|
-| `-o` | output PDF path (default `<input>.pdf`) |
-| `-page` | fallback page size: `A4`, `A5`, `Letter`, `210x297mm` |
-| `-margin` | fallback margins: `20mm`, `25mm 20mm` |
-| `-date` | creation date in RFC 3339 (fixed by default) |
-| `-render-png` | also rasterize the first page to `<output>.png` |
-| `-strict` | treat warnings as errors and disable the browser import (for CI) |
-| `-font-dir` | directory for relative `@font-face` paths |
-| `-base-dir` | directory for relative image paths |
-
-Exit codes: `0` success, `1` validation or rendering error, `2` usage error.
-
-```bash
-# Show the profile the engine understands
-pdfgen validate -print-profile
-
-# Validate without writing a PDF (useful in CI)
-pdfgen validate invoice.html && pdfgen convert -o invoice.pdf invoice.html
-
-# Strict mode: warnings (for example about an ignored <script>) fail the build
-pdfgen validate -strict invoice.html
-```
-
-### Browser documents: `certificate.html`
-
-`certificate.html` is a browser-oriented certificate: flexbox, an absolutely
-positioned cover image, `rem` units, CSS variables and `data:` URI images. The
-converter recognizes that shape and lowers it to the profile instead of asking
-for a rewrite:
-
-```bash
-pdfgen convert certificate.html
-# A sample of the report, one warning per transformation:
-# certificate.html:14:22: warning[browser/dropped-property]: property "color-scheme" is not part of the profile and was dropped by the browser import
-# ...
-# certificate.html:139:1: warning[browser/background]: absolutely positioned cover image lowered to a background image
-# certificate.html:139:1: warning[browser/flex]: flex column lowered to block layout
-# wrote certificate.pdf
-```
-
-The source file is not modified. The warnings are the import report: every
-lowered construct and every dropped screen-only declaration is named. The same
-document still fails the strict checks:
-
-```bash
-pdfgen validate certificate.html          # profile diagnostics, as written
-pdfgen convert -strict certificate.html   # no import, no PDF
-```
-
-The acceptance fixture is
-[`testdata/browser/certificate.html`](testdata/browser/certificate.html); the
-certificate's target rendering is frozen separately by the
-`visual-certificate` fixture and its render golden. The lowering rules and
-limits are in [docs/browser-import.md](docs/browser-import.md).
-
-## Use as a library
-
-`github.com/vyachin/go-pdf/pdfgen` is the public API. The CLI drives the same
-engine, so its flags and `pdfgen.Options` describe the same knobs, while
-`internal/` stays an implementation detail that Go hides from other modules.
+## Install
 
 ```bash
 go get github.com/vyachin/go-pdf/pdfgen
 ```
+
+## Use
 
 ```go
 package main
@@ -147,241 +36,101 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	res, err := pdfgen.Convert(context.Background(), src, pdfgen.Options{
-		File:     "invoice.html", // appears in diagnostics
-		PageSize: "A4",           // fallback when @page has no size
-		Margin:   "20mm",
-		BaseDir:  "assets", // relative images stay inside this directory
-		FontDir:  "fonts",  // relative @font-face paths
-		// ImportBrowser: true, // accept a browser-oriented template
+		File:    "invoice.html",      // names the document in diagnostics
+		BaseDir: "assets",            // relative images resolve here
+		FontDir: "assets/fonts",      // relative @font-face paths resolve here
 	})
+
 	var verr *pdfgen.Error
 	if errors.As(err, &verr) {
-		for _, d := range verr.Diagnostics {
-			log.Print(d) // invoice.html:7:12: error[css/unsupported-value]: ...
+		for _, d := range verr.Diagnostics { // every problem, with a position
+			log.Print(d)
 		}
 		os.Exit(1)
 	}
 	if err != nil {
-		log.Fatal(err) // cancelled context or an unexpected failure
+		log.Fatal(err) // a cancelled context or an unexpected failure
 	}
-	for _, d := range res.Diagnostics { // warnings only
+	for _, d := range res.Diagnostics { // warnings: the PDF exists
 		log.Print(d)
 	}
+
 	if err := os.WriteFile("invoice.pdf", res.PDF, 0o644); err != nil {
 		log.Fatal(err)
 	}
 }
 ```
 
-A program that starts from a browser-oriented template such as
-`certificate.html` uses the same call with the import enabled (the CLI enables
-it for `convert` by default):
-
-```go
-certificate, err := os.ReadFile("certificate.html")
-if err != nil {
-	log.Fatal(err)
-}
-certPDF, err := pdfgen.Convert(ctx, certificate, pdfgen.Options{
-	File:          "certificate.html",
-	ImportBrowser: true, // lower flexbox, rem, data: URIs, ...
-})
-```
-
-The same call shape works for validation. `Validate` runs the same preparation
-and layout as `Convert` and reports the same diagnostics without writing a PDF,
-so a missing image, an unsupported colour space or a character without a glyph
-is caught in CI instead of at render time:
-
-```go
-diags, err := pdfgen.Validate(ctx, src, opts)
-var verr *pdfgen.Error
-switch {
-case errors.As(err, &verr):
-	log.Fatal(verr) // the template cannot be rendered
-case err != nil:
-	log.Fatal(err)
-}
-for _, d := range diags { // warnings only
-	log.Print(d)
-}
-```
-
-- **Nothing touches the disk.** The package only reads the images, stylesheets
-  and fonts the template references; writing the PDF (atomic or not) and
-  storing it stay the caller's decision.
-- **Determinism carries over.** Same template and same options → byte-identical
-  PDF. `Options.Date` is a fixed constant by default; set
-  `opts.Date = time.Now()` for documents that must carry today's date.
-- **One pipeline, two entry points.** `Validate` accepts exactly the templates
-  `Convert` renders, because both run the same preparation step.
-- **Diagnostics are data.** `Diagnostic` has a stable `Code` (`css/unsupported-value`,
-  `resource/limit`, …), a 1-based position and `String()` in the CLI format, so
-  a server can return them as JSON instead of parsing log lines.
-- **Previews.** `Options.RenderPNG` puts a raster of the first page in
-  `res.PNG`.
-- **Budgets.** `Options.Limits` bounds input and stylesheet size, page count,
-  image pixels and encoded image bytes, font bytes, DOM depth, one table's grid,
-  the debug page raster and the total work of a conversion. An over-limit document returns a
-  `*pdfgen.Error` with code `resource/limit` before the expensive allocation,
-  not an OOM.
-- **Cancellation.** Pass a context that can be cancelled: parsing, stylesheet
-  collection, font loading, layout between pages, rows and lines, PDF
-  serialization and the debug raster all stop when it is done, and `Convert`
-  returns the context error instead of a partial PDF.
-- **Strict mode.** `Options.Strict` turns warnings into errors, the same way
-  `pdfgen validate -strict` does.
-
-The API reference is available through the usual tooling:
+`Validate` runs the same pipeline and returns the same diagnostics without
+producing a PDF, which is what a CI check needs. The full reference is the
+package documentation:
 
 ```bash
 go doc github.com/vyachin/go-pdf/pdfgen
-go doc github.com/vyachin/go-pdf/pdfgen.Options
 ```
-
-## Profile
-
-The full list of elements, properties and limits is in [docs/profile.md](docs/profile.md).
-In short: blocks, inline, tables, lists, `@page`, `@font-face`, `counter(page)`,
-`counter(pages)`.
-
-Not supported: `flex`, `grid`, `float`, absolute positioning, JS,
-`hyphens: auto`, CFF/OTF, web fonts, `table-layout: auto`.
-
-Fonts are documented separately: [docs/fonts.md](docs/fonts.md).
-
-## Architecture
-
-```
-  HTML
-   |
-   v
- html/      tokenizer + tree
-   |
-   v
- css/       tokenizer, parser, selectors, cascade
-   |
-   v
- profile/   allow-list, validation, diagnostics
-   |
-   v
- layout/    box tree -> lines -> fragments -> pages
-   |   \
-   |    text/   shaping, line breaking, metrics
-   v
- backend/pdf/     PDF writer, fonts, ToUnicode
- backend/raster/  debug raster for tests
-```
-
-Geometry is integer millipoints (1/1000 pt), so results do not depend on
-floating point.
 
 ## Guarantees
 
-- A broken template produces no PDF: validation runs before rendering.
-- A missing glyph is an error naming the character and its position, not a
-  blank space.
-- Two runs of the same command produce the same file.
-- Writing the result is atomic: on error the previous file stays intact.
+- **Deterministic.** The same document and the same options produce a
+  byte-identical PDF. `Options.Date` defaults to a fixed constant, not the clock.
+- **Nothing is written.** `Convert` and `Validate` create, modify and delete no
+  files; they read the assets the document references and return the PDF to the
+  caller, who decides where it goes.
+- **No panics.** Any input is answered with a result or an error, never with a
+  crash, so a hostile template cannot take the host process down.
+- **Concurrent.** The package keeps no mutable global state; independent calls
+  may run in parallel and agree with sequential ones.
+- **Bounded.** `Options.Limits` caps input size, page count, image pixels, font
+  bytes, nesting depth and total work. A document over a limit fails with a
+  `resource/limit` diagnostic before the expensive allocation.
 
-## Testing
+Every guarantee above is enforced by a test in the package.
 
-```bash
-go test ./...
-go test ./internal/engine -run TestCorpus         # document corpus
-go test ./internal/engine -run TestCorpus -update # rebuild golden texts
-go test ./internal/engine -run TestDocumentSnapshots        # parsed model snapshots
-go test ./internal/engine -run TestDocumentSnapshots -update
-go test ./internal/engine -run TestRenderSnapshots          # page render snapshots
-go test ./internal/engine -run TestRenderSnapshots -update
-go test ./internal/engine -bench .
-go test ./internal/mpdfcompat              # mPDF corpus
-go test ./internal/mpdfcompat -update      # rebuild golden texts
-```
+## What it supports
 
-- Document snapshots (`testdata/golden/xml`) freeze what the engine understood:
-  the elements, their effective styles, the `@page` setup and the diagnostics,
-  as canonical XML. They need no font and no external tool, so a failure is a
-  parser, cascade or profile change.
-- Render snapshots (`testdata/golden/render`) freeze every page of the corpus
-  and the painting fixtures as a 72 dpi PNG and compare pixels exactly with
-  `raster.Diff`. They need poppler and are produced with the poppler version
-  recorded next to the images. Format, scope and the update procedure are in
-  [docs/golden.md](docs/golden.md).
-- Generated PDFs are validated by the independent `pdfcpu` tool when it is
-  available in `PATH` (tests also honour `PDFCPU`); CI requires it through
-  `PDF_REQUIRE_VALIDATOR=1`.
-- The `testdata/*.html` corpus is an invoice, an act and a contract with real
-  layout; `testdata/fixtures/` adds one small document per profile feature so a
-  snapshot always runs the feature it protects.
-- The mPDF corpus (`internal/mpdfcompat`) contains 149 documents extracted from
-  the mPDF tests. It checks that a document inside the profile yields a valid
-  deterministic PDF, while a document outside the profile is rejected with
-  diagnostics instead of a crash. Details and the limitation map are in
-  [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
-- Fuzz tests cover the HTML and CSS tokenizers, TrueType parsing and the PDF
-  writer.
+A closed profile rather than a browser: blocks, inline text, lists, tables with
+fixed layout, `@page` with margin boxes and page counters, `@font-face` with
+TrueType fonts, images, and page breaks that respect `orphans`/`widows` and
+repeated table headers. The profile has no flexbox, grid, float, absolute
+positioning or JavaScript; a browser-oriented template can be lowered to it
+first.
 
-The test suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical
-on every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it for
-the text and conversion tests; the render snapshots always use the bundled font,
-because their pixels must not depend on the machine.
+- The complete list of elements, properties and limits is in
+  [docs/profile.md](docs/profile.md).
+- Fonts, subsetting and the copyable text layer: [docs/fonts.md](docs/fonts.md).
+- Accepting a browser-oriented template: [docs/browser-import.md](docs/browser-import.md).
 
-CI runs the tests above and, in a separate `lint` job, the formatting and
-linting checks described below. It also runs the two snapshot layers as their
-own step: `PDF_REQUIRE_RENDER=1` makes a missing rasterizer fail, and the step
-fails when either layer is skipped, so the snapshots are a gate rather than a
-side effect of the suite. A failing step uploads `produced`, `expected` and
-`diff` images as the `golden-artifacts` build artifact.
+## Reference command
 
-The `test` job must be a required check in branch protection; that is a
-repository setting, not a file in this repository.
-
-Action versions are kept current by Dependabot, configured in
-`.github/dependabot.yml`. It checks weekly and opens one pull request for minor
-and patch bumps and a separate one for a major. Nothing merges automatically: a
-dependency pull request goes through the same review and the same required
-checks as any other change, and a major bump is read against its release notes
-rather than merged on a green build alone.
-
-The remaining inputs stay manual, because every bump of them is a decision
-rather than a refresh: the `ubuntu-24.04` runner and its poppler, which
-determine the golden rasters; `pdfcpu`, whose version must stay buildable by
-the Go minimum in `go.mod`, so the two move together; the pinned
-`golangci-lint` version below; and the `go` directive itself. A change that
-moves one of them without the matching regeneration or version move does not
-belong to the automated path.
-
-## Formatting and linting
-
-The source is formatted with `gofmt` and checked by `golangci-lint` using the
-configuration in `.golangci.yml`.
+`cmd/pdfgen` is a complete example of the package: one file in, one PDF out.
 
 ```bash
-gofmt -w $(git ls-files '*.go')   # format the source
-gofmt -l $(git ls-files '*.go')   # check: prints files that need formatting
-golangci-lint run ./...           # lint the whole module
+go install github.com/vyachin/go-pdf/cmd/pdfgen@latest
+
+pdfgen invoice.html              # writes invoice.pdf next to the input
+pdfgen -o out.pdf invoice.html   # or where you say
 ```
 
-The pinned version is `golangci-lint` v2.15.0; CI installs exactly that
-version. Install the release binary for your platform from
-[the v2.15.0 release](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0).
-Building it from source with
-`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`
-requires Go 1.26 or newer, which the module's Go 1.26 minimum already provides.
+Relative images, stylesheets and fonts resolve against the input file's
+directory. Exit codes: `0` success, `1` the document cannot be converted, `2` a
+usage error.
 
-## Performance
+The command is an example, not a versioned surface: its interface may change in
+any release. The source is [cmd/pdfgen/main.go](cmd/pdfgen/main.go), and it
+imports nothing but `pdfgen` and the standard library.
 
-On an Apple M2 Pro: one page ≈ 2.5 ms, a 50-page document ≈ 115 ms with about
-102 MB of total allocations.
+## Compatibility
 
-## Status
+The package is pre-v1 (`v0.x`). The public API is deliberately small, and it is
+treated as stable: a minor release may add to it but does not rename or remove
+what exists. Diagnostic codes, `Options` fields (additive only) and the
+deterministic output are stable; the reference command, the `internal/`
+packages and the breadth of the CSS profile are not.
 
-| Milestone | Content | State |
-|---|---|---|
-| M0 | Russian text in a valid PDF | done |
-| M1 | blocks, inline, lists | done |
-| M2 | tables, pagination, repeated headers | done |
-| M3 | `@page`, margin boxes, counters | done |
-| M4 | `target-counter`, table of contents, bookmarks, metadata | done |
+## Contributing
+
+Architecture, the test layers, the golden snapshots, the mPDF corpus, the
+formatting and linting workflow, and the release procedure are in
+[CONTRIBUTING.md](CONTRIBUTING.md).

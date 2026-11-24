@@ -103,7 +103,8 @@ fixture ever runs it.
 ## Adding a fixture
 
 1. Put a small document under `testdata/fixtures/`. It must validate without
-   warnings: `go run ./cmd/pdfgen validate -base-dir testdata/fixtures -font-dir testdata/fonts testdata/fixtures/<name>.html`.
+   warnings: `go test ./internal/engine -run TestDocumentSnapshots` fails with
+   "fixture is not valid" while it does not.
 2. Regenerate the document snapshot.
 3. Name it `visual-<topic>.html` if its purpose is painting; then also
    regenerate the render snapshots.

@@ -38,12 +38,16 @@ The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@f
 
 ## Verification
 
-```bash
-# Check that the template references only local TrueType fonts
-pdfgen validate -font-dir ./fonts invoice.html
+```go
+// FontDir is the directory relative to which @font-face paths resolve.
+opts := pdfgen.Options{FontDir: "fonts"}
 
-# Build a document with a specific default font
-pdfgen convert -font-dir ./fonts -o invoice.pdf invoice.html
+// Validate checks that the document references only local TrueType fonts.
+diags, err := pdfgen.Validate(ctx, src, opts)
+
+// Convert renders with the same resolution rules.
+res, err := pdfgen.Convert(ctx, src, opts)
 ```
 
-`-font-dir` — the directory relative to which `@font-face` paths are resolved.
+The reference command sets `FontDir` to the input file's directory, so a font
+placed beside the document is found without any configuration.

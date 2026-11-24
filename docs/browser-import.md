@@ -15,16 +15,20 @@ validation already failed and the caller opted in.
 
 | Interface | Behaviour |
 |---|---|
-| `pdfgen convert` | on by default; a valid profile template never reaches the import |
-| `pdfgen convert -strict` | off; the original profile diagnostics are reported |
-| `pdfgen validate` | always off; it checks the template as written |
-| `pdfgen.Options.ImportBrowser` | explicit switch for library users, off by default |
-| `engine.Options.ImportBrowser` | same switch inside the engine |
+| `pdfgen.Options.ImportBrowser` | the switch a caller sets; off by default |
+| `pdfgen.Options.Strict` | disables the import and reports the original profile diagnostics |
+| reference command | enables the import for the one conversion it performs, so a browser template converts without a flag |
 
-```bash
-pdfgen convert certificate.html          # imports and writes certificate.pdf
-pdfgen convert -strict certificate.html  # profile diagnostics, no PDF
+```go
+// Lower a browser-oriented template instead of rejecting it.
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+	File:          "certificate.html",
+	ImportBrowser: true,
+})
 ```
+
+The import runs only after the strict validation failed, so a template that
+already sits inside the profile is rendered unchanged.
 
 ## What is lowered
 

@@ -1,28 +1,3 @@
-// Package pdfgen converts an HTML template into a PDF document.
-//
-// It is the public API of the project; the command in cmd/pdfgen is a thin
-// wrapper over it. The engine behind it is deterministic: the same template
-// and the same options produce a byte-identical PDF.
-//
-// A caller validates a template and then converts it:
-//
-//	opts := pdfgen.Options{PageSize: "A4", Margin: "20mm"}
-//	diags, err := pdfgen.Validate(ctx, src, opts)
-//	if err != nil {
-//		// err is an *pdfgen.Error: the template cannot be rendered.
-//	}
-//	res, err := pdfgen.Convert(ctx, src, opts)
-//	if err != nil {
-//		// Same here; res.Diagnostics explains why.
-//	}
-//	os.WriteFile("invoice.pdf", res.PDF, 0o644)
-//
-// Both entry points share one pipeline, so a template that Validate accepts is
-// exactly a template that Convert renders without validation errors. Errors are
-// returned rather than written anywhere: nothing in the package touches the
-// file system except reading the images, stylesheets and fonts the template
-// references, and those reads stay inside Options.BaseDir and
-// Options.FontDir.
 package pdfgen
 
 import (
@@ -67,8 +42,9 @@ type Options struct {
 	// document whose font cannot be found fails with a diagnostic instead of
 	// silently replacing glyphs.
 	FallbackFont string
-	// Strict turns profile warnings into errors, so a document that renders
-	// with warnings fails the build.
+	// Strict turns profile warnings into errors, so a document that would
+	// render with warnings is rejected instead. Callers use it to gate a
+	// template in continuous integration.
 	Strict bool
 	// ImportBrowser enables the browser compatibility layer. A document that
 	// uses browser-only CSS (flexbox, absolute positioning, rem, CSS
@@ -129,20 +105,28 @@ const (
 // Diagnostic is a single problem report with a 1-based source position. A zero
 // Line or Column means the position is unknown.
 type Diagnostic struct {
+	// Severity is SeverityError or SeverityWarning. An empty value means
+	// SeverityError.
 	Severity Severity
 	// Code is a stable machine-readable identifier, for example
 	// "css/unsupported-value". Matching on Code is safer than matching on
 	// Message, which is meant for humans.
-	Code    string
+	Code string
+	// Message explains the problem for a human. It is not stable: match on
+	// Code instead.
 	Message string
-	File    string
-	Line    int
-	Column  int
+	// File is the name passed in Options.File, or a placeholder when the
+	// caller set none. Empty means the file is unknown.
+	File string
+	// Line is the 1-based line of the problem, or zero when unknown.
+	Line int
+	// Column is the 1-based column of the problem, or zero when unknown.
+	Column int
 	// Element is a human-readable path such as "body > table > tr".
 	Element string
 }
 
-// String renders the diagnostic in the form used by the CLI:
+// String renders the diagnostic in the form the reference command prints:
 //
 //	file:line:col: error[code]: message (at body > p)
 func (d Diagnostic) String() string {
@@ -219,6 +203,8 @@ func (d Diagnostics) Err() error {
 //		}
 //	}
 type Error struct {
+	// Diagnostics holds the error-severity diagnostics that made the document
+	// unusable, in the order Convert or Validate reported them.
 	Diagnostics Diagnostics
 }
 
