@@ -12,7 +12,15 @@ type kerning struct {
 	covered map[uint16]bool
 	records [][]int16
 	class2  []classRange
+	// coverGlyphs counts the glyph ids expanded from every Coverage of the
+	// table, so repeated lookups and subtables share one budget.
+	coverGlyphs int
 }
+
+// maxKerningGlyphs bounds the glyph ids a corrupt GPOS table may expand into
+// slices and maps. A range pair costs six bytes in the file but may cover the
+// whole glyph space, so the count must be checked before the allocation.
+const maxKerningGlyphs = 200000
 
 type classRange struct {
 	start, end uint16
@@ -66,10 +74,15 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 	coverageOff := off + int(binary.BigEndian.Uint16(data[off+2:off+4]))
 	valueFormat1 := binary.BigEndian.Uint16(data[off+4 : off+6])
 	valueFormat2 := binary.BigEndian.Uint16(data[off+6 : off+8])
-	cover, ok := parseCoverage(data, coverageOff)
+	remaining := maxKerningGlyphs - k.coverGlyphs
+	if remaining <= 0 {
+		return
+	}
+	cover, ok := parseCoverage(data, coverageOff, remaining)
 	if !ok {
 		return
 	}
+	k.coverGlyphs += len(cover)
 	switch format {
 	case 1:
 		if off+10 > len(data) {
@@ -125,7 +138,6 @@ func (k *kerning) parsePairPos(data []byte, off int) {
 		}
 		// A corrupt table can describe ranges covering the whole glyph space;
 		// expanding them into a map is bounded instead.
-		const maxKerningGlyphs = 200000
 		expanded := 0
 		for _, r := range classes1 {
 			if r.end < r.start {
@@ -192,20 +204,27 @@ func xAdvance(record []byte, vf uint16) (int16, bool) {
 	return int16(binary.BigEndian.Uint16(record[offset : offset+2])), true
 }
 
-func parseCoverage(data []byte, off int) ([]uint16, bool) {
-	if off+4 > len(data) {
+// parseCoverage reads a Coverage table, expanding format 2 ranges. limit is
+// the number of glyph ids the caller can still accept; ranges are counted
+// before anything is appended, so a tiny table cannot request a huge slice.
+func parseCoverage(data []byte, off int, limit int) ([]uint16, bool) {
+	if off+4 > len(data) || limit <= 0 {
 		return nil, false
 	}
 	format := binary.BigEndian.Uint16(data[off : off+2])
 	switch format {
 	case 1:
 		n := int(binary.BigEndian.Uint16(data[off+2 : off+4]))
-		if off+4+n*2 > len(data) {
+		if n > limit || off+4+n*2 > len(data) {
 			return nil, false
 		}
 		out := make([]uint16, n)
 		for i := 0; i < n; i++ {
 			out[i] = binary.BigEndian.Uint16(data[off+4+i*2 : off+6+i*2])
+			// The format requires strictly increasing glyph ids.
+			if i > 0 && out[i] <= out[i-1] {
+				return nil, false
+			}
 		}
 		return out, true
 	case 2:
@@ -213,14 +232,28 @@ func parseCoverage(data []byte, off int) ([]uint16, bool) {
 		if off+4+n*6 > len(data) {
 			return nil, false
 		}
-		var out []uint16
+		// Count the expansion first: a repeated 0..65535 range would otherwise
+		// append 65536 entries per six bytes.
+		total := 0
+		prevEnd := -1
+		for i := 0; i < n; i++ {
+			base := off + 4 + i*6
+			start := int(binary.BigEndian.Uint16(data[base : base+2]))
+			end := int(binary.BigEndian.Uint16(data[base+2 : base+4]))
+			if end < start || start <= prevEnd {
+				return nil, false
+			}
+			total += end - start + 1
+			if total > limit {
+				return nil, false
+			}
+			prevEnd = end
+		}
+		out := make([]uint16, 0, total)
 		for i := 0; i < n; i++ {
 			base := off + 4 + i*6
 			start := binary.BigEndian.Uint16(data[base : base+2])
 			end := binary.BigEndian.Uint16(data[base+2 : base+4])
-			if end < start || int(end-start) > 1<<16 {
-				continue
-			}
 			for g := uint32(start); g <= uint32(end); g++ {
 				out = append(out, uint16(g))
 			}
