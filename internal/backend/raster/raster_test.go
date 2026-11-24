@@ -1,8 +1,10 @@
 package raster
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"image/png"
 	"math"
 	"os"
 	"testing"
@@ -175,4 +177,29 @@ func loadFont(t *testing.T) *font.Font {
 	}
 	t.Skip("no TrueType font available; set PDFTEST_FONT")
 	return nil
+}
+
+func TestImageAlphaCompositesOverThePage(t *testing.T) {
+	pngBytes := func(a uint8) []byte {
+		img := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+		img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: a})
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	page := newPage(100000, 100000, layout.Op{
+		Kind:  layout.ImageOpKind,
+		Rect:  layout.Rect{X: 0, Y: 0, W: 100000, H: 100000},
+		Image: &layout.ImageOp{Image: &layout.ImageData{Data: pngBytes(128), Format: "png", PixelW: 1, PixelH: 1}},
+	})
+	img := Render(page, Options{DPI: 72})
+	r, g, b, a := img.At(1, 1).RGBA()
+	if a != 0xffff {
+		t.Fatalf("the page must stay opaque, alpha = %#x", a)
+	}
+	if r != 0xffff || g < 0x7c00 || g > 0x8200 || b < 0x7c00 || b > 0x8200 {
+		t.Fatalf("half-transparent red over white = %#x,%#x,%#x, want ff,~7f,~7f", r, g, b)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"image/png"
 	"math"
@@ -158,6 +159,13 @@ func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {
 	y0 := int(float64(op.Rect.Y) * sy)
 	w := int(float64(op.Rect.W) * sx)
 	h := int(float64(op.Rect.H) * sy)
+	if w <= 0 || h <= 0 {
+		return
+	}
+	// Scale into a straight buffer, then composite with draw.Over so that
+	// translucent pixels blend with what is already on the page instead of
+	// replacing it.
+	scaled := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			px := b.Min.X + x*b.Dx()/maxInt(w, 1)
@@ -168,9 +176,10 @@ func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {
 			if py >= b.Max.Y {
 				py = b.Max.Y - 1
 			}
-			img.Set(x0+x, y0+y, src.At(px, py))
+			scaled.Set(x, y, src.At(px, py))
 		}
 	}
+	draw.Draw(img, image.Rect(x0, y0, x0+w, y0+h), scaled, image.Point{}, draw.Over)
 }
 
 func decode(data []byte, format string) image.Image {
