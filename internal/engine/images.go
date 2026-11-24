@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/layout"
 )
@@ -19,6 +20,7 @@ import (
 type imageLoader struct {
 	baseDir   string
 	maxPixels int
+	maxBytes  int
 	root      *fsx.Root
 	rootErr   error
 	rootOpens int // resolved roots, used by tests to prove reuse
@@ -68,10 +70,13 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.baseDir, path)
 	}
-	data, err := root.Read(path)
+	data, err := root.ReadLimit(path, l.maxBytes)
 	if err != nil {
 		if errors.Is(err, fsx.ErrOutsideRoot) {
 			return nil, fmt.Errorf("image %q is outside the base directory", src)
+		}
+		if errors.Is(err, fsx.ErrTooLarge) {
+			return nil, fmt.Errorf("%w: image %q exceeds the limit of %d bytes", budget.ErrExceeded, src, l.maxBytes)
 		}
 		return nil, err
 	}

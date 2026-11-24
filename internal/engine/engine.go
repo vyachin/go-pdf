@@ -57,6 +57,9 @@ type Limits struct {
 	// MaxImagePixels bounds width*height of a decoded image, checked before
 	// the pixels are decoded.
 	MaxImagePixels int
+	// MaxImageBytes bounds the encoded size of one image file, checked while
+	// reading so an oversized file is never loaded into memory.
+	MaxImageBytes int
 	// MaxRasterPixels bounds width*height of a debug page raster, checked
 	// before the buffer is allocated.
 	MaxRasterPixels int
@@ -87,6 +90,9 @@ func (l Limits) resolved() Limits {
 	if l.MaxImagePixels <= 0 {
 		l.MaxImagePixels = 40_000_000
 	}
+	if l.MaxImageBytes <= 0 {
+		l.MaxImageBytes = 32 << 20
+	}
 	if l.MaxRasterPixels <= 0 {
 		l.MaxRasterPixels = 40_000_000
 	}
@@ -104,6 +110,11 @@ func (l Limits) resolved() Limits {
 	}
 	return l
 }
+
+// DefaultLimits returns the limits a conversion uses when Options.Limits has
+// zero fields. Callers that read an input themselves can use it to reject an
+// oversized file before loading it.
+func DefaultLimits() Limits { return Limits{}.resolved() }
 
 // Result is the outcome of a successful conversion.
 type Result struct {

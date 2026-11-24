@@ -91,15 +91,15 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		// its own registration.
 		f, ok := parsed[path]
 		if !ok {
-			data, err := fontRoot.Read(path)
+			data, err := fontRoot.ReadLimit(path, maxFontBytes)
 			if err != nil {
 				if errors.Is(err, fsx.ErrOutsideRoot) {
 					return nil, fmt.Errorf("font %q is outside the font directory", src)
 				}
+				if errors.Is(err, fsx.ErrTooLarge) {
+					return nil, fmt.Errorf("%w: font %q exceeds the limit of %d bytes", budget.ErrExceeded, src, maxFontBytes)
+				}
 				return nil, fmt.Errorf("loading font %q: %w", src, err)
-			}
-			if max := opts.Limits.resolved().MaxFontBytes; len(data) > max {
-				return nil, fmt.Errorf("font %q is %d bytes, the limit is %d", src, len(data), max)
 			}
 			// Parsing a font is bounded by MaxFontBytes; the charge still makes
 			// several medium fonts spend the shared work budget.
@@ -123,12 +123,12 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		if err := guard.Err(); err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(opts.FallbackFont)
+		data, err := fsx.ReadFileLimit(opts.FallbackFont, maxFontBytes)
 		if err != nil {
+			if errors.Is(err, fsx.ErrTooLarge) {
+				return nil, fmt.Errorf("%w: fallback font %q exceeds the limit of %d bytes", budget.ErrExceeded, opts.FallbackFont, maxFontBytes)
+			}
 			return nil, fmt.Errorf("loading fallback font: %w", err)
-		}
-		if len(data) > maxFontBytes {
-			return nil, fmt.Errorf("fallback font %q is %d bytes, the limit is %d", opts.FallbackFont, len(data), maxFontBytes)
 		}
 		if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
 			return nil, err
@@ -140,7 +140,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		r.fallback = f
 	}
 	if r.fallback == nil && len(r.faces) == 0 {
-		if f := loadSystemFallback(); f != nil {
+		if f := loadSystemFallback(maxFontBytes, guard); f != nil {
 			r.fallback = f
 		}
 	}
@@ -242,13 +242,16 @@ var DefaultFallbackFonts = []string{
 	"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
 }
 
-func loadSystemFallback() *font.Font {
+func loadSystemFallback(maxBytes int, guard *budget.Guard) *font.Font {
 	candidates := append([]string{}, DefaultFallbackFonts...)
 	if env := os.Getenv("PDFTEST_FONT"); env != "" {
 		candidates = append([]string{env}, candidates...)
 	}
 	for _, path := range candidates {
-		data, err := os.ReadFile(path)
+		if guard.Err() != nil {
+			return nil
+		}
+		data, err := fsx.ReadFileLimit(path, maxBytes)
 		if err != nil {
 			continue
 		}

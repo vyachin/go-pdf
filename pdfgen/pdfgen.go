@@ -89,6 +89,9 @@ type Limits struct {
 	// MaxImagePixels bounds width*height of a decoded image, checked before
 	// the pixels are decoded. Default 40,000,000.
 	MaxImagePixels int
+	// MaxImageBytes bounds the encoded size of one image file, checked while
+	// reading. Default 32 MiB.
+	MaxImageBytes int
 	// MaxRasterPixels bounds width*height of a debug page raster, checked
 	// before the buffer is allocated. Default 40,000,000.
 	MaxRasterPixels int
@@ -293,6 +296,7 @@ func (o Options) toEngine() engine.Options {
 			MaxStylesheetBytes: o.Limits.MaxStylesheetBytes,
 			MaxPages:           o.Limits.MaxPages,
 			MaxImagePixels:     o.Limits.MaxImagePixels,
+			MaxImageBytes:      o.Limits.MaxImageBytes,
 			MaxRasterPixels:    o.Limits.MaxRasterPixels,
 			MaxFontBytes:       o.Limits.MaxFontBytes,
 			MaxDOMDepth:        o.Limits.MaxDOMDepth,

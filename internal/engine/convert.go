@@ -92,6 +92,10 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		if failed, ctxErr := budgetFailure(guard, &diags); failed {
 			return nil, diags, ctxErr
 		}
+		if errors.Is(err, budget.ErrExceeded) {
+			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			return nil, diags, nil
+		}
 		diags.Errorf("font/unavailable", diag.Position{}, "", "%v", err)
 		return nil, diags, nil
 	}
@@ -139,7 +143,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
-	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels}
+	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes}
 	defer images.Close()
 
 	// target-counter needs a second pass: the page numbers written into the

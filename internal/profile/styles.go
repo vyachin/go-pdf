@@ -144,12 +144,9 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 	if err != nil {
 		return nil, err
 	}
-	data, err := readConfined(root, path)
+	data, err := readConfined(root, path, opts.MaxStylesheetBytes)
 	if err != nil {
 		return nil, err
-	}
-	if opts.MaxStylesheetBytes > 0 && len(data) > opts.MaxStylesheetBytes {
-		return nil, fmt.Errorf("%w: stylesheet %q is %d bytes, the limit is %d", budget.ErrExceeded, path, len(data), opts.MaxStylesheetBytes)
 	}
 	// A stylesheet is bounded by MaxStylesheetBytes; the estimate still spends
 	// work so that many small sheets cannot bypass the shared budget.
@@ -161,10 +158,13 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 
 // readConfined reads a stylesheet through a root confined to the base
 // directory and maps failures to the diagnostics the profile reports for links.
-func readConfined(root *fsx.Root, path string) ([]byte, error) {
-	data, err := root.Read(path)
+func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
+	data, err := root.ReadLimit(path, limit)
 	if err == nil {
 		return data, nil
+	}
+	if errors.Is(err, fsx.ErrTooLarge) {
+		return nil, fmt.Errorf("%w: stylesheet %q exceeds the limit of %d bytes", budget.ErrExceeded, path, limit)
 	}
 	if errors.Is(err, fsx.ErrOutsideRoot) {
 		return nil, &linkError{code: "css/link-path", msg: fmt.Sprintf("stylesheet path %q escapes the base directory", path)}

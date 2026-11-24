@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/engine"
+	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/profile"
 )
 
@@ -71,6 +72,12 @@ func addCommonFlags(fs *flag.FlagSet, c *commonFlags) {
 	fs.StringVar(&c.baseDir, "base-dir", "", "directory used to resolve relative image paths")
 }
 
+// readInput reads a template with the default input budget, so an oversized
+// file is rejected before it is loaded into memory.
+func readInput(path string) ([]byte, error) {
+	return fsx.ReadFileLimit(path, engine.DefaultLimits().MaxInputBytes)
+}
+
 func runConvert(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -112,7 +119,7 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 		date = parsed
 	}
 
-	src, err := os.ReadFile(input)
+	src, err := readInput(input)
 	if err != nil {
 		fmt.Fprintf(stderr, "pdfgen convert: %v\n", err)
 		return exitFailure
@@ -175,7 +182,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "pdfgen validate: exactly one input file is required")
 		return exitUsage
 	}
-	src, err := os.ReadFile(fs.Arg(0))
+	src, err := readInput(fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(stderr, "pdfgen validate: %v\n", err)
 		return exitFailure

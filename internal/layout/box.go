@@ -439,6 +439,10 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 	}
 	img, err := b.images.Load(src)
 	if err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			b.diags.Errorf("resource/limit", diag.Position{}, n.Path(), "%v", err)
+			return box
+		}
 		b.diags.Errorf("img/load", diag.Position{}, n.Path(), "%v", err)
 		return box
 	}

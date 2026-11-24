@@ -13,6 +13,9 @@ import (
 // ErrOutsideRoot reports a path that leaves its configured root.
 var ErrOutsideRoot = errors.New("path escapes the root directory")
 
+// ErrTooLarge reports a file that is larger than the requested limit.
+var ErrTooLarge = errors.New("file is larger than the size limit")
+
 // Root is a directory that file paths must stay inside. A zero Root reads
 // paths directly and enforces no boundary.
 type Root struct {
@@ -60,8 +63,55 @@ func (r *Root) Dir() string {
 // Read reads path, which must stay inside the root. A path that escapes the
 // root returns ErrOutsideRoot; other failures keep their original cause.
 func (r *Root) Read(path string) ([]byte, error) {
+	return r.read(path, 0)
+}
+
+// ReadLimit reads path like Read but refuses a file larger than limit bytes. It
+// reads at most limit+1 bytes, so a growing file cannot allocate more than the
+// limit even if its size changes between Stat and Read.
+func (r *Root) ReadLimit(path string, limit int) ([]byte, error) {
+	return r.read(path, limit)
+}
+
+// ReadFileLimit reads a file outside any root, never allocating more than
+// limit+1 bytes.
+func ReadFileLimit(path string, limit int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return readLimited(f, limit)
+}
+
+func (r *Root) read(path string, limit int) ([]byte, error) {
+	f, err := r.open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return readLimited(f, limit)
+}
+
+func readLimited(f *os.File, limit int) ([]byte, error) {
+	if limit <= 0 {
+		return io.ReadAll(f)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("%w: the limit is %d bytes", ErrTooLarge, limit)
+	}
+	return data, nil
+}
+
+// open resolves path against the root and opens it, applying the containment
+// rules of Read.
+func (r *Root) open(path string) (*os.File, error) {
 	if r == nil || r.dir == "" {
-		return os.ReadFile(path)
+		return os.Open(path)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -86,6 +136,5 @@ func (r *Root) Read(path string) ([]byte, error) {
 		// Permission and other failures keep their cause.
 		return nil, err
 	}
-	defer f.Close()
-	return io.ReadAll(f)
+	return f, nil
 }

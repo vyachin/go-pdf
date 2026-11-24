@@ -1181,3 +1181,28 @@ func TestPageRasterLimit(t *testing.T) {
 		t.Fatalf("custom raster limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
 }
+
+func TestFallbackAndImageByteLimits(t *testing.T) {
+	fontPath := testFontPath(t)
+	// A fallback font is a font like any other: MaxFontBytes applies to it.
+	res, err := Convert(context.Background(), []byte(`<p>A</p>`), Options{
+		FallbackFont: fontPath,
+		File:         "fallback-limit.html",
+		Limits:       Limits{MaxFontBytes: 10},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("fallback font limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "i.png"))
+	res, err = Convert(context.Background(), []byte(`<p><img src="i.png"></p>`), Options{
+		FallbackFont: fontPath,
+		BaseDir:      dir,
+		File:         "image-bytes.html",
+		Limits:       Limits{MaxImageBytes: 10},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("image byte limit was not enforced: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+}

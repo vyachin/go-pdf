@@ -28,7 +28,7 @@
   **Воспроизведение:** 200 абзацев с `break-after:page`, затем ещё один абзац, при `Limits{MaxPages:1}` дают ошибку **«produced 201 pages, the limit is 1»**: все страницы уже созданы. Внутренний `maxIterations` не считает страницы, созданные вынужденными разрывами внутри одного `placeBlock`.
   **Исправление / приёмка:** передавать лимит в layout и проверять в единой точке создания страницы, включая forced breaks. Прерывать работу у границы лимита. Это оставшаяся часть ENG-02.
 
-- [ ] **REV-04 · P2: соблюдать `MaxFontBytes` для всех шрифтов и ограничивать чтение до аллокации.**
+- [x] **REV-04 · P2: соблюдать `MaxFontBytes` для всех шрифтов и ограничивать чтение до аллокации.**
 
   **Код:** [internal/engine/fonts.go:85](/Users/vyachin/Projects/go-pdf/internal/engine/fonts.go:85), `newFontRegistry`, `loadSystemFallback`; [internal/fsx/fsx.go:62](/Users/vyachin/Projects/go-pdf/internal/fsx/fsx.go:62), `Root.Read`.
   **Воспроизведение:** `Convert` для `<p>A</p>` с комплектным `FallbackFont` и `Limits{MaxFontBytes:10}` успешно выдаёт PDF; то же подтверждено через публичный `pdfgen.Convert`. Для `@font-face` проверка есть, но только после полного `Read`/`io.ReadAll`. Системный fallback также не проверяется.

@@ -143,3 +143,27 @@ func TestRelativeRootWithAbsolutePath(t *testing.T) {
 		t.Fatalf("a relative path inside a relative root must be allowed: %v", err)
 	}
 }
+
+func TestReadLimitBoundsTheRead(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "big.css", strings.Repeat("x", 100))
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	data, err := root.ReadLimit(path, 100)
+	if err != nil || len(data) != 100 {
+		t.Fatalf("a file at the limit must be read: %d bytes, err=%v", len(data), err)
+	}
+	if _, err := root.ReadLimit(path, 99); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized read returned %v, want ErrTooLarge", err)
+	}
+	if _, err := ReadFileLimit(path, 10); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("ReadFileLimit returned %v, want ErrTooLarge", err)
+	}
+	if data, err := ReadFileLimit(path, 100); err != nil || len(data) != 100 {
+		t.Fatalf("ReadFileLimit at the limit: %d bytes, err=%v", len(data), err)
+	}
+}
