@@ -116,6 +116,16 @@ func TestSplit(t *testing.T) {
 			want: []Item{{Kind: Word, Text: "a\u2010", BreakAfter: true}, {Kind: Word, Text: "b"}},
 		},
 		{
+			name: "soft hyphen allows a break and is not drawn",
+			in:   "a\u00adb",
+			want: []Item{{Kind: Word, Text: "a", BreakAfter: true}, {Kind: Word, Text: "b"}},
+		},
+		{
+			name: "soft hyphen at the end of a word",
+			in:   "word\u00ad",
+			want: []Item{{Kind: Word, Text: "word", BreakAfter: true}},
+		},
+		{
 			name: "non breaking hyphen stays inside the word",
 			in:   "a\u2011b",
 			want: []Item{{Kind: Word, Text: "a\u2011b"}},

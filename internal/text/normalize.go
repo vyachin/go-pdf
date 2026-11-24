@@ -163,6 +163,8 @@ func Split(s string, pre bool) []Item {
 				// as a space because the profile has no tab stops.
 				flush()
 				items = append(items, Item{Kind: Space, Text: " "})
+			case '\u00ad':
+				// A soft hyphen is not drawn; it only allows a break.
 			default:
 				b.WriteRune(r)
 			}
@@ -192,6 +194,14 @@ func Split(s string, pre bool) []Item {
 			// Keep the character as written: U+2010 is a different glyph with a
 			// different advance in some fonts, and the text layer must copy it.
 			b.WriteRune(r)
+			flush()
+			if n := len(items); n > 0 {
+				items[n-1].BreakAfter = true
+			}
+		case r == '\u00ad':
+			// A soft hyphen allows a break after the current word but is never
+			// drawn: rendering its glyph would show a hyphen inside a word that
+			// fits on the line.
 			flush()
 			if n := len(items); n > 0 {
 				items[n-1].BreakAfter = true

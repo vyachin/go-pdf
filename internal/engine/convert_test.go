@@ -1622,3 +1622,33 @@ func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
 		t.Fatal("the explicit fallback font was not used for an undeclared family")
 	}
 }
+
+// TestSoftHyphenIsInvisible guards RV2-27: U+00AD was shaped as a visible
+// hyphen inside a word that fit on one line, and U+2010 was rewritten to the
+// ASCII hyphen, so the text layer copied a different character than the source.
+func TestSoftHyphenIsInvisible(t *testing.T) {
+	fontPath := testFontPath(t)
+	res, err := Convert(context.Background(), []byte(`<p>a&#173;b</p>`), Options{FallbackFont: fontPath, File: "shy.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "ab" {
+		t.Fatalf("the soft hyphen was drawn or kept: %q", text)
+	}
+
+	res, err = Convert(context.Background(), []byte(`<p>a&#8208;b</p>`), Options{FallbackFont: fontPath, File: "u2010.html"})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err = pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "a\u2010b" {
+		t.Fatalf("U+2010 became %q, want it preserved", text)
+	}
+}
