@@ -34,65 +34,60 @@ type fontRegistry struct {
 func newFontRegistry(sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
 	r := &fontRegistry{cache: map[string]*layout.FontFace{}}
 	seen := map[string]bool{}
-	for _, sheet := range sheets {
-		if sheet == nil {
+	for _, rule := range css.RulesForPrint(sheets) {
+		if rule.Kind != css.FontFaceRule {
 			continue
 		}
-		for _, rule := range sheet.Rules {
-			if rule.Kind != css.FontFaceRule {
-				continue
-			}
-			var family, src string
-			weight, italic := 400, false
-			for _, d := range rule.Decls {
-				switch d.Property {
-				case "font-family":
-					st := css.DefaultStyle()
-					if err := css.ApplyDecl(st, "font-family", d.Value, 12000); err == nil && len(st.FontFamily) > 0 {
-						family = strings.ToLower(st.FontFamily[0])
-					}
-				case "src":
-					if source, err := profile.ParseFontFaceSrc(d.Value); err == nil {
-						src = source.Path
-					}
-				case "font-weight":
-					st := css.DefaultStyle()
-					if err := css.ApplyDecl(st, "font-weight", d.Value, 12000); err == nil {
-						weight = st.FontWeight
-					}
-				case "font-style":
-					st := css.DefaultStyle()
-					if err := css.ApplyDecl(st, "font-style", d.Value, 12000); err == nil {
-						italic = st.FontStyle == css.FontItalic
-					}
+		var family, src string
+		weight, italic := 400, false
+		for _, d := range rule.Decls {
+			switch d.Property {
+			case "font-family":
+				st := css.DefaultStyle()
+				if err := css.ApplyDecl(st, "font-family", d.Value, 12000); err == nil && len(st.FontFamily) > 0 {
+					family = strings.ToLower(st.FontFamily[0])
+				}
+			case "src":
+				if source, err := profile.ParseFontFaceSrc(d.Value); err == nil {
+					src = source.Path
+				}
+			case "font-weight":
+				st := css.DefaultStyle()
+				if err := css.ApplyDecl(st, "font-weight", d.Value, 12000); err == nil {
+					weight = st.FontWeight
+				}
+			case "font-style":
+				st := css.DefaultStyle()
+				if err := css.ApplyDecl(st, "font-style", d.Value, 12000); err == nil {
+					italic = st.FontStyle == css.FontItalic
 				}
 			}
-			if family == "" || src == "" {
-				continue
-			}
-			path := resolvePath(src, opts.FontDir, opts.BaseDir)
-			key := fmt.Sprintf("%s|%d|%v", path, weight, italic)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			root := opts.FontDir
-			if root == "" {
-				root = opts.BaseDir
-			}
-			data, err := profile.ReadWithin(root, path)
-			if err != nil {
-				if errors.Is(err, profile.ErrOutsideRoot) {
-					return nil, fmt.Errorf("font %q is outside the font directory", src)
-				}
-				return nil, fmt.Errorf("loading font %q: %w", src, err)
-			}
-			f, err := font.Parse(data)
-			if err != nil {
-				return nil, fmt.Errorf("loading font %q: %w", src, err)
-			}
-			r.faces = append(r.faces, &registeredFace{family: family, weight: weight, italic: italic, font: f})
 		}
+		if family == "" || src == "" {
+			continue
+		}
+		path := resolvePath(src, opts.FontDir, opts.BaseDir)
+		key := fmt.Sprintf("%s|%d|%v", path, weight, italic)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		root := opts.FontDir
+		if root == "" {
+			root = opts.BaseDir
+		}
+		data, err := profile.ReadWithin(root, path)
+		if err != nil {
+			if errors.Is(err, profile.ErrOutsideRoot) {
+				return nil, fmt.Errorf("font %q is outside the font directory", src)
+			}
+			return nil, fmt.Errorf("loading font %q: %w", src, err)
+		}
+		f, err := font.Parse(data)
+		if err != nil {
+			return nil, fmt.Errorf("loading font %q: %w", src, err)
+		}
+		r.faces = append(r.faces, &registeredFace{family: family, weight: weight, italic: italic, font: f})
 	}
 	if opts.FallbackFont != "" {
 		data, err := os.ReadFile(opts.FallbackFont)

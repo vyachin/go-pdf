@@ -494,3 +494,112 @@ func TestInheritanceThroughHTMLAndRows(t *testing.T) {
 		t.Fatalf("inline style on html did not inherit: %+v", ops[0].Color)
 	}
 }
+
+func TestMediaRulesApply(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<style>@media print { p { display: none } }</style><p>HIDDEN</p>`)
+	if text := pageText(doc, 1); strings.Contains(text, "HIDDEN") {
+		t.Fatalf("a rule inside @media print was ignored: %q", text)
+	}
+	doc = h.run(`<style>@media all { @media print { h1 { color: #ff0000 } } }</style><h1>T</h1>`)
+	ops := textOps(doc)
+	if len(ops) == 0 || ops[0].Color != (css.Color{R: 255, Set: true}) {
+		t.Fatalf("nested @media print was ignored: %+v", ops[0].Color)
+	}
+	doc = h.run(`<style>@media all { p { color: #ff0000 } }</style><p>ALL</p>`)
+	if ops := textOps(doc); len(ops) == 0 || ops[0].Color != (css.Color{R: 255, Set: true}) {
+		t.Fatal("a rule inside @media all was ignored")
+	}
+}
+
+func TestPageSizeInsideMedia(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<style>@media print { @page { size: A5 } }</style><p>x</p>`)
+	if len(doc.Pages) == 0 {
+		t.Fatal("no pages")
+	}
+	if doc.Pages[0].Size.Width != 419528 || doc.Pages[0].Size.Height != 595276 {
+		t.Fatalf("page size = %dx%d, want A5", doc.Pages[0].Size.Width, doc.Pages[0].Size.Height)
+	}
+}
+
+func TestChildrenUseParentContentBox(t *testing.T) {
+	h := newHarness(t)
+	base := textOps(h.run(`<p>X</p>`))[0].X
+	padded := textOps(h.run(`<div style="padding:0 0 0 20pt"><p>X</p></div>`))[0].X
+	if got := padded - base; got != 20000 {
+		t.Fatalf("padding shifted text by %d, want 20000", got)
+	}
+	nested := textOps(h.run(`<div style="padding:0 0 0 10pt"><div style="padding:0 0 0 10pt"><p>X</p></div></div>`))[0].X
+	if got := nested - base; got != 20000 {
+		t.Fatalf("nested padding shifted text by %d, want 20000", got)
+	}
+}
+
+func TestBottomInsetsAdvanceTheFlow(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<div style="padding:10pt">A</div><p style="margin:0">B</p>`)
+	var ya, yb int32 = -1, -1
+	for _, op := range textOps(doc) {
+		if len(op.Run.Glyphs) != 1 {
+			continue
+		}
+		switch op.Run.Glyphs[0].Rune {
+		case 'A':
+			ya = op.Y
+		case 'B':
+			yb = op.Y
+		}
+	}
+	if ya < 0 || yb < 0 {
+		t.Fatalf("baselines not found: A=%d B=%d", ya, yb)
+	}
+	if gap := yb - ya; gap < 24400 {
+		t.Fatalf("baselines are %d apart, want at least 24400", gap)
+	}
+}
+
+func TestPreformattedTextLines(t *testing.T) {
+	h := newHarness(t)
+	baselines := func(doc *Document) map[int32]bool {
+		seen := map[int32]bool{}
+		for _, op := range textOps(doc) {
+			seen[op.Y] = true
+		}
+		return seen
+	}
+	doc := h.run("<p style=\"white-space:pre\">A\nB</p>")
+	if got := baselines(doc); len(got) != 2 {
+		t.Fatalf("LF must produce two baselines, got %d (%q)", len(got), pageText(doc, 1))
+	}
+	doc2 := h.run("<p style=\"white-space:pre\">A\r\nB</p>")
+	if got := baselines(doc2); len(got) != 2 {
+		t.Fatalf("CRLF must produce exactly one break, got %d baselines (%q)", len(got), pageText(doc2, 1))
+	}
+}
+
+func TestTextIndentAppliesToFirstLine(t *testing.T) {
+	h := newHarness(t)
+	base := textOps(h.run(`<p>X</p>`))[0].X
+	indented := textOps(h.run(`<p style="text-indent:20pt">X</p>`))[0].X
+	if got := indented - base; got != 20000 {
+		t.Fatalf("first line shifted by %d, want 20000", got)
+	}
+}
+
+func TestUnitlessLineHeightInheritsAsFactor(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<div style="font-size:10pt;line-height:2"><p style="font-size:20pt;margin:0">A<br>B</p></div>`)
+	var ys []int32
+	for _, op := range textOps(doc) {
+		if len(op.Run.Glyphs) == 1 {
+			ys = append(ys, op.Y)
+		}
+	}
+	if len(ys) < 2 {
+		t.Fatalf("expected two lines, got %d", len(ys))
+	}
+	if gap := ys[1] - ys[0]; gap != 40000 {
+		t.Fatalf("line gap = %d, want 40000", gap)
+	}
+}

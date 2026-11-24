@@ -94,8 +94,10 @@ type ItemKind int
 const (
 	// Word is an unbreakable run of characters.
 	Word ItemKind = iota
-	// Space is a collapsible, breakable word separator.
+	// Space is a breakable word separator.
 	Space
+	// Newline is a forced line break in preformatted text.
+	Newline
 )
 
 // Item is one piece of a text flow.
@@ -109,10 +111,37 @@ type Item struct {
 // that a break is allowed after it.
 func Split(s string, pre bool) []Item {
 	if pre {
-		if s == "" {
-			return nil
+		var items []Item
+		var b strings.Builder
+		flush := func() {
+			if b.Len() > 0 {
+				items = append(items, Item{Kind: Word, Text: b.String()})
+				b.Reset()
+			}
 		}
-		return []Item{{Kind: Word, Text: s}}
+		runes := []rune(s)
+		for i := 0; i < len(runes); i++ {
+			switch r := runes[i]; r {
+			case '\r':
+				flush()
+				if i+1 < len(runes) && runes[i+1] == '\n' {
+					i++
+				}
+				items = append(items, Item{Kind: Newline})
+			case '\n':
+				flush()
+				items = append(items, Item{Kind: Newline})
+			case '\t', ' ':
+				// Preformatted spaces are preserved one by one; a tab counts
+				// as a space because the profile has no tab stops.
+				flush()
+				items = append(items, Item{Kind: Space, Text: " "})
+			default:
+				b.WriteRune(r)
+			}
+		}
+		flush()
+		return items
 	}
 	var items []Item
 	var b strings.Builder

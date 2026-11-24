@@ -23,24 +23,17 @@ type Cascade struct {
 // win when specificity and order tie.
 func NewCascade(sheets ...*Stylesheet) *Cascade {
 	c := &Cascade{}
-	order := 0
-	for _, sh := range sheets {
-		if sh == nil {
+	for order, r := range RulesForPrint(sheets) {
+		if r.Kind != StyleRule || r.Err != nil {
 			continue
 		}
-		for _, r := range sh.Rules {
-			if r.Kind != StyleRule || r.Err != nil {
-				continue
-			}
-			c.rules = append(c.rules, compiledRule{
-				sel:    r.Selector,
-				spec:   r.Selector.Specificity(),
-				order:  order,
-				decls:  r.Decls,
-				pseudo: r.Selector.PseudoElement(),
-			})
-			order++
-		}
+		c.rules = append(c.rules, compiledRule{
+			sel:    r.Selector,
+			spec:   r.Selector.Specificity(),
+			order:  order,
+			decls:  r.Decls,
+			pseudo: r.Selector.PseudoElement(),
+		})
 	}
 	return c
 }

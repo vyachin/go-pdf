@@ -74,6 +74,7 @@ func insertOps(dst []Op, at int, ops []Op) []Op {
 // paintLineAt draws one line of text.
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
 	st := b.Style
+	x += line.Indent
 	avail := width - line.Indent
 	extra := avail - line.Natural
 	if extra < 0 {

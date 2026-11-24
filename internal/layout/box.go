@@ -306,7 +306,7 @@ func anonymousStyle(parent *css.Style) *css.Style {
 	s.BreakBefore = css.BreakAuto
 	s.BreakAfter = css.BreakAuto
 	s.BreakInside = css.BreakAuto
-	s.TextIndent = css.Length{}
+	// text-indent inherits, so the anonymous wrapper must not reset it.
 	return &s
 }
 

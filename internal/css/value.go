@@ -357,6 +357,7 @@ type Value struct {
 	Length   Length
 	Color    Color
 	Number   int
+	Float    float64
 	Keyword  string
 	Families []string
 	Box      [4]Length

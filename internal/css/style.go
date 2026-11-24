@@ -1,5 +1,7 @@
 package css
 
+import "math"
+
 // Style is a computed style. Geometry values are absolute millipoints unless
 // they carry Percent or Auto, which need a layout-time basis.
 type Style struct {
@@ -16,16 +18,19 @@ type Style struct {
 	FontWeight     int
 	FontStyle      FontStyle
 	LineHeight     Length // Auto or absolute millipoints
-	TextAlign      TextAlign
-	TextIndent     Length
-	WhiteSpace     WhiteSpace
-	VerticalAlign  VerticalAlign
-	BreakBefore    Break
-	BreakAfter     Break
-	BreakInside    Break
-	Orphans        int
-	Widows         int
-	ListStyleType  ListStyleType
+	// LineHeightFactor is set for a unitless line-height and follows the
+	// font size of the element that inherits it.
+	LineHeightFactor float64
+	TextAlign        TextAlign
+	TextIndent       Length
+	WhiteSpace       WhiteSpace
+	VerticalAlign    VerticalAlign
+	BreakBefore      Break
+	BreakAfter       Break
+	BreakInside      Break
+	Orphans          int
+	Widows           int
+	ListStyleType    ListStyleType
 	// AfterContent is the generated content of a::after, if any.
 	AfterContent []ContentItem
 }
@@ -66,6 +71,7 @@ func NewStyle(parent *Style) *Style {
 	s.FontWeight = parent.FontWeight
 	s.FontStyle = parent.FontStyle
 	s.LineHeight = parent.LineHeight
+	s.LineHeightFactor = parent.LineHeightFactor
 	s.TextAlign = parent.TextAlign
 	s.WhiteSpace = parent.WhiteSpace
 	s.ListStyleType = parent.ListStyleType
@@ -86,12 +92,19 @@ func (s *Style) resolveEm() {
 		s.Padding[i] = s.Padding[i].ResolveFont(s.FontSize)
 	}
 	s.TextIndent = s.TextIndent.ResolveFont(s.FontSize)
-	s.LineHeight = s.LineHeight.ResolveFont(s.FontSize)
+	if s.LineHeightFactor > 0 {
+		s.LineHeight = Length{Kind: Auto}
+	} else {
+		s.LineHeight = s.LineHeight.ResolveFont(s.FontSize)
+	}
 }
 
 // LineHeightMP returns the used line height in millipoints, falling back to
 // 1.2 times the font size for "auto".
 func (s *Style) LineHeightMP() int32 {
+	if s.LineHeightFactor > 0 {
+		return int32(math.Round(s.LineHeightFactor * float64(s.FontSize)))
+	}
 	if s.LineHeight.IsAuto() {
 		return s.FontSize * 12 / 10
 	}

@@ -57,11 +57,12 @@ const (
 )
 
 type piece struct {
-	kind  pieceKind
-	text  string
-	style *css.Style
-	node  *htmlNode
-	image *ImageData
+	kind     pieceKind
+	text     string
+	style    *css.Style
+	node     *htmlNode
+	image    *ImageData
+	preserve bool // a space that must not be collapsed or dropped
 }
 
 // htmlNode is a minimal indirection so that diagnostics can carry a position
@@ -94,13 +95,17 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 				*out = append(*out, piece{kind: breakPiece, style: c.Style})
 				continue
 			}
-			items := text.Split(c.Text, c.Style.WhiteSpace == css.WhiteSpacePre)
+			pre := c.Style.WhiteSpace == css.WhiteSpacePre
+			items := text.Split(c.Text, pre)
 			for _, it := range items {
-				if it.Kind == text.Space {
-					*out = append(*out, piece{kind: spacePiece, style: c.Style})
-					continue
+				switch it.Kind {
+				case text.Newline:
+					*out = append(*out, piece{kind: breakPiece, style: c.Style})
+				case text.Space:
+					*out = append(*out, piece{kind: spacePiece, style: c.Style, preserve: pre})
+				default:
+					*out = append(*out, piece{kind: wordPiece, text: it.Text, style: c.Style})
 				}
-				*out = append(*out, piece{kind: wordPiece, text: it.Text, style: c.Style})
 			}
 		case Image:
 			*out = append(*out, piece{kind: imagePiece, style: c.Style, image: c.Image})
@@ -191,7 +196,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			flush(true)
 			firstLine = false
 		case spacePiece:
-			if len(cur.Items) == 0 {
+			if len(cur.Items) == 0 && !p.preserve {
 				continue // drop leading and collapsed spaces
 			}
 			face, err := l.face(p.style)

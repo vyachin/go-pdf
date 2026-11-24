@@ -89,7 +89,7 @@ func (l *layouter) paginate(root *Box) *Document {
 	for {
 		opsBefore := l.ops
 		yBefore := f.y
-		done := l.placeBlock(f, root, f.width, true)
+		done := l.placeBlock(f, root, f.left, f.width, true)
 		if done {
 			break
 		}
@@ -113,7 +113,7 @@ func (l *layouter) paginate(root *Box) *Document {
 }
 
 // placeBlock places as much of b as fits and reports whether it is complete.
-func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
+func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool {
 	if b.cursor.done {
 		return true
 	}
@@ -135,7 +135,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
 		if b.width > width || b.width <= 0 {
 			b.width = width
 		}
-		b.x = f.left
+		b.x = x
 	}
 	cw := b.contentWidth()
 
@@ -226,7 +226,8 @@ func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
 	default:
 		for b.cursor.child < len(b.Children) {
 			c := b.Children[b.cursor.child]
-			if !l.placeChild(f, c, cw) {
+			// Children start inside the parent content box.
+			if !l.placeChild(f, c, b.x+b.borderLeft()+b.padLeft(), cw) {
 				l.finishFragment(f, b, false)
 				return false
 			}
@@ -238,7 +239,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, width int32, isRoot bool) bool {
 	}
 }
 
-func (l *layouter) placeChild(f *flow, c *Box, width int32) bool {
+func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 	if !f.empty {
 		if c.Style.BreakBefore == css.BreakPage {
 			f.newPage()
@@ -249,11 +250,13 @@ func (l *layouter) placeChild(f *flow, c *Box, width int32) bool {
 			}
 		}
 	}
-	return l.placeBlock(f, c, width, false)
+	return l.placeBlock(f, c, x, width, false)
 }
 
 func (l *layouter) afterBlock(f *flow, b *Box) {
 	l.applyFixedHeight(f, b)
+	// Bottom padding and border are part of the flow after a completed block.
+	f.y += b.padBottom() + b.borderBottom()
 	b.cursor.done = true
 	f.pending = b.Style.Margin[2].Resolve(b.width)
 	if b.Style.BreakAfter == css.BreakPage {

@@ -36,6 +36,40 @@ type Declaration struct {
 
 // Rule is a parsed CSS rule. A selector list is stored as one rule per
 // selector, all sharing the same declarations.
+// RulesForPrint returns the rules that apply to print, descending into @media
+// blocks whose query is empty, "all" or "print". Document order is preserved.
+func RulesForPrint(sheets []*Stylesheet) []Rule {
+	var out []Rule
+	var walk func([]Rule)
+	walk = func(rules []Rule) {
+		for _, r := range rules {
+			if r.Kind == MediaRule {
+				if mediaAppliesToPrint(r.Name) {
+					walk(r.Rules)
+				}
+				continue
+			}
+			out = append(out, r)
+		}
+	}
+	for _, sh := range sheets {
+		if sh != nil {
+			walk(sh.Rules)
+		}
+	}
+	return out
+}
+
+func mediaAppliesToPrint(name string) bool {
+	for _, part := range strings.Split(name, ",") {
+		q := strings.ToLower(strings.TrimSpace(part))
+		if q == "" || q == "all" || q == "print" {
+			return true
+		}
+	}
+	return false
+}
+
 type Rule struct {
 	Kind         RuleKind
 	Name         string

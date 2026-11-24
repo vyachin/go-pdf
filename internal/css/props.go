@@ -176,7 +176,9 @@ var Table = map[string]PropSpec{
 				if f[0].Num <= 0 {
 					return Value{}, fmt.Errorf("line-height must be positive")
 				}
-				return Value{Kind: "length", Length: EmLen(f[0].Num)}, nil
+				// A unitless number is a factor, not an em length: it must
+				// follow the font size of the element that inherits it.
+				return Value{Kind: "length", Number: int(f[0].Num), Float: f[0].Num}, nil
 			}
 			l, err := ParseLengthToken(f[0])
 			if err != nil {
@@ -191,6 +193,12 @@ var Table = map[string]PropSpec{
 			return Value{Kind: "length", Length: l}, nil
 		},
 		Set: func(s *Style, v Value, _ int32) error {
+			if v.Float > 0 {
+				s.LineHeightFactor = v.Float
+				s.LineHeight = Length{Kind: Auto}
+				return nil
+			}
+			s.LineHeightFactor = 0
 			s.LineHeight = v.Length
 			return nil
 		},

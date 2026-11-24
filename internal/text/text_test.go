@@ -78,10 +78,10 @@ func TestSplit(t *testing.T) {
 			want: []Item{{Word, "слово-"}, {Word, "слово"}},
 		},
 		{
-			name: "pre keeps everything",
+			name: "pre keeps spaces and line breaks",
 			in:   "a  b\nc",
 			pre:  true,
-			want: []Item{{Word, "a  b\nc"}},
+			want: []Item{{Word, "a"}, {Space, " "}, {Space, " "}, {Word, "b"}, {Newline, ""}, {Word, "c"}},
 		},
 	}
 	for _, tc := range cases {
