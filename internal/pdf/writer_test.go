@@ -498,7 +498,7 @@ func TestWidthRoundingMatchesAdjustment(t *testing.T) {
 	}
 	objects := pdfObjects(t, data)
 	// The /W array must carry the rounded width, not a truncated one.
-	if !strings.Contains(findFontObjects(objects), fmt.Sprintf("/W [%d [%d]]", gid, want)) {
+	if !strings.Contains(findFontObjects(objects), fmt.Sprintf("/W [0 [%d]]", want)) {
 		t.Fatalf("/W does not round %0.3f to %d", exact, want)
 	}
 	// An advance equal to the rounded nominal width needs no adjustment.
@@ -569,5 +569,62 @@ func TestCMYKJPEGIsNotEmbeddedAsRGB(t *testing.T) {
 	_, err = imageObject(&Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1})
 	if err == nil || !strings.Contains(err.Error(), "CMYK") {
 		t.Fatalf("a four-component JPEG must not be embedded as RGB, got %v", err)
+	}
+}
+
+func TestSharedGlyphKeepsBothRunes(t *testing.T) {
+	f := loadFont(t)
+	gid, ok := f.GlyphIndex('A')
+	if !ok {
+		t.Skip("test font has no A")
+	}
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 2000, Font: f, Size: 12000, Glyphs: []Glyph{
+			{GID: gid, Rune: 'A'},
+			{GID: gid, Rune: 'Б'},
+		}},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := pdfObjects(t, data)
+	var cidFont string
+	for _, body := range objects {
+		if strings.Contains(body, "/CIDFontType2") {
+			cidFont = body
+			break
+		}
+	}
+	if cidFont == "" {
+		t.Fatal("no CIDFontType2 object")
+	}
+	cidMapID := ref(cidFont, "/CIDToGIDMap")
+	cidMap := decodeStream(t, objects[cidMapID])
+	if len(cidMap) != 4 || cidMap[0] != byte(gid>>8) || cidMap[1] != byte(gid) ||
+		cidMap[2] != byte(gid>>8) || cidMap[3] != byte(gid) {
+		t.Fatalf("CIDToGIDMap = % x, want two entries of gid %d", []byte(cidMap), gid)
+	}
+	var toUni string
+	for _, body := range objects {
+		if decoded := decodeStream(t, body); strings.Contains(decoded, "begincmap") {
+			toUni = decoded
+			break
+		}
+	}
+	if !strings.Contains(toUni, "<0000> <0041>") || !strings.Contains(toUni, "<0001> <0411>") {
+		t.Fatalf("ToUnicode does not keep both runes:\n%s", toUni)
+	}
+	// The content stream addresses the two CIDs, not one glyph code.
+	var content string
+	for _, body := range objects {
+		if decoded := decodeStream(t, body); strings.Contains(decoded, "TJ") {
+			content += decoded
+		}
+	}
+	if !strings.Contains(content, "<0000>") || !strings.Contains(content, "<0001>") {
+		t.Fatalf("content does not address both CIDs: %q", content)
 	}
 }

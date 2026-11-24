@@ -135,11 +135,53 @@ func (w *objectWriter) set(id int, body []byte) {
 }
 
 type fontEntry struct {
-	font   *font.Font
-	used   map[uint16]bool
-	runes  map[uint16]rune
-	subset []byte
-	ids    []int
+	font *font.Font
+	used map[uint16]bool
+	// pairs holds every (glyph, source rune) combination. A CID is allocated
+	// per pair, so two characters that share a glyph keep their own code and
+	// their own ToUnicode entry.
+	pairs   map[uint64]struct{}
+	cidOf   map[uint64]uint16
+	cidGID  []uint16
+	cidRune []rune
+	subset  []byte
+	ids     []int
+}
+
+// pairKey combines a glyph id and a source rune into one map key.
+func pairKey(gid uint16, r rune) uint64 { return uint64(gid)<<32 | uint64(uint32(r)) }
+
+// buildCIDs assigns one CID per distinct (glyph, rune) pair in a stable order.
+func (fe *fontEntry) buildCIDs() {
+	keys := make([]uint64, 0, len(fe.pairs))
+	for k := range fe.pairs {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i]>>32 != keys[j]>>32 {
+			return keys[i]>>32 < keys[j]>>32
+		}
+		return keys[i] < keys[j]
+	})
+	fe.cidOf = make(map[uint64]uint16, len(keys))
+	fe.cidGID = make([]uint16, 0, len(keys))
+	fe.cidRune = make([]rune, 0, len(keys))
+	for i, k := range keys {
+		cid := uint16(i)
+		fe.cidOf[k] = cid
+		fe.cidGID = append(fe.cidGID, uint16(k>>32))
+		fe.cidRune = append(fe.cidRune, rune(uint32(k)))
+	}
+}
+
+// cidToGIDMap is the CIDToGIDMap stream for the font.
+func (fe *fontEntry) cidToGIDMap() []byte {
+	out := make([]byte, 2*len(fe.cidGID))
+	for i, gid := range fe.cidGID {
+		out[2*i] = byte(gid >> 8)
+		out[2*i+1] = byte(gid)
+	}
+	return out
 }
 
 type imageEntry struct {
@@ -163,15 +205,13 @@ func (d *Doc) Bytes() ([]byte, error) {
 			}
 			fe := fontByPtr[op.Text.Font]
 			if fe == nil {
-				fe = &fontEntry{font: op.Text.Font, used: map[uint16]bool{}, runes: map[uint16]rune{}}
+				fe = &fontEntry{font: op.Text.Font, used: map[uint16]bool{}, pairs: map[uint64]struct{}{}}
 				fontByPtr[op.Text.Font] = fe
 				fonts = append(fonts, fe)
 			}
 			for _, g := range op.Text.Glyphs {
 				fe.used[g.GID] = true
-				if g.Rune != 0 {
-					fe.runes[g.GID] = g.Rune
-				}
+				fe.pairs[pairKey(g.GID, g.Rune)] = struct{}{}
 			}
 		}
 	}
@@ -196,7 +236,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	for _, fe := range fonts {
 		// Type0, CIDFontType2, FontDescriptor, FontFile2 and ToUnicode each
 		// need their own object: reusing one id for two roles breaks the chain.
-		fe.ids = make([]int, 5)
+		fe.ids = make([]int, 6)
 		for i := range fe.ids {
 			fe.ids[i] = w.add()
 		}
@@ -230,8 +270,10 @@ func (d *Doc) Bytes() ([]byte, error) {
 			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
 		}
 		fe.subset = subset
+		fe.buildCIDs()
 		fontID, cidID := fe.ids[0], fe.ids[1]
 		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
+		cidMapID := fe.ids[5]
 		baseName := sanitizeName(fe.font.Family(), fe.font.Subfamily())
 		widths := fe.widthArray()
 		toUni := fe.toUnicodeCMap()
@@ -240,8 +282,8 @@ func (d *Doc) Bytes() ([]byte, error) {
 			"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
 			baseName, cidID, toUniID)))
 		w.set(cidID, []byte(fmt.Sprintf(
-			"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap /Identity >>",
-			baseName, descID, widths)))
+			"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap %d 0 R >>",
+			baseName, descID, widths, cidMapID)))
 		upem := float64(fe.font.UnitsPerEm())
 		scale := 1000 / upem
 		bbox := fe.font.BBox()
@@ -256,6 +298,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 			fileID)))
 		w.set(fileID, streamObject(fe.subset, true))
 		w.set(toUniID, streamObject(toUni, true))
+		w.set(cidMapID, streamObject(fe.cidToGIDMap(), true))
 	}
 
 	// Image objects.
@@ -342,47 +385,37 @@ func nominalWidth1000(f *font.Font, gid uint16) int32 {
 }
 
 func (fe *fontEntry) widthArray() string {
-	gids := make([]int, 0, len(fe.used))
-	for gid := range fe.used {
-		gids = append(gids, int(gid))
+	// CIDs are contiguous from zero, so one group describes every width.
+	widths := make([]string, len(fe.cidGID))
+	for cid, gid := range fe.cidGID {
+		widths[cid] = fmt.Sprintf("%d", nominalWidth1000(fe.font, gid))
 	}
-	sort.Ints(gids)
-	var groups []string
-	i := 0
-	for i < len(gids) {
-		j := i
-		for j+1 < len(gids) && gids[j+1] == gids[j]+1 {
-			j++
-		}
-		widths := make([]string, 0, j-i+1)
-		for k := i; k <= j; k++ {
-			widths = append(widths, fmt.Sprintf("%d", nominalWidth1000(fe.font, uint16(gids[k]))))
-		}
-		groups = append(groups, fmt.Sprintf("%d [%s]", gids[i], strings.Join(widths, " ")))
-		i = j + 1
+	if len(widths) == 0 {
+		return ""
 	}
-	return strings.Join(groups, " ")
+	return fmt.Sprintf("0 [%s]", strings.Join(widths, " "))
 }
 
 func (fe *fontEntry) toUnicodeCMap() []byte {
-	gids := make([]int, 0, len(fe.runes))
-	for gid := range fe.runes {
-		gids = append(gids, int(gid))
+	var cids []int
+	for cid, r := range fe.cidRune {
+		if r != 0 {
+			cids = append(cids, cid)
+		}
 	}
-	sort.Ints(gids)
 	var b strings.Builder
 	b.WriteString("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
 	b.WriteString("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n")
 	b.WriteString("/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
 	b.WriteString("1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
-	for start := 0; start < len(gids); start += 100 {
+	for start := 0; start < len(cids); start += 100 {
 		end := start + 100
-		if end > len(gids) {
-			end = len(gids)
+		if end > len(cids) {
+			end = len(cids)
 		}
 		fmt.Fprintf(&b, "%d beginbfchar\n", end-start)
-		for _, gid := range gids[start:end] {
-			fmt.Fprintf(&b, "<%04X> <%s>\n", gid, utf16Hex(fe.runes[uint16(gid)]))
+		for _, cid := range cids[start:end] {
+			fmt.Fprintf(&b, "<%04X> <%s>\n", cid, utf16Hex(fe.cidRune[cid]))
 		}
 		b.WriteString("endbfchar\n")
 	}
@@ -402,8 +435,10 @@ func utf16Hex(r rune) string {
 
 func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, imageNames map[*Image]string) []byte {
 	nameOf := map[*font.Font]string{}
+	byFont := map[*font.Font]*fontEntry{}
 	for i, fe := range fonts {
 		nameOf[fe.font] = fontNames[i]
+		byFont[fe.font] = fe
 	}
 	var b strings.Builder
 	for _, op := range p.ops {
@@ -416,6 +451,7 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 			if op.Text == nil || len(op.Text.Glyphs) == 0 {
 				continue
 			}
+			fe := byFont[op.Text.Font]
 			name := nameOf[op.Text.Font]
 			fmt.Fprintf(&b, "BT /%s %s Tf %s %s %s rg 1 0 0 1 %s %s Tm [",
 				name, num(op.Text.Size), f3b(op.Color.R), f3b(op.Color.G), f3b(op.Color.B),
@@ -424,7 +460,11 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 				if i > 0 {
 					b.WriteString(" ")
 				}
-				fmt.Fprintf(&b, "<%04X>", g.GID)
+				cid := uint16(0)
+				if fe != nil {
+					cid = fe.cidOf[pairKey(g.GID, g.Rune)]
+				}
+				fmt.Fprintf(&b, "<%04X>", cid)
 				if i+1 < len(op.Text.Glyphs) {
 					if adj := advanceAdjustment(op.Text.Font, op.Text.Size, g); adj != 0 {
 						fmt.Fprintf(&b, " %d", adj)
