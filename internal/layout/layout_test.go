@@ -624,3 +624,34 @@ func TestRepeatedHeaderDoesNotDuplicateBookmarks(t *testing.T) {
 		t.Fatalf("the table did not paginate: %d pages", len(doc.Pages))
 	}
 }
+
+func TestRowStyleHeightAndBackground(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<table><tr style="background-color:red;height:60pt"><td>CELL</td></tr></table><p style="margin:0">AFTER</p>`)
+	var bg *Op
+	var bgIndex, afterIndex = -1, -1
+	var afterY int32
+	for i := range doc.Pages[0].Ops {
+		op := &doc.Pages[0].Ops[i]
+		if op.Kind == FillOpKind && op.Color == (css.Color{R: 255, Set: true}) && bgIndex < 0 {
+			bg, bgIndex = op, i
+		}
+		if op.Kind == TextOpKind && op.Text != nil && len(op.Text.Run.Glyphs) > 0 &&
+			op.Text.Run.Glyphs[0].Rune == 'A' && afterIndex < 0 && i > bgIndex {
+			afterY, afterIndex = op.Text.Y, i
+		}
+	}
+	if bg == nil {
+		t.Fatal("the row background was not painted")
+	}
+	if bg.Rect.H < 60000 {
+		t.Fatalf("row background height = %d, want at least 60pt", bg.Rect.H)
+	}
+	if bgIndex > afterIndex {
+		t.Fatal("the row background must be painted before the cell content")
+	}
+	// The following block starts after the 60 pt row.
+	if afterY < bg.Rect.Y+60000 {
+		t.Fatalf("AFTER baseline %d overlaps the row that ends at %d", afterY, bg.Rect.Y+60000)
+	}
+}

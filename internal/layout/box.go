@@ -87,6 +87,9 @@ type Box struct {
 type Row struct {
 	Header bool
 	Cells  []*Box
+	// Style is the computed style of the tr, kept because height, background
+	// and other non-inherited properties apply to the row itself.
+	Style *css.Style
 }
 
 type cursor struct {
@@ -499,7 +502,7 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 				if rowStyle.Display == css.DisplayNone {
 					continue
 				}
-				row := &Row{Header: header}
+				row := &Row{Header: header, Style: rowStyle}
 				for _, cellNode := range c.ElementChildren() {
 					if cellNode.Tag != "td" && cellNode.Tag != "th" {
 						continue

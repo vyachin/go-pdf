@@ -132,6 +132,10 @@ func (l *layouter) rowHeight(row *Row, t *Box) int32 {
 			h = cellH
 		}
 	}
+	if row.Style != nil && row.Style.Height.Kind == css.MP && row.Style.Height.Value > h {
+		// height on a table row is a minimum for the row box.
+		h = row.Style.Height.Value
+	}
 	return h
 }
 
@@ -206,6 +210,22 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
 	startX := t.x + t.borderLeft()
+	if row.Style != nil && row.Style.Background.Set {
+		// The row background is painted before the cells so that opaque cell
+		// backgrounds still cover it.
+		var rowWidth int32
+		for _, w := range t.columns {
+			rowWidth += w
+		}
+		if rowWidth > 0 && h > 0 {
+			l.ops++
+			page.Ops = append(page.Ops, Op{
+				Kind:  FillOpKind,
+				Rect:  Rect{X: startX, Y: y, W: rowWidth, H: h},
+				Color: row.Style.Background,
+			})
+		}
+	}
 	for _, cell := range row.Cells {
 		span := normSpan(cell.ColSpan)
 		x := startX

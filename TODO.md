@@ -142,7 +142,7 @@
   **Воспроизведение:** `<table><tr><td><h2 id="target">TITLE</h2></td></tr></table>` рисует TITLE, но `Anchors["target"]` и outline entry отсутствуют. Добавление перед таблицей ссылки с `a::after{content:target-counter(attr(href),page)}` даёт **`PAGE0TITLE`** и ложное предупреждение о неизвестном ID.
   **Исправление / приёмка:** общий учёт anchors/headings в момент фактического размещения бокса, включая td и вложенные блоки. Оглавление должно показывать реальную страницу, а закладка вести к заголовку. Не ограничиваться уже существующим тестом inline ID.
 
-- [ ] **REV-22 · P2: не терять ненаследуемые стили строк таблицы.**
+- [x] **REV-22 · P2: не терять ненаследуемые стили строк таблицы.**
 
   **Код:** [internal/layout/box.go:419](/Users/vyachin/Projects/go-pdf/internal/layout/box.go:419), `buildTable`; [internal/layout/table.go](/Users/vyachin/Projects/go-pdf/internal/layout/table.go), `rowHeight`, `paintRowAt`.
   **Воспроизведение:** `<table><tr style="background-color:red;height:60pt"><td>A</td></tr></table><p>AFTER</p>` не рисует красный фон и не резервирует 60 pt. `rowStyle` вычисляется для наследования в ячейки, но сам Row не сохраняет style, и собственная геометрия/фон строки теряются.
