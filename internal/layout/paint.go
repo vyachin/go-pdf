@@ -255,6 +255,7 @@ func (l *layouter) paintListMarkerAt(page *Page, b *Box, left int32) {
 	st := b.Style
 	face, err := l.face(st)
 	if err != nil {
+		_ = l.fontStop(err)
 		return
 	}
 	var label string
