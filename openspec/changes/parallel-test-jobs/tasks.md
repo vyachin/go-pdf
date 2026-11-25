@@ -11,16 +11,16 @@
 
 ## 2. The gate
 
-- [ ] 2.1 Add the `gate` job with `needs` on all five, `if: always()` and the result loop — check: the gate fails when a dependency fails, is skipped or is cancelled
+- [x] 2.1 Add the `gate` job with `needs` on all five, `if: always()` and the result loop — check: the gate fails when a dependency fails, is skipped or is cancelled
 - [x] 2.2 Update branch protection to require the gate and record the name in `CONTRIBUTING.md` — check: the required check is the gate and no job named `test` is required
 - [x] 2.3 Update the `CONTRIBUTING.md` CI section with the job map and the gate — check: the section matches the workflow
 
 ## 3. Proving the gates
 
 - [x] 3.1 Open a pull request and confirm every job reports its own check and the gate waits for all — check: five checks plus the gate, all green
-- [ ] 3.2 Break a unit test on a scratch branch and confirm the gate fails and names the failing job — check: the gate is red, the pull request is blocked
-- [ ] 3.3 Skip the `golden` job with a temporary condition and confirm the gate fails — check: a skipped job cannot pass the gate
-- [ ] 3.4 Remove poppler from `golden` and confirm the render step fails rather than skipping — check: the `--- SKIP` grep or `PDF_REQUIRE_RENDER` fails the job
+- [x] 3.2 Break a unit test on a scratch branch and confirm the gate fails and names the failing job — check: the gate is red, the pull request is blocked
+- [x] 3.3 Skip the `golden` job with a temporary condition and confirm the gate fails — check: a skipped job cannot pass the gate
+- [x] 3.4 Remove poppler from `golden` and confirm the render step fails rather than skipping — check: the `--- SKIP` grep or `PDF_REQUIRE_RENDER` fails the job
 
 ## 4. Measure and accept
 
