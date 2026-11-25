@@ -40,12 +40,12 @@ differ; the recorded spans MUST NOT.
 
 ## ADDED Requirements
 
-### Requirement: Text position matching uses a decoded index
+### Requirement: Text position matching is indexed
 
-The parser SHALL index the decoded text of its tokens and use that index when a
-node's token is out of source order. A node whose token is next in source order
-MUST be matched without scanning the document's other tokens, so matching work
-stays linear in the document size.
+The parser SHALL match a text node to its token without scanning the document's
+other tokens: a token next in source order uses the fast path, and an
+out-of-source-order token uses an index of decoded token text. Matching work MUST
+stay linear in the document size.
 
 #### Scenario: A document of entity fragments
 
@@ -55,14 +55,14 @@ stays linear in the document size.
 
 #### Scenario: A foster-parented text among many tokens
 
-- **WHEN** a document repeats a table whose `<style>` content is moved after the
-  table's foster-parented text 1,000 times
+- **WHEN** a document repeats a table whose `<style>` content follows a
+  foster-parented text 1,000 times
 - **THEN** each text node carries its own token's range
 - **AND** the recorded work is within a constant multiple of the token count
 
 ### Requirement: Text position matching is charged and cancellable
 
-Building the decoded index, every out-of-order lookup, and every span a fallback
+Building the index, every out-of-source-order lookup, and every span a fallback
 search examines SHALL be charged to the shared work budget. Cancellation observed
 during that work MUST be returned as the context error, and a document whose
 position matching exceeds the budget MUST fail with `resource/limit`.
@@ -79,3 +79,64 @@ position matching exceeds the budget MUST fail with `resource/limit`.
 - **WHEN** the context is already cancelled when a document with foster-parented
   text is parsed
 - **THEN** the call returns the context error, not a document diagnostic
+
+### Requirement: A trimmed leading newline does not move a text node's range
+
+When the tree construction drops a leading newline from the first text token of
+`pre`, `listing` or `textarea`, the text node's range SHALL start at the first raw
+byte after that newline. A newline written as a character reference SHALL be
+accounted for by that reference's bytes.
+
+#### Scenario: A preformatted block
+
+- **WHEN** the document contains `<pre>\nX</pre>`
+- **THEN** the text node's data is `X`
+- **AND** its range covers `X`, not the dropped line feed
+
+#### Scenario: A textarea with CRLF
+
+- **WHEN** the document contains `<textarea>\r\nX</textarea>`
+- **THEN** the text node's range starts after both bytes of the dropped CRLF
+
+#### Scenario: A reference that decodes to a newline
+
+- **WHEN** the document contains `<pre>&#10;X</pre>`
+- **THEN** the text node's range starts after the reference's bytes
+- **AND** covers `X`
+
+### Requirement: A NUL does not move a text node's range
+
+When the tree construction replaces a NUL with U+FFFD or removes it, the text node
+SHALL keep the range of its own token. The NUL itself MAY lie inside that range.
+
+#### Scenario: A NUL in body text
+
+- **WHEN** the document contains `<p>a\x00b</p>`
+- **THEN** the text node's data is `a` U+FFFD `b`
+- **AND** its range covers the token `a\x00b`
+
+#### Scenario: A NUL in table text
+
+- **WHEN** the document contains `<table>a\x00b<tr><td>x</td></tr></table>`
+- **THEN** the fostered text node's data is `ab`
+- **AND** its range covers the token `a\x00b`
+
+### Requirement: Equal out-of-source-order texts keep their own ranges
+
+An out-of-source-order lookup SHALL return the first occurrence of the node's text
+that no other node already holds, in document order. Two text nodes with equal
+text MUST NOT be given the same span.
+
+#### Scenario: A paragraph and a foster-parented text
+
+- **WHEN** the document contains
+  `<p>A</p><table><style>S</style>A<tr><td>Y</td></tr></table>`
+- **THEN** the paragraph's text and the foster-parented `A` carry different ranges
+- **AND** each range covers its own token
+
+#### Scenario: Two foster-parented texts
+
+- **WHEN** the document contains
+  `<table><style>S</style>A<tr><td>Y</td></tr>A</table>`
+- **THEN** the two foster-parented `A` nodes carry different ranges
+- **AND** the ranges are in document order
