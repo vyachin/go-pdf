@@ -133,42 +133,77 @@ func (l *layouter) measureTable(t *Box, width int32) int32 {
 		return 0
 	}
 	var h int32
-	for i, row := range t.Rows {
-		h += l.rowHeight(row, t, i)
+	for _, rh := range l.rowHeights(t) {
+		h = satAdd(h, rh)
 	}
 	return h
 }
 
-// rowHeight returns the height of the row at index. A rowspan is clamped to the
-// rows that actually follow, so a cell spanning past the table does not halve
-// the height of the only row it occupies.
-func (l *layouter) rowHeight(row *Row, t *Box, index int) int32 {
-	var h int32
-	for _, cell := range row.Cells {
-		span := normSpan(cell.ColSpan)
-		var w int32
-		for i := 0; i < span && cell.col+i < len(t.columns); i++ {
-			w += t.columns[cell.col+i]
+// rowHeights computes the height of every row in two passes. The base pass
+// measures each cell once and gives its owner row the cell height divided by
+// the span, as before, plus the declared row height as a minimum. The deficit
+// pass then grows the last covered row of a spanning cell until the rows it
+// covers sum to the cell's outer height, so the cell's content cannot paint
+// over the block that follows the table. A span that already fits is untouched.
+func (l *layouter) rowHeights(t *Box) []int32 {
+	heights := make([]int32, len(t.Rows))
+	// measured[i][j] is the outer height of row i's cell j, measured once and
+	// reused by the deficit pass.
+	measured := make([][]int32, len(t.Rows))
+	for i, row := range t.Rows {
+		measured[i] = make([]int32, len(row.Cells))
+		var h int32
+		for j, cell := range row.Cells {
+			span := normSpan(cell.ColSpan)
+			var w int32
+			for k := 0; k < span && cell.col+k < len(t.columns); k++ {
+				w = satAdd(w, t.columns[cell.col+k])
+			}
+			cell.width = w
+			cell.x = t.x
+			cellH := l.measure(cell, w)
+			measured[i][j] = cellH
+			rowspan := cellRowspan(cell, i, len(t.Rows))
+			if rowspan > 1 {
+				cellH = cellH / int32(rowspan)
+			}
+			if cellH > h {
+				h = cellH
+			}
 		}
-		cell.width = w
-		cell.x = t.x
-		cellH := l.measure(cell, w)
-		rowspan := normSpan(cell.RowSpan)
-		if remaining := len(t.Rows) - index; rowspan > remaining {
-			rowspan = remaining
+		if row.Style != nil && row.Style.Height.Kind == css.MP && row.Style.Height.Value > h {
+			// height on a table row is a minimum for the row box.
+			h = row.Style.Height.Value
 		}
-		if rowspan > 1 {
-			cellH = cellH / int32(rowspan)
-		}
-		if cellH > h {
-			h = cellH
+		heights[i] = h
+	}
+	for i, row := range t.Rows {
+		for j, cell := range row.Cells {
+			rowspan := cellRowspan(cell, i, len(t.Rows))
+			if rowspan <= 1 {
+				continue
+			}
+			var covered int32
+			for k := i; k < i+rowspan; k++ {
+				covered = satAdd(covered, heights[k])
+			}
+			if need := measured[i][j] - covered; need > 0 {
+				heights[i+rowspan-1] = satAdd(heights[i+rowspan-1], need)
+			}
 		}
 	}
-	if row.Style != nil && row.Style.Height.Kind == css.MP && row.Style.Height.Value > h {
-		// height on a table row is a minimum for the row box.
-		h = row.Style.Height.Value
+	return heights
+}
+
+// cellRowspan clamps a cell's rowspan to the rows that actually follow, so a
+// cell spanning past the table does not halve the height of the only row it
+// occupies.
+func cellRowspan(cell *Box, index, rows int) int {
+	rowspan := normSpan(cell.RowSpan)
+	if remaining := rows - index; rowspan > remaining {
+		rowspan = remaining
 	}
-	return h
+	return rowspan
 }
 
 // placeTable places rows until the page is full. It never creates a page
@@ -180,10 +215,7 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		if !l.tableLayout(t, width) {
 			return false
 		}
-		t.rowHeights = make([]int32, len(t.Rows))
-		for i, row := range t.Rows {
-			t.rowHeights[i] = l.rowHeight(row, t, i)
-		}
+		t.rowHeights = l.rowHeights(t)
 		t.built = true
 		for _, row := range t.Rows {
 			if !row.Header {
@@ -426,11 +458,10 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	if !l.tableLayout(t, inner) {
 		return 0
 	}
-	t.rowHeights = make([]int32, len(t.Rows))
+	t.rowHeights = l.rowHeights(t)
 	var rows int32
-	for i, row := range t.Rows {
-		t.rowHeights[i] = l.rowHeight(row, t, i)
-		rows += t.rowHeights[i]
+	for _, rh := range t.rowHeights {
+		rows = satAdd(rows, rh)
 	}
 	t.built = true
 	t.x = x
