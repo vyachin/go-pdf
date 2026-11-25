@@ -39,6 +39,34 @@ The engine SHALL determine the page size from `@page { size }` and, when absent,
 - **WHEN** the template declares `@page { size: A4 sideways }`
 - **THEN** validation fails and names the unsupported value
 
+### Requirement: Page margins are lengths and orientation flips a fallback
+
+Margins declared in `@page` SHALL be non-negative lengths: `auto`, percentages and
+negative values MUST be rejected with `css/unsupported-value`. An `em` margin SHALL
+resolve against the initial font size, not the page width. `size: portrait` MUST swap
+a landscape fallback size, and `size: landscape` MUST swap a portrait one.
+
+#### Scenario: An em page margin
+
+- **WHEN** `@page { size: A4; margin: 1em }` is converted
+- **THEN** every margin is 12 pt, not 595 pt
+
+#### Scenario: An auto page margin
+
+- **WHEN** a template declares `@page { margin: auto }`
+- **THEN** validation fails with `css/unsupported-value`
+
+#### Scenario: A negative page margin
+
+- **WHEN** a template declares `@page { margin: -20mm }`
+- **THEN** validation fails with `css/unsupported-value`
+
+#### Scenario: Portrait with a landscape fallback
+
+- **WHEN** `Options.PageSize` is `300mmx200mm` and the document declares
+  `@page { size: portrait }`
+- **THEN** the page is 200 mm wide and 300 mm high
+
 ### Requirement: Headers and footers in margin boxes
 
 The engine SHALL support the margin boxes `@top-left`, `@top-center`, `@top-right`, `@bottom-left`, `@bottom-center` and `@bottom-right` with content made of strings and counters. Margin box content MUST be repeated on every page, including the first and the last.
