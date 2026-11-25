@@ -56,10 +56,9 @@ testable and reviewable, and then fixes the code and the documents behind it.
 - **Improvements as standing rules.** Declare every diagnostic code in one registry;
   serve both entry points from one pipeline; state each stage's cost and test the
   invariant; record source spans during construction; resolve every asset through
-  one resolver; generate or check the code facts a document states; refuse a
-  breaking tag as a minor; require an independent writer validator, a coverage
-  floor and a validator-enabled gate; share test support code; and benchmark each
-  measured hot spot.
+  one resolver; generate or check the code facts a document states; require an
+  independent writer validator, a coverage floor and a validator-enabled gate;
+  share test support code; and benchmark each measured hot spot.
 
 ## Capabilities
 
@@ -107,8 +106,8 @@ None.
   a test oracle compares what it claims; the budget's concurrency contract is
   documented; dead internal API is removed; the production path reads no test
   environment variable; shared test helpers have one definition; every diagnostic
-  code is declared once; a breaking tag cannot be a minor; the gate has a coverage
-  floor and a mandatory validator; each measured hot spot is benchmarked.
+  code is declared once; the gate has a coverage floor and a mandatory validator;
+  each measured hot spot is benchmarked.
 - `golden-tests`: the PDF extractor validates the structure it reads and is not the
   only check on the writer; an independent validator checks writer output.
 

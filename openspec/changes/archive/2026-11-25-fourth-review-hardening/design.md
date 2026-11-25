@@ -98,16 +98,17 @@ make the prose match it.
 ### 7. Release the removal as v2.0.0
 
 Removing an exported field is a breaking change. The Unreleased section becomes
-v2.0.0 with a migration section; a v1 branch is not maintained. A CI check refuses
-to tag a changelog whose Unreleased section is marked breaking as a minor.
+v2.0.0 with a migration section; a v1 branch is not maintained. The automated
+check that refused to tag a breaking section as a minor was withdrawn from the
+change, so the version is chosen by the release procedure in `CONTRIBUTING.md`.
 
 ### 8. Fix the instance, then prevent the class
 
 An `RV4-` requirement states the behaviour a caller observes: the conversion fails,
 the document has no empty page, the catalogue lists the code. An `IMP-`
 requirement states the mechanism that keeps the class from returning: one code
-registry, one pipeline, one resolver, one media-list parser, a generated table, a
-release gate, an invariant test, a benchmark. The two are deliberately separate, even
+registry, one pipeline, one resolver, one media-list parser, a generated table, an
+invariant test, a benchmark. The two are deliberately separate, even
 when they touch the same code, because a reviewer of a fix should be able to accept
 the behaviour without also accepting a refactor, and a reviewer of the refactor
 should be able to judge it on its own. A fix that passes its `RV4-` scenario but
