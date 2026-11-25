@@ -1,10 +1,13 @@
 package layout
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/text"
@@ -67,6 +70,24 @@ type piece struct {
 	preserve  bool   // a space that must not be collapsed or dropped
 	anchor    string // element id that starts at this piece
 	wrapAfter bool   // the word ends with a hyphen and allows a break after it
+}
+
+// shape maps text to glyphs under the conversion's budget. A guard failure is
+// returned to the caller, which stops the build instead of reporting a glyph
+// error for work the budget refused to do.
+func (l *layouter) shape(face *FontFace, s string) (text.Run, error) {
+	return text.ShapeWithOptions(face.Font, face.Size, s, text.ShapeOptions{Guard: l.ctx.Budget})
+}
+
+// stopsOnGuard reports whether err stops the layout and records why. A budget
+// failure becomes one resource/limit diagnostic; a cancellation is reported by
+// the engine after Run returns.
+func (l *layouter) stopsOnGuard(err error) bool {
+	if errors.Is(err, budget.ErrExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		_ = l.stopReason()
+		return true
+	}
+	return false
 }
 
 func (l *layouter) face(style *css.Style) (*FontFace, error) {
@@ -164,6 +185,16 @@ func (l *layouter) generatedText(b *Box) string {
 // buildLines lays out the inline content of a block into lines of the given
 // width. Errors are reported as diagnostics and the offending word is skipped.
 func (l *layouter) buildLines(b *Box, width int32) {
+	// Lines depend on the content width alone, so a box measured at the width
+	// it will be placed at keeps the lines the measurement built. Without this
+	// a break-inside: avoid box re-splits every descendant at every nesting
+	// level, which is quadratic in the depth.
+	if b.built && b.builtWidth == width {
+		return
+	}
+	if l.tick() != nil {
+		return
+	}
 	var pieces []piece
 	l.collectPieces(b, &pieces)
 	// A percentage indent resolves against the containing block width, not
@@ -235,11 +266,17 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		ensureIndent()
 		face, err := l.face(style)
 		if err != nil {
-			l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
+			// After a budget failure the missing face is a consequence of the
+			// work that was refused, not a fact about the document.
+			if l.stopsOnGuard(l.ctx.Budget.Err()) {
+				return
+			}
+			l.diags.Errorf(diag.TextFont, diag.Position{}, "", "%v", err)
 			return
 		}
-		run, err := text.Shape(face.Font, face.Size, " ")
+		run, err := l.shape(face, " ")
 		if err != nil {
+			_ = l.stopsOnGuard(err)
 			return
 		}
 		item := LineItem{Kind: SpaceItem, Face: face, Run: run, Color: style.Color, Style: style, W: run.Width, H: style.LineHeightMP()}
@@ -303,12 +340,18 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		case wordPiece:
 			face, err := l.face(p.style)
 			if err != nil {
-				l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
+				if l.stopsOnGuard(l.ctx.Budget.Err()) {
+					return
+				}
+				l.diags.Errorf(diag.TextFont, diag.Position{}, "", "%v", err)
 				continue
 			}
-			run, err := text.Shape(face.Font, face.Size, p.text)
+			run, err := l.shape(face, p.text)
 			if err != nil {
-				l.diags.Errorf("text/glyph", diag.Position{}, "", "%v", err)
+				if l.stopsOnGuard(err) {
+					return
+				}
+				l.diags.Errorf(diag.TextGlyph, diag.Position{}, "", "%v", err)
 				continue
 			}
 			ensureIndent()
@@ -334,7 +377,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Items = append(cur.Items, item)
 			cur.Height = max(cur.Height, p.style.LineHeightMP())
 			cur.Ascent = max(cur.Ascent, face.Ascent)
-			x += run.Width
+			x = satAdd(x, run.Width)
 			// A following word can wrap after a space, a forced break or a
 			// hyphen that already ends this word.
 			canWrap = p.wrapAfter
@@ -349,8 +392,15 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	for i := range lines {
 		fitMetrics(&lines[i])
 	}
+	// Every built line is charged, so a document cannot buy an unbounded
+	// amount of line building with a small budget.
+	if err := l.ctx.Budget.Add(uint64(len(lines))); err != nil {
+		_ = l.stopReason()
+		return
+	}
 	b.lines = lines
 	b.built = true
+	b.builtWidth = width
 }
 
 // spaceWidth returns the advance of one collapsible space.
@@ -359,8 +409,9 @@ func (l *layouter) spaceWidth(style *css.Style) int32 {
 	if err != nil {
 		return 0
 	}
-	run, err := text.Shape(face.Font, face.Size, " ")
+	run, err := l.shape(face, " ")
 	if err != nil {
+		_ = l.stopsOnGuard(err)
 		return 0
 	}
 	return run.Width

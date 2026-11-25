@@ -71,6 +71,19 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 			}
 		}
 	}
+	// The declared widths may not fit the content box. Scaled down, the later
+	// cells stay on the page; without the scaling a 1000 pt first cell pushed
+	// the rest past the edge with no diagnostic.
+	var total int32
+	for _, w := range widths {
+		total = satAdd(total, w)
+	}
+	if total > available {
+		l.warnOverflow(t, "the table's declared columns are wider than the content box and are scaled to fit")
+		for i := range widths {
+			widths[i] = clampInt32(int64(widths[i]) * int64(available) / int64(total))
+		}
+	}
 	return widths
 }
 
@@ -228,6 +241,24 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	// the row loop skip header rows; on the first page they are placed normally.
 	repeated := l.paintRepeatedHeaders(f, t)
 	t.headerPage = f.pageNum
+	// A rowspan cell that crossed a page break continues here: the remainder
+	// of its background is painted before the rows that carry the rest of the
+	// span, so the cell has a visible fragment on the following page.
+	if t.spanCell != nil && t.spanPage == f.pageNum {
+		h := t.spanRemain
+		if space := satSub(f.bottom, f.y); h > space {
+			h = space
+		}
+		if h > 0 && t.spanCell.Style != nil && t.spanCell.Style.Background.Set {
+			l.ops++
+			f.page.Ops = append(f.page.Ops, Op{
+				Kind:  FillOpKind,
+				Rect:  Rect{X: t.spanX, Y: f.y, W: t.spanW, H: h},
+				Color: t.spanCell.Style.Background,
+			})
+		}
+		t.spanCell, t.spanRemain = nil, 0
+	}
 
 	for t.cursor.row < len(t.Rows) {
 		if l.tick() != nil {
@@ -300,14 +331,15 @@ func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
 	return true
 }
 
-// paintRow draws a row and its cells and returns its height.
+// paintRow draws a row and its cells and returns its height. The flow's bottom
+// is the limit: nothing in the row is painted below it.
 func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
-	return l.paintRowAt(f.page, t, index, f.y)
+	return l.paintRowAt(f.page, t, index, f.y, f.bottom)
 }
 
 // paintRowAt draws one row at an explicit page position, which is what a table
 // nested inside a cell needs.
-func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
+func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
 	// The rows sit inside the table's padding box; the columns were already
@@ -344,16 +376,34 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 			w += t.columns[cell.col+i]
 		}
 		cellH := h
-		if rowspan := normSpan(cell.RowSpan); rowspan > 1 {
+		rowspan := normSpan(cell.RowSpan)
+		if rowspan > 1 {
 			cellH = 0
 			for r := index; r < index+rowspan && r < len(t.rowHeights); r++ {
 				cellH += t.rowHeights[r]
 			}
 		}
+		// A spanning cell that crosses the page break is clipped to the page:
+		// its background, border and content must not be painted outside the
+		// sheet. The remainder is recorded and painted at the top of the
+		// following page.
+		pageBottom := limit
+		visible := cellH
+		if y+visible > pageBottom {
+			visible = satSub(pageBottom, y)
+			if visible < 0 {
+				visible = 0
+			}
+			if rowspan > 1 {
+				t.spanCell, t.spanX, t.spanW = cell, x, w
+				t.spanRemain = satSub(cellH, visible)
+				t.spanPage = page.Number + 1
+			}
+		}
 		lastRow := index == len(t.Rows)-1
 		lastCol := cell.col+span >= len(t.columns)
-		l.paintCell(page, cell, x, y, w, cellH, index == 0, cell.col == 0, lastRow, lastCol,
-			[4]int32{t.borderTop(), t.borderRight(), t.borderBottom(), t.borderLeft()})
+		l.paintCell(page, cell, x, y, w, visible, index == 0, cell.col == 0, lastRow, lastCol,
+			[4]int32{t.borderTop(), t.borderRight(), t.borderBottom(), t.borderLeft()}, limit)
 	}
 	return h
 }
@@ -361,7 +411,7 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 // paintCell draws one cell: background, borders and content. With collapsed
 // borders each cell draws only the edges it owns, so a shared border is painted
 // exactly once.
-func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol, lastRow, lastCol bool, frame [4]int32) {
+func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol, lastRow, lastCol bool, frame [4]int32, limit int32) {
 	cell.x = x
 	cell.width = w
 	if cell.Style.Background.Set {
@@ -442,12 +492,12 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	if contentY < y+bt+cell.padTop() {
 		contentY = y + bt + cell.padTop()
 	}
-	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner)
+	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner, limit)
 }
 
 // paintStaticTable draws a table nested inside a cell: columns are computed for
 // the available width and rows are painted at explicit positions.
-func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32 {
+func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width, limit int32) int32 {
 	inner := clampInt32(int64(width) - int64(t.padLeft()) - int64(t.padRight()) - int64(t.borderLeft()) - int64(t.borderRight()))
 	if inner < 0 {
 		inner = 0
@@ -473,7 +523,7 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	}
 	rowY := y + t.borderTop() + t.padTop()
 	for i := range t.Rows {
-		l.paintRowAt(page, t, i, rowY)
+		l.paintRowAt(page, t, i, rowY, limit)
 		rowY += t.rowHeights[i]
 	}
 	return height
@@ -481,26 +531,66 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 
 // paintStaticBlocks lays out blocks without pagination, used inside table
 // cells. It returns the total height.
-func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width int32) int32 {
+func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width, limit int32) int32 {
 	var h int32
 	for _, b := range blocks {
 		// Cell measurement already includes block margins; painting has to
 		// advance by the same amounts or the drawn content drifts upwards.
 		h += b.Style.Margin[0].Resolve(width)
-		h += l.paintStaticBlock(page, b, x, y+h, width)
+		if y+h < limit {
+			h += l.paintStaticBlock(page, b, x, y+h, width, limit)
+		} else {
+			// The block starts below the page: its height still counts, but it
+			// is not painted outside the sheet.
+			h += l.staticMeasure(b, width)
+		}
 		h += b.Style.Margin[2].Resolve(width)
 	}
 	return h
 }
 
-func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32 {
+// staticMeasure is the height paintStaticBlock would report without painting.
+func (l *layouter) staticMeasure(b *Box, width int32) int32 {
+	inner := b.contentWidth()
+	var contentH int32
+	switch {
+	case b.Kind == Table:
+		if !l.tableLayout(b, inner) {
+			return 0
+		}
+		b.rowHeights = l.rowHeights(b)
+		for _, rh := range b.rowHeights {
+			contentH = satAdd(contentH, rh)
+		}
+	case b.Kind == Image:
+		if b.Image == nil {
+			return 0
+		}
+		_, h := imageSize(b.Style, b.Image, inner, l.ctx)
+		contentH = h
+	case l.isTextBlock(b):
+		if !b.built {
+			l.buildLines(b, inner)
+		}
+		for i := range b.lines {
+			contentH = satAdd(contentH, b.lines[i].Height)
+		}
+	default:
+		for _, c := range b.Children {
+			contentH = satAdd(contentH, l.measure(c, inner))
+		}
+	}
+	return l.staticHeight(b, contentH)
+}
+
+func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width, limit int32) int32 {
 	if !b.started {
 		b.started = true
 		b.usedGeometry(x, width)
 	}
 	l.registerAnchor(b, page.Number, y)
 	if b.Kind == Table {
-		return l.paintStaticTable(page, b, b.x, y, b.width)
+		return l.paintStaticTable(page, b, b.x, y, b.width, limit)
 	}
 	opStart := len(page.Ops)
 	if b.Kind == ListItem {
@@ -538,6 +628,13 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		}
 		lineY := satAdd(satAdd(y, b.borderTop()), b.padTop())
 		for i := range b.lines {
+			if lineY >= limit {
+				// The line starts below the page: it is clipped, so the cell's
+				// text stays inside the sheet.
+				contentH = satAdd(contentH, b.lines[i].Height)
+				lineY = satAdd(lineY, b.lines[i].Height)
+				continue
+			}
 			l.paintLineAt(page, b, &b.lines[i], satAdd(satAdd(b.x, b.borderLeft()), b.padLeft()), lineY, inner, i == len(b.lines)-1)
 			for _, id := range b.lines[i].Anchors {
 				if _, ok := l.anchors[id]; !ok {
@@ -549,7 +646,7 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		}
 	} else {
 		contentH = l.paintStaticBlocks(page, b.Children, satAdd(satAdd(b.x, b.borderLeft()), b.padLeft()),
-			satAdd(satAdd(y, b.borderTop()), b.padTop()), inner)
+			satAdd(satAdd(y, b.borderTop()), b.padTop()), inner, limit)
 	}
 	height := l.staticHeight(b, contentH)
 	l.paintStaticDecorations(page, b, y, height, opStart)

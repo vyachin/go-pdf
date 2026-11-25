@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 
@@ -59,13 +60,24 @@ type Box struct {
 	Level int
 
 	// Pagination state.
-	lines   []Line
-	built   bool
-	cursor  cursor
-	started bool
-	entered bool
-	x       int32 // absolute position of the box origin on the x axis
-	width   int32
+	lines []Line
+	built bool
+	// heightConsumed is the vertical space the earlier fragments of this box
+	// already reserved against its declared height. consumedBase is its value
+	// at the start of the current fragment, so recording the fragment is
+	// idempotent when placement retries on the same page.
+	heightConsumed int32
+	consumedBase   int32
+	// builtWidth is the content width b.lines were built at. A measurement and
+	// the placement reuse the same lines while the width matches, so a nested
+	// break-inside: avoid subtree is split once per level instead of once per
+	// measurement.
+	builtWidth int32
+	cursor     cursor
+	started    bool
+	entered    bool
+	x          int32 // absolute position of the box origin on the x axis
+	width      int32
 	// containing is the containing block's content width, the base for a
 	// percentage width, margin, padding and text-indent.
 	containing int32
@@ -102,6 +114,14 @@ type Box struct {
 	rowHeights  []int32
 	headerPage  int
 	headerCount int
+	// spanCell, spanX, spanW and spanRemain describe a rowspan cell whose
+	// fragment crossed a page break: the rest of it is painted at the top of
+	// the following page, so the cell continues instead of being lost.
+	spanCell   *Box
+	spanX      int32
+	spanW      int32
+	spanRemain int32
+	spanPage   int
 }
 
 // Row is a table row.
@@ -132,6 +152,9 @@ type ImageData struct {
 	PixelH        int
 	Format        string
 	Data          []byte
+	// Decoded is the image the loader decoded to validate it, so the writer
+	// reuses that decode instead of decoding the same file again.
+	Decoded image.Image
 }
 
 // FontFace is a font resolved at a size.
@@ -281,7 +304,7 @@ type Context struct {
 func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 	body := doc.Body()
 	if body == nil {
-		return nil, diag.List{{Severity: diag.Error, Code: "html/no-body", Message: "document has no body"}}
+		return nil, diag.List{{Severity: diag.Error, Code: string(diag.HTMLNoBody), Message: "document has no body"}}
 	}
 	b := &builder{
 		doc:      doc,
@@ -361,7 +384,7 @@ func (b *builder) stop(err error) {
 	}
 	b.failure = err
 	if errors.Is(err, budget.ErrExceeded) {
-		b.diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+		b.diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 	}
 }
 
@@ -511,16 +534,16 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 	src, _ := n.Attr("src")
 	box := &Box{Kind: Image, Node: n, Style: style}
 	if b.images == nil {
-		b.diags.Errorf("img/no-loader", b.doc.Pos(n), n.Path(), "images are not available in this context")
+		b.diags.Errorf(diag.ImgNoLoader, b.doc.Pos(n), n.Path(), "images are not available in this context")
 		return box
 	}
 	img, err := b.images.Load(src)
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			b.diags.Errorf("resource/limit", b.doc.Pos(n), n.Path(), "%v", err)
+			b.diags.Errorf(diag.ResourceLimit, b.doc.Pos(n), n.Path(), "%v", err)
 			return box
 		}
-		b.diags.Errorf("img/load", b.doc.Pos(n), n.Path(), "%v", err)
+		b.diags.Errorf(diag.ImgLoad, b.doc.Pos(n), n.Path(), "%v", err)
 		return box
 	}
 	box.Image = img
@@ -561,16 +584,16 @@ func (b *builder) loadBackground(style *css.Style, n *html.Node, dst **ImageData
 		path = n.Path()
 	}
 	if b.images == nil {
-		b.diags.Errorf("img/no-loader", b.nodePos(n), path, "images are not available in this context")
+		b.diags.Errorf(diag.ImgNoLoader, b.nodePos(n), path, "images are not available in this context")
 		return
 	}
 	img, err := b.images.Load(style.BackgroundImage)
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			b.diags.Errorf("resource/limit", b.nodePos(n), path, "%v", err)
+			b.diags.Errorf(diag.ResourceLimit, b.nodePos(n), path, "%v", err)
 			return
 		}
-		b.diags.Errorf("img/load", b.nodePos(n), path, "%v", err)
+		b.diags.Errorf(diag.ImgLoad, b.nodePos(n), path, "%v", err)
 		return
 	}
 	*dst = img
@@ -581,7 +604,7 @@ func (b *builder) loadBackground(style *css.Style, n *html.Node, dst **ImageData
 func (b *builder) span(n *html.Node, name string) int {
 	value, ok := spanAttr(n, name)
 	if !ok {
-		b.diags.Errorf("html/invalid-span", b.nodePos(n), n.Path(), "%s value is outside 1..%d", name, css.MaxTableSpan)
+		b.diags.Errorf(diag.HTMLInvalidSpan, b.nodePos(n), n.Path(), "%s value is outside 1..%d", name, css.MaxTableSpan)
 		return 1
 	}
 	return value

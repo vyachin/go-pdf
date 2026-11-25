@@ -22,6 +22,20 @@ type kerning struct {
 	// scannedRanges counts the coverage entries examined across the whole
 	// table, so a corrupt font cannot make one file buy unbounded work.
 	scannedRanges int
+	// declaredPairs counts the explicit pairs the format 1 subtables of the
+	// whole table declare, so repeated PairSet offsets cannot expand one file
+	// into millions of map entries.
+	declaredPairs int
+	// markGlyphs holds the glyphs GDEF classes as marks, so IgnoreMarks and a
+	// mark filtering set can skip them. Nil when the font has no GDEF.
+	markGlyphs map[uint16]bool
+	// markSets holds the GDEF mark filtering sets, indexed by the lookup's
+	// markFilteringSet. Nil when the font declares none.
+	markSets [][]uint16
+	// flagIgnoreMarks and flagFilter are the flags of the lookup being parsed,
+	// copied into each pairLookup and markLookup as it is built.
+	flagIgnoreMarks bool
+	flagFilter      map[uint16]bool
 	// guard bounds the work and carries cancellation. Nil means no limit.
 	guard *budget.Guard
 }
@@ -33,6 +47,19 @@ const (
 	maxGPOSSubtables = 4096
 	maxScannedRanges = 1_000_000
 )
+
+// GPOS lookup flags the engine honours.
+const (
+	flagIgnoreMarks         = 0x0008
+	flagUseMarkFilteringSet = 0x0010
+)
+
+// maxKerningPairs bounds the explicit pairs a font may declare. A PairSet costs
+// four bytes per pair, but several PairSet offsets may point at the same data,
+// so the file size alone bounds nothing: a 264 KB font can otherwise declare
+// 16,380 covered glyphs times 65,535 pairs. Real fonts are far below the cap;
+// DejaVu Sans declares a few thousand.
+const maxKerningPairs = 200_000
 
 // limitf reports a font that crossed one of the parsing bounds above.
 func limitf(format string, args ...any) error {
@@ -73,6 +100,12 @@ type pairLookup struct {
 	pairs map[uint32]int16
 	// classes are the class-based PairPos format 2 subtables in file order.
 	classes []*classSubtable
+	// ignoreMarks is the lookup's IgnoreMarks flag: a mark glyph does not
+	// participate in the pair.
+	ignoreMarks bool
+	// filter is the lookup's mark filtering set: a mark outside it does not
+	// participate in the pair.
+	filter map[uint16]bool
 }
 
 // classSubtable is one class-based (format 2) PairPos subtable.
@@ -105,11 +138,20 @@ func (f *Font) parseGPOS() error {
 		return nil
 	}
 	k := &kerning{guard: f.guard}
+	k.markGlyphs, k.markSets = parseGDEF(f.tables["GDEF"])
+	// A lookup that belongs to another script or feature must not apply to
+	// ordinary text: only the default script's kern, mark and mkmk features
+	// are enabled. A font without a usable ScriptList keeps every lookup, as
+	// the engine did before the selection existed.
+	enabled := enabledLookups(gpos)
 	count := int(binary.BigEndian.Uint16(gpos[lookupList : lookupList+2]))
 	if count > maxGPOSLookups {
 		return limitf("GPOS declares %d lookups, the limit is %d", count, maxGPOSLookups)
 	}
 	for i := 0; i < count; i++ {
+		if enabled != nil && !enabled[i] {
+			continue
+		}
 		if err := k.check(); err != nil {
 			return err
 		}
@@ -128,11 +170,26 @@ func (f *Font) parseGPOS() error {
 		if lookupType != 2 && lookupType != 4 && lookupType != 5 && lookupType != 6 && lookupType != 9 {
 			continue
 		}
+		lookupFlags := binary.BigEndian.Uint16(gpos[off+2 : off+4])
+		k.flagIgnoreMarks = lookupFlags&flagIgnoreMarks != 0
+		k.flagFilter = nil
+		if lookupFlags&flagUseMarkFilteringSet != 0 {
+			idxPos := off + 6 + int(binary.BigEndian.Uint16(gpos[off+4:off+6]))*2
+			if fits(idxPos, 0, 2, len(gpos)) {
+				idx := int(binary.BigEndian.Uint16(gpos[idxPos : idxPos+2]))
+				if idx < len(k.markSets) {
+					k.flagFilter = make(map[uint16]bool, len(k.markSets[idx]))
+					for _, gid := range k.markSets[idx] {
+						k.flagFilter[gid] = true
+					}
+				}
+			}
+		}
 		subCount := int(binary.BigEndian.Uint16(gpos[off+4 : off+6]))
 		if subCount > maxGPOSSubtables {
 			return limitf("GPOS lookup %d declares %d subtables, the limit is %d", i, subCount, maxGPOSSubtables)
 		}
-		lookup := &pairLookup{pairs: map[uint32]int16{}}
+		lookup := &pairLookup{pairs: map[uint32]int16{}, ignoreMarks: k.flagIgnoreMarks, filter: k.flagFilter}
 		for j := 0; j < subCount; j++ {
 			if err := k.charge(1); err != nil {
 				return err
@@ -167,6 +224,8 @@ func (f *Font) parseGPOS() error {
 				if mark == nil {
 					continue
 				}
+				mark.ignoreMarks = k.flagIgnoreMarks
+				mark.filter = k.flagFilter
 				if f.marks == nil {
 					f.marks = &markAttachment{}
 				}
@@ -244,6 +303,30 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) error {
 	case 1:
 		pairSetCount := int(binary.BigEndian.Uint16(data[off+8 : off+10]))
 		recordSize := valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2)
+		// Count the declared pairs before building the map: PairSet offsets
+		// are independent of the pair data, so a small file can point every
+		// covered glyph at one huge PairSet and expand it thousands of times.
+		declared := 0
+		for i := 0; i < pairSetCount && i < len(cover); i++ {
+			setPos := off + 10 + i*2
+			if !fits(setPos, 0, 2, len(data)) {
+				return nil
+			}
+			setOff := off + int(binary.BigEndian.Uint16(data[setPos:setPos+2]))
+			if !fits(setOff, 0, 2, len(data)) {
+				continue
+			}
+			n := int(binary.BigEndian.Uint16(data[setOff : setOff+2]))
+			// One unit per pair, charged before the loop that expands them.
+			if err := k.charge(uint64(n) + 1); err != nil {
+				return err
+			}
+			if k.declaredPairs > maxKerningPairs-n || declared > maxKerningPairs-k.declaredPairs-n {
+				return limitf("GPOS declares more than %d pairs", maxKerningPairs)
+			}
+			declared += n
+		}
+		k.declaredPairs += declared
 		for i := 0; i < pairSetCount && i < len(cover); i++ {
 			setPos := off + 10 + i*2
 			if !fits(setPos, 0, 2, len(data)) {
@@ -425,6 +508,11 @@ func (k *kerning) parseCoverage(data []byte, off, limit int) ([]uint16, bool, er
 			}
 			prevEnd = end
 		}
+		// Charge the expansion, not only the ranges: two ranges can describe
+		// the whole glyph space while costing twelve bytes.
+		if err := k.charge(uint64(total) + 1); err != nil {
+			return nil, false, err
+		}
 		out := make([]uint16, 0, total)
 		for i := 0; i < n; i++ {
 			base := off + 4 + i*6
@@ -507,6 +595,9 @@ func (f *Font) Kerning(left, right uint16) int32 {
 	}
 	var total int32
 	for _, lookup := range f.gpos.lookups {
+		if !f.gpos.participates(lookup, left) || !f.gpos.participates(lookup, right) {
+			continue
+		}
 		if v, ok := lookup.adjust(left, right); ok {
 			total += int32(v)
 		}
@@ -548,4 +639,186 @@ func (s *classSubtable) adjust(left, right uint16) (int16, bool) {
 		return 0, false
 	}
 	return s.records[c1][c2], true
+}
+
+// participates reports whether a glyph takes part in a lookup whose flags
+// mention marks: IgnoreMarks skips every mark, and a mark filtering set skips
+// the marks outside it.
+func (k *kerning) participates(l *pairLookup, gid uint16) bool {
+	if !k.markGlyphs[gid] {
+		return true
+	}
+	if l.ignoreMarks {
+		return false
+	}
+	if l.filter != nil && !l.filter[gid] {
+		return false
+	}
+	return true
+}
+
+// ordinaryScripts are the scripts whose text the profile lays out as ordinary
+// text: Latin, Cyrillic, Greek and Hebrew, plus the default script. The engine
+// does not segment a run by script, but a feature under another script (Arabic
+// joining, Indic reordering) belongs to shaping it does not perform, so those
+// lookups stay disabled.
+var ordinaryScripts = []string{"DFLT", "latn", "cyrl", "grek", "hebr"}
+
+// enabledLookups returns the lookup indices the ordinary scripts' kern, mark and
+// mkmk features reference. It returns nil when the table has no usable
+// ScriptList or names none of the ordinary scripts, which means "every lookup":
+// a crafted or single-script table without a script list still applies.
+func enabledLookups(gpos []byte) map[int]bool {
+	scriptList := int(binary.BigEndian.Uint16(gpos[4:6]))
+	featureList := int(binary.BigEndian.Uint16(gpos[6:8]))
+	if scriptList == 0 || featureList == 0 || !fits(scriptList, 0, 2, len(gpos)) {
+		return nil
+	}
+	scripts := scriptTables(gpos, scriptList)
+	var offs []int
+	for _, tag := range ordinaryScripts {
+		if off, ok := scripts[tag]; ok {
+			offs = append(offs, off)
+		}
+	}
+	if len(offs) == 0 {
+		return nil
+	}
+	out := map[int]bool{}
+	for _, off := range offs {
+		langSys := defaultLangSys(gpos, off)
+		if langSys < 0 {
+			continue
+		}
+		for _, index := range langSysFeatures(gpos, langSys) {
+			for _, lookup := range featureLookups(gpos, featureList, index) {
+				out[lookup] = true
+			}
+		}
+	}
+	return out
+}
+
+// scriptTables maps each script tag to the offset of its Script table.
+func scriptTables(gpos []byte, scriptList int) map[string]int {
+	out := map[string]int{}
+	count := int(binary.BigEndian.Uint16(gpos[scriptList : scriptList+2]))
+	for i := 0; i < count; i++ {
+		rec := scriptList + 2 + i*6
+		if !fits(rec, 0, 6, len(gpos)) {
+			break
+		}
+		tag := string(gpos[rec : rec+4])
+		off := scriptList + int(binary.BigEndian.Uint16(gpos[rec+4:rec+6]))
+		if !fits(off, 0, 4, len(gpos)) {
+			continue
+		}
+		out[tag] = off
+	}
+	return out
+}
+
+// defaultLangSys returns the offset of the DefaultLangSys of one script, or -1.
+func defaultLangSys(gpos []byte, script int) int {
+	off := int(binary.BigEndian.Uint16(gpos[script : script+2]))
+	if off == 0 || !fits(script+off, 0, 6, len(gpos)) {
+		return -1
+	}
+	return script + off
+}
+
+// langSysFeatures returns the feature indices of one LangSys, required first.
+func langSysFeatures(gpos []byte, langSys int) []int {
+	required := int(binary.BigEndian.Uint16(gpos[langSys+2 : langSys+4]))
+	count := int(binary.BigEndian.Uint16(gpos[langSys+4 : langSys+6]))
+	out := make([]int, 0, count+1)
+	if required != 0xFFFF {
+		out = append(out, required)
+	}
+	for i := 0; i < count; i++ {
+		if !fits(langSys, uint64(6+i*2), 2, len(gpos)) {
+			break
+		}
+		out = append(out, int(binary.BigEndian.Uint16(gpos[langSys+6+i*2:langSys+8+i*2])))
+	}
+	return out
+}
+
+// featureLookups returns the lookups of one feature record when the feature is
+// kern, mark or mkmk.
+func featureLookups(gpos []byte, featureList, index int) []int {
+	count := int(binary.BigEndian.Uint16(gpos[featureList : featureList+2]))
+	if index < 0 || index >= count {
+		return nil
+	}
+	rec := featureList + 2 + index*6
+	if !fits(rec, 0, 6, len(gpos)) {
+		return nil
+	}
+	tag := string(gpos[rec : rec+4])
+	switch tag {
+	case "kern", "mark", "mkmk":
+	default:
+		return nil
+	}
+	off := featureList + int(binary.BigEndian.Uint16(gpos[rec+4:rec+6]))
+	if !fits(off, 0, 4, len(gpos)) {
+		return nil
+	}
+	n := int(binary.BigEndian.Uint16(gpos[off+2 : off+4]))
+	out := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		if !fits(off, uint64(4+i*2), 2, len(gpos)) {
+			break
+		}
+		out = append(out, int(binary.BigEndian.Uint16(gpos[off+4+i*2:off+6+i*2])))
+	}
+	return out
+}
+
+// parseGDEF reads the glyph class definition and the mark filtering sets of a
+// font's GDEF table. A missing or malformed table returns nil maps: the engine
+// then has no marks to skip, which is what a font without GDEF declares.
+func parseGDEF(data []byte) (map[uint16]bool, [][]uint16) {
+	if len(data) < 12 {
+		return nil, nil
+	}
+	var marks map[uint16]bool
+	if classOff := int(binary.BigEndian.Uint16(data[4:6])); classOff != 0 {
+		if ranges, ok := parseClassDef(data, classOff); ok {
+			for _, r := range ranges {
+				if r.class != 3 {
+					continue
+				}
+				if marks == nil {
+					marks = map[uint16]bool{}
+				}
+				for g := uint32(r.start); g <= uint32(r.end); g++ {
+					marks[uint16(g)] = true
+				}
+			}
+		}
+	}
+	var sets [][]uint16
+	if setOff := int(binary.BigEndian.Uint16(data[10:12])); setOff != 0 && fits(setOff, 0, 4, len(data)) {
+		if binary.BigEndian.Uint16(data[setOff:setOff+2]) == 1 {
+			n := int(binary.BigEndian.Uint16(data[setOff+2 : setOff+4]))
+			sets = make([][]uint16, n)
+			k := &kerning{}
+			for i := 0; i < n; i++ {
+				pos := setOff + 4 + i*4
+				raw, ok := readU32(data, pos)
+				if !ok {
+					break
+				}
+				off := setOff + int(raw)
+				cover, ok, err := k.parseCoverage(data, off, maxKerningGlyphs)
+				if err != nil || !ok {
+					continue
+				}
+				sets[i] = cover
+			}
+		}
+	}
+	return marks, sets
 }

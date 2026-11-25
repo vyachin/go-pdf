@@ -27,6 +27,11 @@ var (
 
 // Pages returns the extracted text of every page, in page-tree order.
 func Pages(data []byte) ([]string, error) {
+	if err := Validate(data); err != nil {
+		// A structurally corrupt file must not produce the same text as a valid
+		// one: the extractor would otherwise certify the writer's mistake.
+		return nil, err
+	}
 	objects := splitObjects(data)
 	toUniByID := buildToUniByID(objects)
 	fontMaps := contentFontMaps(objects, toUniByID)
@@ -157,6 +162,9 @@ func contentRefs(body []byte) []int {
 // Text returns the text of the whole document with form feed separators
 // between pages, similar to pdftotext.
 func Text(data []byte) (string, error) {
+	if err := Validate(data); err != nil {
+		return "", err
+	}
 	pages, err := Pages(data)
 	if err != nil {
 		return "", err
@@ -434,6 +442,9 @@ func PageCount(data []byte) (int, error) {
 // page. A page whose content stream draws no text yields an empty string;
 // Pages, which predates this function, drops such a page instead.
 func PageTexts(data []byte) ([]string, error) {
+	if err := Validate(data); err != nil {
+		return nil, err
+	}
 	refs, err := pageRefs(data)
 	if err != nil {
 		return nil, err

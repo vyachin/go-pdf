@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vyachin/go-pdf/internal/testfont"
 	"go/build"
 	"image"
 	"image/color"
@@ -14,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,29 +30,7 @@ import (
 
 func testFontPath(t testing.TB) string {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
-	}
-	// The bundled font keeps results identical on every platform and in CI.
-	candidates = append(candidates, filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			"/System/Library/Fonts/Supplemental/Arial.ttf",
-			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-		)
-	}
-	candidates = append(candidates,
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
-	return ""
+	return testfont.Path(t)
 }
 
 func TestConvertProducesValidPDF(t *testing.T) {
@@ -142,6 +120,12 @@ func pdfcpuPath(t *testing.T) string {
 
 func validateWithPDFCPU(t *testing.T, data []byte) {
 	t.Helper()
+	// The debug extractor's structural check always runs: it needs no external
+	// tool, and it catches a wrong /Length or a shifted xref that a text
+	// extraction would read straight through.
+	if err := pdfdebug.Validate(data); err != nil {
+		t.Fatalf("the produced PDF is structurally invalid: %v", err)
+	}
 	bin := pdfcpuPath(t)
 	if bin == "" {
 		return
@@ -496,7 +480,7 @@ func TestStrictModeRejectsScripts(t *testing.T) {
 
 func hasCode(l diag.List, code string) bool {
 	for _, d := range l {
-		if d.Code == code {
+		if string(d.Code) == code {
 			return true
 		}
 	}

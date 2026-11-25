@@ -41,7 +41,9 @@ type Position struct {
 // Diagnostic is a single problem report.
 type Diagnostic struct {
 	Severity Severity
-	// Code is a stable machine-readable identifier, for example "css/unsupported-value".
+	// Code is the stable machine-readable identifier declared in the registry
+	// in codes.go, for example "css/unsupported-value". Errorf and Warnf accept
+	// only a registered diag.Code, so a literal cannot reach a diagnostic.
 	Code    string
 	Message string
 	Pos     Position
@@ -84,10 +86,10 @@ func (d Diagnostic) String() string {
 type List []Diagnostic
 
 // Errorf appends an error diagnostic.
-func (l *List) Errorf(code string, pos Position, element, format string, args ...any) {
+func (l *List) Errorf(code Code, pos Position, element, format string, args ...any) {
 	*l = append(*l, Diagnostic{
 		Severity: Error,
-		Code:     code,
+		Code:     string(code),
 		Message:  fmt.Sprintf(format, args...),
 		Pos:      pos,
 		Element:  element,
@@ -95,10 +97,10 @@ func (l *List) Errorf(code string, pos Position, element, format string, args ..
 }
 
 // Warnf appends a warning diagnostic.
-func (l *List) Warnf(code string, pos Position, element, format string, args ...any) {
+func (l *List) Warnf(code Code, pos Position, element, format string, args ...any) {
 	*l = append(*l, Diagnostic{
 		Severity: Warning,
-		Code:     code,
+		Code:     string(code),
 		Message:  fmt.Sprintf(format, args...),
 		Pos:      pos,
 		Element:  element,

@@ -127,7 +127,7 @@ func (e *ParseError) Unwrap() error { return e.Err }
 func parseStandardTree(text []byte) (tree *xhtml.Node, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			tree, err = nil, &ParseError{Code: "html/parse", Err: fmt.Errorf("tree construction failed: %v", r)}
+			tree, err = nil, &ParseError{Code: string(diag.HTMLParse), Err: fmt.Errorf("tree construction failed: %v", r)}
 		}
 	}()
 	tree, err = xhtml.Parse(bytes.NewReader(text))
@@ -135,7 +135,7 @@ func parseStandardTree(text []byte) (tree *xhtml.Node, err error) {
 		if strings.Contains(err.Error(), "open stack of elements exceeds") {
 			return nil, fmt.Errorf("%w: %v", budget.ErrExceeded, err)
 		}
-		return nil, &ParseError{Code: "html/parse", Err: err}
+		return nil, &ParseError{Code: string(diag.HTMLParse), Err: err}
 	}
 	return tree, nil
 }
@@ -216,13 +216,14 @@ func (b *builder) node(n *xhtml.Node, parent *Node) {
 // textNode appends character data, merging it into the previous text node when
 // there is one, so a run of text between two elements is a single node.
 func (b *builder) textNode(n *xhtml.Node, parent *Node) {
-	start, end, ok := b.textPosition()
 	data := n.Data
+	start, end, ok := b.textSpanFor(data)
 	// A style or script element holds its source verbatim: the tree's text is
 	// unescaped and has its line endings normalized, which would shift the byte
 	// offsets the CSS parser maps back to the document.
 	if ok && (parent.Tag == "style" || parent.Tag == "script") {
-		// The offsets are decoded ones, so the slice is of the decoded text.
+		// The span was verified against the node's own text, so the decoded
+		// slice is this element's content.
 		data = string(b.doc.text[start:end])
 	}
 	// White space between table structure takes no part in layout.
@@ -266,22 +267,58 @@ func (b *builder) startPosition(tag string) (int, int, bool) {
 	return int(s.start), int(s.end), true
 }
 
-// textPosition returns the range of the next text token at or after the current
-// document position.
-func (b *builder) textPosition() (int, int, bool) {
+// textSpanFor returns the range of the text token whose bytes are data. Foster
+// parenting reorders the tree, so the next token in tree order is not
+// necessarily this node's content: matching the bytes keeps the content and its
+// position together instead of giving a node another node's span. When no
+// token matches, the node falls back to its parent's range.
+func (b *builder) textSpanFor(data string) (int, int, bool) {
+	if data == "" {
+		return 0, 0, false
+	}
 	for b.spanCur < len(b.scan.spans) {
 		s := b.scan.spans[b.spanCur]
-		b.spanCur++
-		if int(s.start) < b.lower {
+		if s.kind != spanText || int(s.start) < b.lower {
+			b.spanCur++
 			continue
 		}
+		if sameText(string(b.doc.text[s.start:s.end]), data) {
+			b.spanCur++
+			b.lower = int(s.end)
+			return int(s.start), int(s.end), true
+		}
+		break
+	}
+	// A node the tree placed out of source order: its token is behind the
+	// cursor. Search the whole document, which keeps the content and the
+	// position of a fostered node correct.
+	for _, s := range b.scan.spans {
 		if s.kind != spanText {
 			continue
 		}
-		b.lower = int(s.end)
-		return int(s.start), int(s.end), true
+		if sameText(string(b.doc.text[s.start:s.end]), data) {
+			return int(s.start), int(s.end), true
+		}
 	}
 	return 0, 0, false
+}
+
+// sameText reports whether two strings are equal once line endings are
+// normalized, which is what the tree does to a raw-text element's contents: the
+// span still holds the source verbatim, CRLF included.
+func sameText(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return normalizeLineEndings(a) == normalizeLineEndings(b)
+}
+
+func normalizeLineEndings(s string) string {
+	if !strings.ContainsRune(s, '\r') {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
 }
 
 // lastChild returns the last child of n, or nil.

@@ -12,18 +12,22 @@ import (
 // safe: cmap, hmtx and composite references stay valid.
 func (f *Font) Subset(used map[uint16]bool) ([]byte, error) {
 	need := map[uint16]bool{0: true}
-	var visit func(gid uint16, depth int)
-	visit = func(gid uint16, depth int) {
-		if need[gid] || depth > 8 || gid >= f.numGlyphs {
-			return
+	// Every component of a used glyph is kept, however deep the chain is: a
+	// glyph whose component was dropped renders incomplete. The visited set
+	// already stops a cycle, and an explicit stack keeps a long chain from
+	// recursing once per level.
+	stack := make([]uint16, 0, len(used))
+	for g := range used {
+		stack = append(stack, g)
+	}
+	for len(stack) > 0 {
+		gid := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if need[gid] || gid >= f.numGlyphs {
+			continue
 		}
 		need[gid] = true
-		for _, comp := range f.components(gid) {
-			visit(comp, depth+1)
-		}
-	}
-	for g := range used {
-		visit(g, 0)
+		stack = append(stack, f.components(gid)...)
 	}
 
 	newGlyf := make([]byte, 0, len(f.glyf)/4+1024)

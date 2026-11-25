@@ -662,3 +662,18 @@ func TestHiddenAttributeHidesContent(t *testing.T) {
 		t.Fatalf("extracted text = %q", text)
 	}
 }
+
+// TestCharsetSupportedAcceptsTheEmptyName guards RV4-59: the empty Options
+// Charset is a valid request that means "detect", so CharsetSupported reports
+// true for it, while an unsupported name still reports false.
+func TestCharsetSupportedAcceptsTheEmptyName(t *testing.T) {
+	if !pdfgen.CharsetSupported("") {
+		t.Fatal("the empty name is a valid request")
+	}
+	if pdfgen.CharsetSupported("shift_jis") {
+		t.Fatal("an unsupported encoding reported true")
+	}
+	if !pdfgen.CharsetSupported("windows-1251") {
+		t.Fatal("a supported encoding reported false")
+	}
+}

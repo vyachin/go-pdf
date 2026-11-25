@@ -8,7 +8,6 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
-	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // PageStyle is the resolved page setup from @page rules.
@@ -94,7 +93,7 @@ func (l *layouter) paintMarginBoxes() {
 	}
 	face, err := l.ctx.Fonts.Face([]string{"serif"}, 400, false, 10000)
 	if err != nil {
-		l.diags.Warnf("page/margin-box", diag.Position{}, "", "cannot load a font for margin boxes: %v", err)
+		l.diags.Warnf(diag.PageMarginBox, diag.Position{}, "", "cannot load a font for margin boxes: %v", err)
 		return
 	}
 	names := slices.Sorted(maps.Keys(l.pageStyle.Boxes))
@@ -107,11 +106,11 @@ func (l *layouter) paintMarginBoxes() {
 			if label == "" {
 				continue
 			}
-			run, err := text.Shape(face.Font, face.Size, label)
+			run, err := l.shape(face, label)
 			if err != nil {
 				// Losing a header or footer silently is not acceptable: report
 				// it the same way body text reports a missing glyph.
-				l.diags.Errorf("text/glyph", diag.Position{}, "", "margin box %s: %v", name, err)
+				l.diags.Errorf(diag.TextGlyph, diag.Position{}, "", "margin box %s: %v", name, err)
 				continue
 			}
 			var x, y int32

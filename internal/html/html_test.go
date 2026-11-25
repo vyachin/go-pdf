@@ -851,3 +851,105 @@ func TestTruncatedMarkupIsReported(t *testing.T) {
 		}
 	}
 }
+
+// TestPrevElementSiblingIsMaintained guards the constant-time `+` selector hop:
+// the tree records the preceding element sibling when a child is appended or
+// inserted, and foster parenting inserts instead of scanning.
+func TestPrevElementSiblingIsMaintained(t *testing.T) {
+	doc, err := Parse([]byte(`<div><a id="a"></a>text<b id="b"></b><!--c--><i id="i"></i></div>`), "test.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := mustFindElement(t, doc.Root, "a")
+	b := mustFindElement(t, doc.Root, "b")
+	i := mustFindElement(t, doc.Root, "i")
+	if a.PrevElementSibling() != nil {
+		t.Fatal("the first element reports a preceding sibling")
+	}
+	if b.PrevElementSibling() != a {
+		t.Fatal("b does not point at a")
+	}
+	if i.PrevElementSibling() != b {
+		t.Fatal("i does not point at b across a text node and a comment")
+	}
+}
+
+// TestPrevElementSiblingSurvivesFosterParenting guards the insertion path: a
+// fostered element is inserted before the table, so the hop from the table and
+// from a later fostered element must follow the new order.
+func TestPrevElementSiblingSurvivesFosterParenting(t *testing.T) {
+	doc, err := Parse([]byte(`<div><table><style>p{color:red}</style><tr><td>x</td></tr></table><b id="after"></b></div>`), "test.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := mustFindElement(t, doc.Root, "style")
+	table := mustFindElement(t, doc.Root, "table")
+	after := mustFindElement(t, doc.Root, "b")
+	// The parser builds an implied <tbody> by insertion, and the fostered text
+	// is moved out of the table; both rewrite the child list, so the hop from
+	// every following element must follow the new order.
+	tbody := mustFindElement(t, doc.Root, "tbody")
+	if style.PrevElementSibling() != nil {
+		t.Fatalf("the first table child points at %v", style.PrevElementSibling().Tag)
+	}
+	if tbody.PrevElementSibling() != style {
+		t.Fatal("the implied tbody does not point at the style")
+	}
+	if table.PrevElementSibling() != nil {
+		t.Fatalf("the table points at %v", table.PrevElementSibling().Tag)
+	}
+	if after.PrevElementSibling() != table {
+		t.Fatal("the parallel element does not point at the table")
+	}
+}
+
+// mustFindElement returns the first element with the tag under n.
+func mustFindElement(t *testing.T, n *Node, tag string) *Node {
+	t.Helper()
+	found := findElement(n, tag)
+	if found == nil {
+		t.Fatalf("no <%s> in the tree", tag)
+	}
+	return found
+}
+
+// TestFosteredStyleKeepsItsOwnSpan guards RV4-10: foster parenting moves the
+// text after a <style> before the table, so tree order no longer matches source
+// order. The style's content must still be the CSS written inside it, and its
+// range must still be its own.
+func TestFosteredStyleKeepsItsOwnSpan(t *testing.T) {
+	src := []byte(`<table><style>p{color:red}</style>p{color:blue}<tr><td>y</td></tr></table>`)
+	doc, err := Parse(src, "foster.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := findElement(doc.Root, "style")
+	if style == nil || len(style.Children) == 0 {
+		t.Fatal("no style element with content")
+	}
+	text := style.Children[0]
+	if text.Data != "p{color:red}" {
+		t.Fatalf("the style content is %q, want p{color:red}", text.Data)
+	}
+	if got := string(doc.Source()[text.Start:text.End]); got != "p{color:red}" {
+		t.Fatalf("the style range holds %q", got)
+	}
+	// The fostered text is its own node, with its own content and position.
+	var fostered *Node
+	var walk func(*Node)
+	walk = func(n *Node) {
+		if n.Type == TextNode && n.Data == "p{color:blue}" {
+			fostered = n
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(doc.Root)
+	if fostered == nil {
+		t.Fatal("the foster-parented text is missing")
+	}
+	if got := string(doc.Source()[fostered.Start:fostered.End]); got != "p{color:blue}" {
+		t.Fatalf("the fostered text range holds %q", got)
+	}
+}

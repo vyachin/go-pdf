@@ -47,10 +47,13 @@ that a module now covers.
   `hmtx` and `glyf`, but it does not expose the raw tables the subsetter
   rewrites and it cannot subset. Adopting it would keep the private parser and
   add a second one, so it stays a test oracle instead: `sfnt_oracle_test.go`
-  compares the character map, the advances, the vertical metrics and every
-  outline against it, and `sfnt_subset_test.go` hands it the subsetter's
-  rewritten tables. Kerning is not compared — `sfnt` reads a Latin-only subset
-  of `GPOS`.
+  compares the character map, the advances and the vertical metrics of every
+  corpus font, the outline of every glyph segment by segment for TrueType, and
+  the outline anchors of a converted CFF font, and `sfnt_subset_test.go` hands
+  it the subsetter's rewritten tables. A glyph the oracle cannot compare —
+  coloured, missing, or a charstring whose operators sfnt rejects — is counted
+  and logged, never skipped silently. Kerning is not compared — `sfnt` reads a
+  Latin-only subset of `GPOS`.
 - **Debug raster scaler** (`internal/backend/raster`). Nearest-neighbour
   scaling is deliberate: `testdata/golden/render` is compared pixel by pixel,
   and any interpolation would make every golden depend on the filter.
@@ -168,12 +171,22 @@ needs Go 1.26 or newer, which the module's Go minimum already provides.
 
 ## Performance
 
-On an Apple M2 Pro: one page ≈ 2.5 ms, a 50-page document ≈ 115 ms with about
-102 MB of total allocations.
+The table below is indicative, not a gate: it was measured on an Apple M2 Pro
+with
 
-`go test ./internal/engine -bench .` reports the current numbers; `PDF_PERF=1`
-runs an opt-in performance report that logs the timings and allocations. Timing
-is environment dependent, so the suite asserts no elapsed-time budget.
+```bash
+go test ./internal/engine -bench 'Convert' -benchtime 10x
+```
+
+| Benchmark | Time per run | Allocations |
+|---|---|---|
+| `BenchmarkConvertOnePage` | ≈ 4 ms | ≈ 7 MB |
+| `BenchmarkConvertFiftyPages` | ≈ 91 ms | ≈ 114 MB |
+
+Timing is environment dependent, so the suite asserts no elapsed-time budget and
+these numbers are refreshed with a release rather than with every change.
+`PDF_PERF=1` runs an opt-in performance report that logs timings and
+allocations for the same documents.
 
 ## Continuous integration
 
@@ -182,7 +195,7 @@ own check:
 
 | Job | Runs | Tools |
 |---|---|---|
-| `unit` | `go vet` and the shuffled suite with `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
+| `unit` | `go vet` and the shuffled suite with `PDF_REQUIRE_VALIDATOR=1`, plus the coverage floor | Go, `pdfcpu` |
 | `race` | the shuffled suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
 | `golden` | both snapshot layers explicitly (a skipped layer fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
 | `fuzz` | a short fuzz session per target | Go |

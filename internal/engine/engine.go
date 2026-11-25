@@ -9,7 +9,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -155,13 +154,18 @@ type Result struct {
 	Diagnostics diag.List
 }
 
-// ErrNotImplemented is returned by pipeline stages that are not wired up yet.
-var ErrNotImplemented = errors.New("engine: not implemented")
-
 // Validate parses and checks a template without writing a PDF. It runs the same
-// preparation and layout as Convert, so it reports the same problems: a missing
-// image, an unsupported colour space or a character without a glyph fails here
-// exactly as it fails in Convert.
+// preparation and layout as Convert, including the metadata checks, so it
+// reports the same problems: a missing image, an unsupported colour space, a
+// character without a glyph or an invalid title fails here exactly as it fails
+// in Convert.
+//
+// PDF serialisation is the only stage Validate does not run. That stage decides
+// very little — whether the document fits the writer's work budget and whether
+// the output could be assembled — so a document that fails in Convert only for a
+// write-side reason is reported as a resource/limit from serialisation. Any
+// check decided before serialisation is shared, so a gate built on Validate
+// cannot pass a document Convert rejects.
 func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

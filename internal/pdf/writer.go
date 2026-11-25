@@ -9,9 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"image"
 	"image/color"
 	"image/jpeg"
-	"image/png"
 	"math"
 	"slices"
 	"strconv"
@@ -69,6 +69,9 @@ type Image struct {
 	Format string // "jpeg" or "png"
 	PixelW int
 	PixelH int
+	// Decoded is the image the loader already decoded, when it has one. The
+	// writer reuses it instead of decoding the same PNG a second time.
+	Decoded image.Image
 }
 
 // Op is one drawing operation of a page.
@@ -314,6 +317,11 @@ func (d *Doc) Bytes() ([]byte, error) {
 			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
 		}
 		fe.subset = subset
+		// Subsetting, the CID map, /W and the ToUnicode map all grow with the
+		// glyphs and the distinct glyph-rune pairs of the font.
+		if err := d.opts.Budget.Add(uint64(len(fe.used) + len(fe.pairs) + 1)); err != nil {
+			return nil, err
+		}
 		if len(fe.pairs) > 0xFFFF {
 			return nil, fmt.Errorf("%w: one font needs %d distinct glyph-rune pairs, the limit is 65535", budget.ErrExceeded, len(fe.pairs))
 		}
@@ -321,9 +329,15 @@ func (d *Doc) Bytes() ([]byte, error) {
 		fontID, cidID := fe.ids[0], fe.ids[1]
 		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
 		cidMapID := fe.ids[5]
-		baseName := subsetTag(fe.subset) + "+" + sanitizeName(fe.font.Family(), fe.font.Subfamily())
-		widths := fe.widthArray()
-		toUni := fe.toUnicodeCMap()
+		baseName := baseFontName(subsetTag(fe.subset), fe.font.Family(), fe.font.Subfamily())
+		widths, err := fe.widthArray(d.opts.Budget)
+		if err != nil {
+			return nil, err
+		}
+		toUni, err := fe.toUnicodeCMap(d.opts.Budget)
+		if err != nil {
+			return nil, err
+		}
 
 		w.set(fontID, []byte(fmt.Sprintf(
 			"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
@@ -352,7 +366,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	// Image objects. A PNG with transparency needs a second stream for its
 	// soft mask; the allocator registers it and returns its object id.
 	for _, im := range images {
-		body, err := imageObject(im.image, func(mask []byte) int {
+		body, err := imageObject(d.opts.Budget, im.image, func(mask []byte) int {
 			id := w.add()
 			w.set(id, mask)
 			return id
@@ -368,7 +382,10 @@ func (d *Doc) Bytes() ([]byte, error) {
 		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
 			return nil, err
 		}
-		content := d.contentStream(p, fonts, fontNames, imageNames)
+		content, err := d.contentStream(p, fonts, fontNames, imageNames)
+		if err != nil {
+			return nil, err
+		}
 		w.set(contentIDs[i], streamObject(content, true))
 		var fontRes, imageRes strings.Builder
 		for fi, fe := range fonts {
@@ -434,7 +451,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	}
 	id := hex.EncodeToString(hash.Sum(nil))[:32]
 
-	return assemble(w, catalogID, infoID, id)
+	return assemble(d.opts.Budget, w, catalogID, infoID, id)
 }
 
 // nominalWidth1000 returns a glyph width in thousandths of an em, rounded the
@@ -447,24 +464,49 @@ func nominalWidth1000(f *font.Font, gid uint16) int32 {
 	return int32(math.Round(float64(f.Advance(gid)) * 1000 / upem))
 }
 
-func (fe *fontEntry) widthArray() string {
-	// CIDs are contiguous from zero, so one group describes every width.
+// maxArrayElements is the compatibility limit for one array in a content
+// stream or a font dictionary. Viewers accept it and a larger array can trip
+// their parser.
+const maxArrayElements = 8191
+
+func (fe *fontEntry) widthArray(guard *budget.Guard) (string, error) {
 	widths := make([]string, len(fe.cidGID))
 	for cid, gid := range fe.cidGID {
 		widths[cid] = fmt.Sprintf("%d", nominalWidth1000(fe.font, gid))
 	}
-	if len(widths) == 0 {
-		return ""
+	if err := guard.Add(uint64(len(widths)) + 1); err != nil {
+		return "", err
 	}
-	return fmt.Sprintf("0 [%s]", strings.Join(widths, " "))
+	if len(widths) == 0 {
+		return "", nil
+	}
+	// CIDs are contiguous from zero. A font subset can carry thousands of
+	// distinct widths, so /W is written as several startCID groups, none
+	// larger than the compatibility limit.
+	var groups []string
+	for start := 0; start < len(widths); start += maxArrayElements {
+		end := start + maxArrayElements
+		if end > len(widths) {
+			end = len(widths)
+		}
+		groups = append(groups, fmt.Sprintf("%d [%s]", start, strings.Join(widths[start:end], " ")))
+	}
+	if err := guard.Add(uint64(len(groups))); err != nil {
+		return "", err
+	}
+	return strings.Join(groups, " "), nil
 }
 
-func (fe *fontEntry) toUnicodeCMap() []byte {
+func (fe *fontEntry) toUnicodeCMap(guard *budget.Guard) ([]byte, error) {
 	var cids []int
 	for cid, r := range fe.cidRune {
 		if r != 0 {
 			cids = append(cids, cid)
 		}
+	}
+	// One unit per entry in the map before it is written.
+	if err := guard.Add(uint64(len(cids)) + 1); err != nil {
+		return nil, err
 	}
 	var b strings.Builder
 	b.WriteString("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
@@ -483,7 +525,7 @@ func (fe *fontEntry) toUnicodeCMap() []byte {
 		b.WriteString("endbfchar\n")
 	}
 	b.WriteString("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
-	return []byte(b.String())
+	return []byte(b.String()), nil
 }
 
 // utf16Hex formats r as the big-endian UTF-16 code units of a PDF string. A
@@ -497,7 +539,7 @@ func utf16Hex(r rune) string {
 	return b.String()
 }
 
-func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, imageNames map[*Image]string) []byte {
+func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, imageNames map[*Image]string) ([]byte, error) {
 	nameOf := map[*font.Font]string{}
 	byFont := map[*font.Font]*fontEntry{}
 	for i, fe := range fonts {
@@ -515,29 +557,72 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 			if op.Text == nil || len(op.Text.Glyphs) == 0 {
 				continue
 			}
+			// Every serialised glyph is charged before it is written.
+			if err := d.opts.Budget.Add(uint64(len(op.Text.Glyphs))); err != nil {
+				return nil, err
+			}
 			fe := byFont[op.Text.Font]
 			name := nameOf[op.Text.Font]
-			fmt.Fprintf(&b, "BT /%s %s Tf %s %s %s rg 1 0 0 1 %s %s Tm [",
+			fmt.Fprintf(&b, "BT /%s %s Tf %s %s %s rg 1 0 0 1 %s %s Tm\n",
 				name, num(op.Text.Size), f3b(op.Color.R), f3b(op.Color.G), f3b(op.Color.B),
 				num(op.Text.X), num(p.height-op.Text.Y))
+			// Contiguous glyphs share one hexadecimal string. A string holds
+			// at most maxArrayElements four-digit CIDs (32,764 bytes, under the
+			// 32,767-byte limit), so a longer run is split across several TJ
+			// operators without moving a glyph.
+			var parts []string
+			var hex strings.Builder
+			flushString := func() {
+				if hex.Len() > 0 {
+					parts = append(parts, "<"+hex.String()+">")
+					hex.Reset()
+				}
+			}
 			for i, g := range op.Text.Glyphs {
-				if i > 0 {
-					b.WriteString(" ")
+				if hex.Len() >= 4*maxArrayElements {
+					flushString()
 				}
 				cid := uint16(0)
 				if fe != nil {
 					cid = fe.cidOf[pairKey(g.GID, g.Rune)]
 				}
-				fmt.Fprintf(&b, "<%04X>", cid)
+				fmt.Fprintf(&hex, "%04X", cid)
 				if i+1 < len(op.Text.Glyphs) {
 					if adj := advanceAdjustment(op.Text.Font, op.Text.Size, g); adj != 0 {
-						fmt.Fprintf(&b, " %d", adj)
+						flushString()
+						parts = append(parts, strconv.Itoa(int(adj)))
 					}
 				}
 			}
-			b.WriteString("] TJ ET\n")
+			flushString()
+			// Each TJ operator carries at most maxArrayElements glyph codes, so
+			// a long run becomes several bounded arrays. All operators stay in
+			// one text object, so the glyph positions are unchanged.
+			var chunk []string
+			chunkCIDs := 0
+			flushChunk := func() {
+				if len(chunk) == 0 {
+					return
+				}
+				fmt.Fprintf(&b, "[%s] TJ\n", strings.Join(chunk, " "))
+				chunk, chunkCIDs = nil, 0
+			}
+			for _, part := range parts {
+				if len(chunk) >= maxArrayElements || chunkCIDs >= maxArrayElements {
+					flushChunk()
+				}
+				chunk = append(chunk, part)
+				chunkCIDs += cidCount(part)
+			}
+			flushChunk()
+			b.WriteString("ET\n")
 		case ImageOpKind:
 			if op.Image == nil {
+				continue
+			}
+			// A zero-area image would emit a non-invertible transformation
+			// matrix; the operation is omitted instead.
+			if op.Rect.W <= 0 || op.Rect.H <= 0 {
 				continue
 			}
 			if clip := op.Clip; clip != nil && clip.W > 0 && clip.H > 0 {
@@ -551,7 +636,7 @@ func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, ima
 				num(op.Rect.W), num(op.Rect.H), num(op.Rect.X), num(p.height-op.Rect.Y-op.Rect.H), imageNames[op.Image])
 		}
 	}
-	return []byte(b.String())
+	return []byte(b.String()), nil
 }
 
 // advanceAdjustment is the TJ number that turns the nominal glyph width into
@@ -592,7 +677,7 @@ func streamObject(data []byte, compress bool) []byte {
 
 // imageObject returns the image XObject. alloc, when not nil, registers the
 // complete image XObject of a PNG's alpha mask and returns its object id.
-func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
+func imageObject(guard *budget.Guard, img *Image, alloc func([]byte) int) ([]byte, error) {
 	switch img.Format {
 	case "jpeg":
 		// The frame header comes from the standard library, so the writer and
@@ -624,61 +709,43 @@ func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 			"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
 			cfg.Width, cfg.Height, colorSpace, len(img.Data), img.Data)), nil
 	case "png":
-		w, h, rgb, alpha, err := pngPixels(img.Data)
+		decoded := img.Decoded
+		var header pngHeader
+		var err error
+		if decoded != nil {
+			header, err = readPNGHeader(img.Data)
+		} else {
+			decoded, header, err = decodedPNG(img.Data, guard)
+		}
 		if err != nil {
 			return nil, err
 		}
-		rgbData, err := deflate(rgb)
+		samples, err := pngToSamples(header, decoded, guard)
 		if err != nil {
 			return nil, err
 		}
-		if alpha == nil {
-			return imageStream(w, h, "/DeviceRGB", rgbData, ""), nil
+		colorData, err := deflate(samples.color)
+		if err != nil {
+			return nil, err
+		}
+		if samples.alpha == nil {
+			return imageStream(samples.width, samples.height, samples.colorSpace, samples.bits, colorData, ""), nil
 		}
 		if alloc == nil {
 			return nil, fmt.Errorf("pdf: a transparent png needs a soft mask object")
 		}
-		maskData, err := deflate(alpha)
+		maskData, err := deflate(samples.alpha)
 		if err != nil {
 			return nil, err
 		}
 		// The mask is an image XObject of its own: /SMask must point at a
 		// complete image stream, not at raw pixel bytes, or validators and
 		// viewers reject the image.
-		maskID := alloc(imageStream(w, h, "/DeviceGray", maskData, ""))
-		return imageStream(w, h, "/DeviceRGB", rgbData, fmt.Sprintf(" /SMask %d 0 R", maskID)), nil
+		maskID := alloc(imageStream(samples.width, samples.height, "/DeviceGray", 8, maskData, ""))
+		return imageStream(samples.width, samples.height, samples.colorSpace, samples.bits, colorData, fmt.Sprintf(" /SMask %d 0 R", maskID)), nil
 	default:
 		return nil, fmt.Errorf("pdf: unsupported image format %q", img.Format)
 	}
-}
-
-// pngPixels decodes a PNG into raw RGB and, when any pixel is not opaque, an
-// alpha channel. The colour channels are unpremultiplied so that a soft mask
-// reproduces the source exactly over any page background.
-func pngPixels(data []byte) (int, int, []byte, []byte, error) {
-	src, err := png.Decode(bytes.NewReader(data))
-	if err != nil {
-		return 0, 0, nil, nil, fmt.Errorf("pdf: decoding png: %w", err)
-	}
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	rgb := make([]byte, 0, w*h*3)
-	alpha := make([]byte, 0, w*h)
-	opaque := true
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			c := color.NRGBAModel.Convert(src.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
-			rgb = append(rgb, c.R, c.G, c.B)
-			alpha = append(alpha, c.A)
-			if c.A != 0xFF {
-				opaque = false
-			}
-		}
-	}
-	if opaque {
-		alpha = nil
-	}
-	return w, h, rgb, alpha, nil
 }
 
 func deflate(raw []byte) ([]byte, error) {
@@ -693,17 +760,24 @@ func deflate(raw []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func imageStream(w, h int, colorSpace string, data []byte, extra string) []byte {
+func imageStream(w, h int, colorSpace string, bits int, data []byte, extra string) []byte {
 	return []byte(fmt.Sprintf(
-		"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /FlateDecode /Length %d%s >>\nstream\n%s\nendstream",
-		w, h, colorSpace, len(data), extra, data))
+		"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent %d /Filter /FlateDecode /Length %d%s >>\nstream\n%s\nendstream",
+		w, h, colorSpace, bits, len(data), extra, data))
 }
 
-func assemble(w *objectWriter, catalogID, infoID int, id string) ([]byte, error) {
+// assemble writes the objects, the cross-reference table and the trailer. The
+// serialised bytes are charged to the work guard in 4 KiB units, so
+// MaxOperations bounds the writer's output and not only the number of
+// operations on the page.
+func assemble(guard *budget.Guard, w *objectWriter, catalogID, infoID int, id string) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
 	offsets := make([]int, len(w.bodies)+1)
 	for i, body := range w.bodies {
+		if err := guard.Add(uint64(len(body)/4096) + 1); err != nil {
+			return nil, err
+		}
 		offsets[i+1] = buf.Len()
 		fmt.Fprintf(&buf, "%d 0 obj\n", i+1)
 		buf.Write(body)
@@ -736,7 +810,14 @@ func f3(v float64) string {
 func f3b(v uint8) string { return f3(float64(v) / 255) }
 
 func pdfDate(t time.Time) string {
-	return t.UTC().Format("D:20060102150405Z")
+	u := t.UTC()
+	// Defensive: the engine validates the UTC year before it writes, but the
+	// writer must never emit a five-digit year even when a caller reaches it
+	// directly.
+	if y := u.Year(); y < 0 || y > 9999 {
+		u = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+	}
+	return u.Format("D:20060102150405Z")
 }
 
 func pdfString(s string) string {
@@ -793,4 +874,35 @@ func sanitizeName(family, subfamily string) string {
 		return "Font"
 	}
 	return b.String()
+}
+
+// maxBaseFontBytes is the architectural limit of a name in a PDF dictionary.
+const maxBaseFontBytes = 127
+
+// baseFontName builds the /BaseFont and /FontName of one subset: the six-letter
+// tag, a plus and the sanitized family. A family name long enough to cross the
+// 127-byte limit is truncated, so the name stays legal while every subset keeps
+// its own tag.
+func baseFontName(tag, family, subfamily string) string {
+	name := sanitizeName(family, subfamily)
+	room := maxBaseFontBytes - len(tag) - 1
+	if room < 1 {
+		room = 1
+	}
+	if len(name) > room {
+		name = strings.TrimRight(name[:room], "-")
+		if name == "" {
+			name = "Font"
+		}
+	}
+	return tag + "+" + name
+}
+
+// cidCount returns the number of glyph codes a TJ element carries: a
+// hexadecimal string holds one code per four digits, an adjustment none.
+func cidCount(part string) int {
+	if len(part) < 2 || part[0] != '<' {
+		return 0
+	}
+	return (len(part) - 2) / 4
 }

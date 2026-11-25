@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/asset"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
@@ -32,7 +33,7 @@ type Options struct {
 
 // linkError carries a diagnostic code for a bad stylesheet reference.
 type linkError struct {
-	code string
+	code diag.Code
 	msg  string
 	// pos overrides the link element's position when the problem is inside
 	// the stylesheet file rather than in the document that refers to it.
@@ -52,7 +53,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 		// A configured root that cannot be opened is a configuration error.
 		// Continuing with a nil root would mean "no boundary" and read an
 		// absolute link outside the directory the caller named.
-		out.Errorf("options/asset-root", diag.Position{}, "", "cannot open the base directory: %v", rootErr)
+		out.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the base directory: %v", rootErr)
 		return nil, out
 	}
 	defer func() { _ = root.Close() }()
@@ -72,24 +73,12 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				if !mediaAppliesToPrint(n) {
 					return
 				}
-				base := n.Start
-				if len(n.Children) > 0 && n.Children[0].Type == html.TextNode {
-					base = n.Children[0].Start
-				}
-				src := []byte(n.TextContent())
-				// One operation per token keeps the shared work budget honest
-				// for inline CSS, which is bounded by the HTML input limit only.
-				if err := opts.Budget.Add(uint64(len(src)/4) + 1); err != nil {
+				sheet := parseInlineSheet(doc, n, opts)
+				if sheet == nil {
 					stopped = true
 					return
 				}
-				sheets = append(sheets, css.ParseSheet(css.SheetOptions{
-					Base: base,
-					Locate: func(offset int) css.Position {
-						pos := doc.Position(offset)
-						return css.Position{File: pos.File, Line: pos.Line, Col: pos.Col}
-					},
-				}, src))
+				sheets = append(sheets, sheet)
 				return
 			case "link":
 				sheet, err := loadStylesheet(doc, n, opts, root)
@@ -104,7 +93,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 						return
 					}
 					if errors.Is(err, budget.ErrExceeded) {
-						out.Errorf("resource/limit", doc.Pos(n), n.Path(), "%v", err)
+						out.Errorf(diag.ResourceLimit, doc.Pos(n), n.Path(), "%v", err)
 						stopped = true
 						return
 					}
@@ -114,7 +103,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 						stopped = true
 						return
 					}
-					out.Errorf("css/link-load", doc.Pos(n), n.Path(), "%v", err)
+					out.Errorf(diag.CSSLinkLoad, doc.Pos(n), n.Path(), "%v", err)
 					return
 				}
 				if sheet != nil {
@@ -137,19 +126,68 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 	return sheets, out
 }
 
+// parseInlineSheet parses one <style> element, charging the work and keeping
+// the document positions. It returns nil when the budget stopped the parse.
+func parseInlineSheet(doc *html.Document, n *html.Node, opts Options) *css.Stylesheet {
+	base := n.Start
+	if len(n.Children) > 0 && n.Children[0].Type == html.TextNode {
+		base = n.Children[0].Start
+	}
+	src := []byte(n.TextContent())
+	// One operation per four bytes keeps the shared work budget honest for
+	// inline CSS, which is bounded by the HTML input limit only.
+	if err := opts.Budget.Add(uint64(len(src)/4) + 1); err != nil {
+		return nil
+	}
+	return css.ParseSheet(css.SheetOptions{
+		Guard: opts.Budget,
+		Base:  base,
+		Locate: func(offset int) css.Position {
+			pos := doc.Position(offset)
+			return css.Position{File: pos.File, Line: pos.Line, Col: pos.Col}
+		},
+	}, src)
+}
+
+// CollectInlineStylesheets returns the sheets of the document's <style>
+// elements without opening a linked asset. A request whose options are already
+// invalid uses it to report the document's own CSS in the same pass, as the
+// library contract requires.
+func CollectInlineStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
+	var sheets []*css.Stylesheet
+	var out diag.List
+	stopped := false
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if stopped || n == nil {
+			return
+		}
+		if n.Type == html.ElementNode && n.Tag == "style" && mediaAppliesToPrint(n) {
+			sheet := parseInlineSheet(doc, n, opts)
+			if sheet == nil {
+				stopped = true
+				return
+			}
+			sheets = append(sheets, sheet)
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	if doc.Root != nil {
+		walk(doc.Root)
+	}
+	out.Sort()
+	return sheets, out
+}
+
 // mediaAppliesToPrint reports whether a style or link element applies to
 // print. A missing attribute, "print" and "all" apply; a list applies when any
 // of its entries does; anything else belongs to another medium and is skipped
 // without an error, the same way a browser skips it for print.
 func mediaAppliesToPrint(n *html.Node) bool {
 	media, _ := n.Attr("media")
-	for _, part := range strings.Split(media, ",") {
-		switch strings.ToLower(strings.TrimSpace(part)) {
-		case "", "print", "all":
-			return true
-		}
-	}
-	return false
+	return css.MediaAppliesToPrint(media)
 }
 
 // loadStylesheet resolves one link element. A non stylesheet rel, or a media
@@ -182,7 +220,7 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 	if err != nil {
 		return nil, err
 	}
-	opts2 := css.SheetOptions{File: path}
+	opts2 := css.SheetOptions{File: path, Guard: opts.Budget}
 	if mapper != nil {
 		// Positions in the decoded sheet are translated back to its source
 		// bytes, so a diagnostic names the file the author edits.
@@ -206,7 +244,7 @@ func decodeSheet(enc *charset.Encoding, path string, data []byte) ([]byte, *char
 		if errors.As(err, &encErr) {
 			pos := diag.Position{File: path, Line: encErr.Line, Col: encErr.Col}
 			return nil, nil, &linkError{
-				code: "css/link-encoding",
+				code: diag.CSSLinkEncoding,
 				msg:  fmt.Sprintf("cannot decode stylesheet %q: %s", path, encErr.Msg),
 				pos:  &pos,
 			}
@@ -223,7 +261,7 @@ func decodeSheet(enc *charset.Encoding, path string, data []byte) ([]byte, *char
 		if err != nil || named.Name() != documentEncoding {
 			pos := diag.Position{File: path, Line: 1, Col: 1}
 			return nil, nil, &linkError{
-				code: "css/link-encoding",
+				code: diag.CSSLinkEncoding,
 				msg:  fmt.Sprintf("stylesheet %q declares @charset %q but the document encoding is %q", path, label, documentEncoding),
 				pos:  &pos,
 			}
@@ -289,7 +327,7 @@ func isCSSSpace(b byte) bool {
 // directory and maps failures to the diagnostics the profile reports for links.
 func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
 	if root == nil {
-		return nil, &linkError{code: "options/asset-root", msg: "the asset root is unavailable"}
+		return nil, &linkError{code: diag.OptionsAssetRoot, msg: "the asset root is unavailable"}
 	}
 	data, err := root.ReadLimit(path, limit)
 	if err == nil {
@@ -299,9 +337,9 @@ func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
 		return nil, fmt.Errorf("%w: stylesheet %q exceeds the limit of %d bytes", budget.ErrExceeded, path, limit)
 	}
 	if errors.Is(err, fsx.ErrOutsideRoot) {
-		return nil, &linkError{code: "css/link-path", msg: fmt.Sprintf("stylesheet path %q escapes the base directory", path)}
+		return nil, &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", path)}
 	}
-	return nil, &linkError{code: "css/link-load", msg: fmt.Sprintf("cannot read stylesheet %q: %v", path, err)}
+	return nil, &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", path, err)}
 }
 
 // resolveStylesheetPath turns an href into a readable local path. Remote and
@@ -311,16 +349,21 @@ func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
 func resolveStylesheetPath(href, baseDir string) (string, error) {
 	href = strings.TrimSpace(href)
 	if href == "" {
-		return "", &linkError{code: "css/link-load", msg: "stylesheet link has no href"}
+		return "", &linkError{code: diag.CSSLinkLoad, msg: "stylesheet link has no href"}
 	}
-	lower := strings.ToLower(href)
+	// The reference is a URL path: the query, the fragment, percent encoding
+	// and surrounding whitespace are handled by the shared resolver.
+	ref, err := asset.Resolve(href)
+	if err != nil {
+		return "", &linkError{code: diag.CSSLinkLoad, msg: err.Error()}
+	}
 	switch {
-	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"), strings.HasPrefix(lower, "//"):
-		return "", &linkError{code: "css/link-remote", msg: fmt.Sprintf("remote stylesheets are not supported: %s", href)}
-	case strings.HasPrefix(lower, "data:"):
-		return "", &linkError{code: "css/link-unsupported", msg: "data: stylesheets are not supported"}
+	case ref.Remote:
+		return "", &linkError{code: diag.CSSLinkRemote, msg: fmt.Sprintf("remote stylesheets are not supported: %s", href)}
+	case ref.Data:
+		return "", &linkError{code: diag.CSSLinkUnsupported, msg: "data: stylesheets are not supported"}
 	}
-	path := href
+	path := ref.Path
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(baseDir, path)
 	}
@@ -332,7 +375,7 @@ func resolveStylesheetPath(href, baseDir string) (string, error) {
 	// position report; the boundary is not decided here but by fsx.Root.
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", &linkError{code: "css/link-path", msg: fmt.Sprintf("cannot resolve stylesheet path: %v", err)}
+		return "", &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("cannot resolve stylesheet path: %v", err)}
 	}
 	return abs, nil
 }

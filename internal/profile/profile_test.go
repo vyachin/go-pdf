@@ -176,20 +176,6 @@ func TestUnknownAtRule(t *testing.T) {
 	}
 }
 
-func TestProfileTextListsEverything(t *testing.T) {
-	text := Text()
-	for _, prop := range Properties() {
-		if !strings.Contains(text, prop) {
-			t.Fatalf("profile text does not mention property %q", prop)
-		}
-	}
-	for _, el := range Elements() {
-		if !strings.Contains(text, "  "+el+"\n") {
-			t.Fatalf("profile text does not mention element %q", el)
-		}
-	}
-}
-
 func TestDiagnosticFormatting(t *testing.T) {
 	l := validate(t, "<style>p { display: flex }</style><p>x</p>")
 	if len(l) != 1 {

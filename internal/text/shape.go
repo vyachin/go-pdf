@@ -7,7 +7,9 @@ import (
 	"math"
 	"strconv"
 	"unicode"
+	"unicode/utf8"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/font"
 )
 
@@ -45,51 +47,78 @@ func Scale(v, size, unitsPerEm int32) int32 {
 // on the anchor of the preceding base or mark glyph. A font without a usable
 // mark lookup for it is an error, so the mark is never drawn at the pen.
 func Shape(f *font.Font, size int32, s string) (Run, error) {
+	return ShapeWithOptions(f, size, s, ShapeOptions{})
+}
+
+// ShapeOptions carries the conversion's work guard into shaping.
+type ShapeOptions struct {
+	// Guard bounds the work and carries cancellation. Nil means unlimited.
+	Guard *budget.Guard
+}
+
+// ShapeWithOptions is Shape with a work guard. Shaping charges one unit per
+// rune it normalizes, maps and measures, before the glyph slice is allocated,
+// so a single huge word cannot allocate memory out of proportion to the budget.
+func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Run, error) {
+	// Charge the rune count before converting the string: a two-megabyte word
+	// must fail the budget before it allocates its rune slice, not after.
+	if n := utf8.RuneCountInString(s); n > 0 {
+		if err := opts.Guard.Add(uint64(n)); err != nil {
+			return Run{}, err
+		}
+	}
 	runes := []rune(Normalize(s))
 	run := Run{Glyphs: make([]Glyph, 0, len(runes))}
+	// Only three states are ever needed: the previous glyph for kerning, and
+	// the reference base and mark for attachment. Keeping one entry per rune
+	// doubled the per-rune memory of shaping.
 	type glyphState struct {
 		gid  uint16
 		pen  int64 // pen before the glyph, font units
-		adv  int32 // advance including kerning, font units
+		adv  int64 // advance including kerning, font units
 		offX int64 // attached mark offset, font units
 		offY int64
 	}
-	states := make([]glyphState, 0, len(runes))
-	lastBase, lastMark := -1, -1
+	var prev, baseState, markState glyphState
+	var hasPrev, hasBase, hasMark bool
+	lastBase := -1
+	var lastBaseRune rune
 	for i, r := range runes {
 		gid, ok := f.GlyphIndex(r)
+		if !ok && r == '\u00a0' {
+			// A font without a dedicated no-break space draws the ordinary
+			// space glyph; the run keeps U+00A0 so copied text is unchanged.
+			gid, ok = f.GlyphIndex(' ')
+		}
 		if !ok {
 			return Run{}, &MissingGlyphError{Rune: r, Family: f.Family()}
 		}
-		adv := f.Advance(gid)
+		adv := int64(f.Advance(gid))
 		pen := int64(0)
-		if i > 0 {
-			prev := &states[i-1]
+		if hasPrev {
 			if k := f.Kerning(prev.gid, gid); k != 0 {
-				prev.adv += k
-				run.Glyphs[i-1].Advance = Scale(prev.adv, size, f.UnitsPerEm())
+				prev.adv += int64(k)
+				run.Glyphs[i-1].Advance = Scale(int32(prev.adv), size, f.UnitsPerEm())
 			}
-			pen = prev.pen + int64(prev.adv)
+			pen = prev.pen + prev.adv
 		}
 		mark := unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r)
 		var offX, offY int64
 		if mark {
 			attached := false
-			if lastMark >= 0 {
+			if hasMark {
 				// MarkMark: the previous mark is the reference, so a second
 				// accent stacks on the first rather than on the base.
-				if dx, dy, kind, ok := f.MarkAttachment(gid, states[lastMark].gid); ok && kind == 6 {
-					ref := states[lastMark]
-					offX = ref.pen + ref.offX + int64(dx) - pen
-					offY = ref.offY + int64(dy)
+				if dx, dy, kind, ok := f.MarkAttachment(gid, markState.gid); ok && kind == 6 {
+					offX = markState.pen + markState.offX + int64(dx) - pen
+					offY = markState.offY + int64(dy)
 					attached = true
 				}
 			}
-			if !attached && lastBase >= 0 {
+			if !attached && hasBase {
 				// MarkBase or MarkLig: the reference is the base glyph's pen.
-				if dx, dy, kind, ok := f.MarkAttachment(gid, states[lastBase].gid); ok && kind != 6 {
-					ref := states[lastBase]
-					offX = ref.pen + int64(dx) - pen
+				if dx, dy, kind, ok := f.MarkAttachment(gid, baseState.gid); ok && kind != 6 {
+					offX = baseState.pen + int64(dx) - pen
 					offY = int64(dy)
 					attached = true
 				}
@@ -97,18 +126,23 @@ func Shape(f *font.Font, size int32, s string) (Run, error) {
 			if !attached {
 				base := rune(0)
 				if lastBase >= 0 {
-					base = runes[lastBase]
+					base = lastBaseRune
 				}
 				return Run{}, &MissingMarkError{Mark: r, Base: base, Family: f.Family()}
 			}
-			lastMark = i
-		} else {
-			lastBase = i
 		}
-		states = append(states, glyphState{gid: gid, pen: pen, adv: adv, offX: offX, offY: offY})
+		st := glyphState{gid: gid, pen: pen, adv: adv, offX: offX, offY: offY}
+		if mark {
+			markState, hasMark = st, true
+		} else {
+			baseState, hasBase = st, true
+			lastBase = i
+			lastBaseRune = r
+		}
+		prev, hasPrev = st, true
 		run.Glyphs = append(run.Glyphs, Glyph{
 			GID:     gid,
-			Advance: Scale(adv, size, f.UnitsPerEm()),
+			Advance: Scale(int32(adv), size, f.UnitsPerEm()),
 			Rune:    r,
 			XOffset: scaleFontUnits(offX, size, f.UnitsPerEm()),
 			YOffset: scaleFontUnits(offY, size, f.UnitsPerEm()),

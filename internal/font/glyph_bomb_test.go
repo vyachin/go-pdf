@@ -171,3 +171,29 @@ func TestOrdinaryCompositeGlyphStillExpands(t *testing.T) {
 		t.Fatal("Ё has no outline")
 	}
 }
+
+// TestTooDeepCompositeIsAnError guards RV4-41: a chain deeper than the limit
+// used to return an empty outline, so the glyph silently disappeared. It is an
+// error, and the subsetter still keeps every component of a used glyph.
+func TestTooDeepCompositeIsAnError(t *testing.T) {
+	f, err := Parse(testBombFont(t, 1, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.GlyphPath(1); !errors.Is(err, ErrGlyphTooComplex) {
+		t.Fatalf("a twelve-deep composite returned %v", err)
+	}
+	subset, err := f.Subset(map[uint16]bool{1: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := Parse(subset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for gid := uint16(1); gid <= 12; gid++ {
+		if len(sub.glyphData(gid)) < 10 {
+			t.Fatalf("the subset dropped glyph %d of the chain", gid)
+		}
+	}
+}

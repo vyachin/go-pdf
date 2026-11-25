@@ -67,7 +67,7 @@ This is exactly the map of the gap between mPDF and our profile. The first reaso
 | `table-snapshot` | `<link rel="stylesheet">` — external CSS |
 | `watermark-snapshot` | `<blockquote>` |
 
-Some of this is deliberate profile limitations (gradients, `float`, `position`, RTL, external CSS). Some are gaps worth closing: `text-decoration` (for `u`, `s`, `del`, `ins`) and `<blockquote>`.
+Some of this is deliberate profile limitations (gradients, `float`, `position`, RTL, external CSS). The two gaps the port found — `text-decoration` (for `u`, `s`, `del`, `ins`) and `<blockquote>` — are listed in the "Known gaps" section of `docs/profile.md`.
 
 The port has already uncovered one real gap: the profile had no `<b>` and `<i>`, although they are basic document markup. They were added together with the default rules.
 
@@ -79,16 +79,15 @@ If the project is distributed under a license incompatible with GPL-2.0, the `te
 
 ## How to update the corpus
 
-```bash
-git clone --depth 1 https://github.com/mpdf/mpdf /tmp/mpdf
-The corpus is committed in `testdata/mpdf/cases.json`; extracting it again is
-a one-off task and the importer is no longer part of the repository.
+The corpus is committed in `testdata/mpdf/cases.json`; extracting it again is a
+one-off task, and the importer that built it is no longer part of the
+repository. The tests read the committed corpus, so they work offline and need
+no network access.
 
+```bash
 # Rebuild the golden texts after changing the engine
 go test ./internal/mpdfcompat -update
 ```
-
-The importer does not access the network itself: it reads a local copy of the repository. The corpus is committed, so the tests work offline.
 
 ## Limitations of the approach
 

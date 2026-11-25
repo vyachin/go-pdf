@@ -2,9 +2,11 @@ package css
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
 )
 
@@ -31,6 +33,13 @@ type Cascade struct {
 	// carries cancellation. Nil means no limit, which is what the browser
 	// importer and the document dump use.
 	guard *budget.Guard
+	// diags receives a declaration that validation accepted but that cannot be
+	// applied with the resolved parent font size. Nil means the caller does not
+	// collect them, which is what a standalone style computation wants.
+	diags *diag.List
+	// reported deduplicates those diagnostics: one declaration applied to a
+	// thousand elements is one problem, not a thousand.
+	reported map[string]bool
 }
 
 // SetGuard attaches the conversion's work guard to the cascade and returns it
@@ -38,6 +47,36 @@ type Cascade struct {
 func (c *Cascade) SetGuard(g *budget.Guard) *Cascade {
 	c.guard = g
 	return c
+}
+
+// SetDiagnostics attaches the list that receives a declaration accepted by
+// validation but rejected here against the resolved parent font size, and
+// returns the cascade so construction can stay fluent. Without it the failure
+// would be silent, which is how a paragraph was rendered at its parent's size.
+func (c *Cascade) SetDiagnostics(list *diag.List) *Cascade {
+	c.diags = list
+	return c
+}
+
+// report records one declaration that could not be applied.
+func (c *Cascade) report(d Declaration, err error) {
+	if c.diags == nil {
+		return
+	}
+	pos := diag.Position{}
+	if d.Sheet != nil {
+		p := d.Sheet.Position(d.Offset)
+		pos = diag.Position{File: p.File, Line: p.Line, Col: p.Col}
+	}
+	if c.reported == nil {
+		c.reported = map[string]bool{}
+	}
+	key := fmt.Sprintf("%s:%d:%d:%s", pos.File, pos.Line, pos.Col, d.Property)
+	if c.reported[key] {
+		return
+	}
+	c.reported[key] = true
+	c.diags.Errorf(diag.CSSUnsupportedValue, pos, "", "%s: %v", d.Property, err)
 }
 
 // NewCascade compiles the given stylesheets as author rules in document order.
@@ -95,12 +134,20 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 	st := NewStyle(parent)
 	for _, e := range c.cascadeEntries(n) {
 		if e.pseudo {
-			if items, err := ParseContent(e.decl.Value); err == nil {
-				st.AfterContent = items
+			items, err := ParseContent(e.decl.Value)
+			if err != nil {
+				c.report(e.decl, err)
+				continue
 			}
+			st.AfterContent = items
 			continue
 		}
-		_ = ApplyDecl(st, e.decl.Property, e.decl.Value, parentSize)
+		if err := ApplyDecl(st, e.decl.Property, e.decl.Value, parentSize); err != nil {
+			// Validation checked the declaration with its default parent size;
+			// here the real parent size decides. A value that rounds to zero is
+			// reported instead of being dropped and rendered at the parent size.
+			c.report(e.decl, err)
+		}
 	}
 
 	st.resolveEm()

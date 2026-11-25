@@ -226,3 +226,49 @@ func TestResolveCanonicalizesSpellings(t *testing.T) {
 		t.Fatalf("an outside path resolved to %v", err)
 	}
 }
+
+// TestRelativePathsResolveInsideTheRoot guards RV4-36: Read, Resolve and Size
+// used the process working directory for a relative path, so a file inside the
+// root was reported as an escape whenever the process ran elsewhere.
+func TestRelativePathsResolveInsideTheRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "sub", "file.txt")
+	if err := os.WriteFile(target, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	// A different working directory must not change the meaning of the path.
+	t.Chdir(t.TempDir())
+	data, err := root.Read("sub/file.txt")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if string(data) != "content" {
+		t.Fatalf("Read returned %q", data)
+	}
+	if size, err := root.Size("sub/file.txt"); err != nil || size != int64(len("content")) {
+		t.Fatalf("Size = %d, %v", size, err)
+	}
+	// Resolve reports the canonical path: on macOS the temporary directory is
+	// reached through /private, so compare the resolved form of the target.
+	wantTarget, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := root.Resolve("sub/file.txt")
+	if err != nil || resolved != wantTarget {
+		t.Fatalf("Resolve = %q, %v; want %q", resolved, err, wantTarget)
+	}
+	// Containment still holds: a relative traversal leaves the root.
+	if _, err := root.Read("../outside.txt"); !errors.Is(err, ErrOutsideRoot) {
+		t.Fatalf("a traversal returned %v, want ErrOutsideRoot", err)
+	}
+}

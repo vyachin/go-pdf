@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
@@ -60,6 +61,10 @@ type Node struct {
 	// bytes of the original file; they are the same when nothing was decoded.
 	Start int
 	End   int
+	// prevElement is the nearest preceding element sibling, maintained when
+	// the tree is built. A `+` selector hops to it in constant time instead of
+	// scanning every preceding sibling.
+	prevElement *Node
 	// guard bounds the work of building a diagnostic path for this node. Nil
 	// means unlimited work and is what a manually built tree has.
 	guard *budget.Guard
@@ -164,10 +169,29 @@ func (n *Node) TextContent() string {
 	return b.String()
 }
 
-// AppendChild adds a child node, maintaining Parent pointers.
+// AppendChild adds a child node, maintaining Parent and sibling pointers.
 func (n *Node) AppendChild(c *Node) {
 	c.Parent = n
+	c.prevElement = nil
+	if c.Type == ElementNode {
+		c.prevElement = n.lastElementChild()
+	}
 	n.Children = append(n.Children, c)
+}
+
+// PrevElementSibling returns the nearest preceding element sibling, or nil.
+// The pointer is maintained when the tree is built, so a caller never scans
+// the preceding siblings.
+func (n *Node) PrevElementSibling() *Node { return n.prevElement }
+
+// lastElementChild returns the last element among n's children.
+func (n *Node) lastElementChild() *Node {
+	for i := len(n.Children) - 1; i >= 0; i-- {
+		if n.Children[i].Type == ElementNode {
+			return n.Children[i]
+		}
+	}
+	return nil
 }
 
 // InsertBefore inserts c immediately before ref, which must be a child of n.
@@ -200,6 +224,29 @@ func (n *Node) InsertAt(i int, c *Node) {
 	n.Children = append(n.Children, nil)
 	copy(n.Children[i+1:], n.Children[i:])
 	n.Children[i] = c
+	// Foster parenting and an explicit InsertBefore both land here, so the
+	// hop from every following element is recomputed instead of left stale.
+	n.relinkFrom(i)
+}
+
+// relinkFrom recomputes the previous-element pointers of the children at and
+// after i.
+func (n *Node) relinkFrom(i int) {
+	var prev *Node
+	for k := 0; k < i && k < len(n.Children); k++ {
+		if n.Children[k].Type == ElementNode {
+			prev = n.Children[k]
+		}
+	}
+	for k := i; k < len(n.Children); k++ {
+		c := n.Children[k]
+		if c.Type != ElementNode {
+			c.prevElement = nil
+			continue
+		}
+		c.prevElement = prev
+		prev = c
+	}
 }
 
 // Path renders a human readable element path such as "body > div.invoice > p"
@@ -271,8 +318,11 @@ type Document struct {
 func (d *Document) Charset() *charset.Encoding { return d.charset }
 
 // Position converts a byte offset into a file position. The offset is an
-// offset in the decoded text; the returned column is the column of the byte
-// that produced it in the original source.
+// offset in the decoded text; the returned column counts characters (Unicode
+// code points) from the start of the line, not bytes, so a diagnostic after a
+// Cyrillic word names the column the author sees in an editor. A legacy
+// encoding decodes to one character per source byte, so the same rule holds for
+// both coordinate spaces.
 func (d *Document) Position(offset int) diag.Position {
 	if d.mapper != nil {
 		line, col := d.mapper.Position(offset)
@@ -291,7 +341,7 @@ func (d *Document) Position(offset int) diag.Position {
 		i = 0
 	}
 	line := i + 1
-	col := offset - d.lines[i] + 1
+	col := utf8.RuneCount(d.text[d.lines[i]:offset]) + 1
 	return diag.Position{File: d.File, Line: line, Col: col}
 }
 

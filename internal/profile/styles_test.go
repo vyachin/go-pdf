@@ -103,7 +103,7 @@ func TestLinkErrors(t *testing.T) {
 			if len(diags) != 1 {
 				t.Fatalf("got %d diagnostics, want 1: %v", len(diags), diags.Lines())
 			}
-			if diags[0].Code != tc.code || diags[0].Severity != 0 {
+			if string(diags[0].Code) != tc.code || diags[0].Severity != 0 {
 				t.Fatalf("diagnostic = %+v, want code %s", diags[0], tc.code)
 			}
 		})

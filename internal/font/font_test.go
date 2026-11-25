@@ -4,44 +4,23 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
+// testFont loads the bundled font directly: this package cannot import
+// internal/testfont, because that package imports this one.
 func testFont(t *testing.T) *Font {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Skipf("no TrueType font available: %v", err)
 	}
-	// The bundled font keeps results identical on every platform and in CI.
-	candidates = append(candidates, filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			"/System/Library/Fonts/Supplemental/Arial.ttf",
-			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-			"/Library/Fonts/Arial.ttf",
-		)
+	f, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	candidates = append(candidates,
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, path := range candidates {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		f, err := Parse(data)
-		if err != nil {
-			t.Logf("skipping %s: %v", path, err)
-			continue
-		}
-		return f
-	}
-	t.Skip("no TrueType test font found; set PDFTEST_FONT")
-	return nil
+	return f
 }
 
 func TestParse(t *testing.T) {

@@ -65,9 +65,10 @@ explicitly and wins over the mark and the declaration; an unsupported value is
 `options/charset`, reported before any asset is read. It is the way to convert a
 document that declares nothing.
 
-A position inside a decoded document or stylesheet is reported in the bytes of
-the original file: a diagnostic after a Cyrillic word on one line names the
-column the author would see, not the longer UTF-8 column.
+A position inside a decoded document or stylesheet names a line and a character
+column: the column counts characters, not bytes, so a diagnostic after a
+Cyrillic word names the column the author sees in an editor — in a UTF-8
+document and in a legacy one alike.
 
 ## Properties
 
@@ -93,7 +94,7 @@ column the author would see, not the longer UTF-8 column.
 | `text-indent` | yes | a length |
 | `white-space` | yes | `normal`, `pre` |
 | `vertical-align` | no | `baseline`, `top`, `middle`, `bottom` |
-| `break-before`, `break-after` | no | `auto`, `page`, `avoid` |
+| `break-before`, `break-after` | no | `auto`, `page`, `always` (an alias of `page`), `avoid` |
 | `break-inside` | no | `auto`, `page`, `avoid` |
 | `page-break-before/after/inside` | no | legacy aliases of `break-*` |
 | `orphans`, `widows` | yes | an integer ≥ 1 |
@@ -139,7 +140,11 @@ Pseudo-classes and attribute selectors are rejected, with one exception: `:root`
 a.toc::after { content: " →" target-counter(attr(href), page) }
 ```
 
-Inside `a::after` only the `content` property is allowed, with strings, `counter(page)`, `counter(pages)` and `target-counter(attr(href), page)`. Outside `a::after` there is no `content` property.
+Inside `a::after` only the `content` property is allowed, with quoted strings and
+`target-counter(attr(href), page)` — the page the link points at. A page counter
+inside `a::after` is rejected with `css/unsupported-value` (it would name the page
+the link is on, not its target). Outside `a::after` there is no `content`
+property.
 
 ## At-rules
 
@@ -150,7 +155,7 @@ Inside `a::after` only the `content` property is allowed, with strings, `counter
 }
 
 @page { size: A4 landscape }  /* 297 x 210 mm */
-@page { size: landscape }     /* orient the size from -page (A4 by default) */
+@page { size: landscape }     /* orient the page size from Options.PageSize (A4 by default) */
 @page { size: portrait }
 
 @page {
@@ -176,11 +181,28 @@ font size (12 pt), not the page width. `size: portrait` flips a landscape fallba
 `size: landscape` flips a portrait one.
 
 Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right`.
-`content` values: quoted strings, `counter(page)`, `counter(pages)`, `target-counter(attr(href), page)`.
+`content` values: quoted strings, `counter(page)` and `counter(pages)`.
+`target-counter` inside a margin box is rejected with `css/unsupported-value`,
+because a margin box runs before the target pages are known and would either
+print the wrong number or force an unbounded second pass for every page.
 
 At-rules may nest at most 64 levels deep — `@media` inside `@media`, a margin box
 inside `@page`, and every other nested at-rule. A deeper stylesheet is rejected
 with `resource/limit` during parsing, before any walk over the rules.
+
+The nesting policy is explicit: `@media` accepts another `@media`; `@page`
+accepts the six margin boxes; every other nesting — an at-rule inside
+`@font-face`, a media rule inside a margin box, `@page` inside `@page` — is
+reported as `css/unsupported-at-rule` instead of being dropped or hoisted. The
+same policy is implemented once, in the parser's `parseAtRule`.
+
+Media queries, CSS-wide keywords, escapes and at-rule nesting each have one
+implementation used by both stylesheet collection and validation:
+`css.MediaAppliesToPrint` parses a media list, `css.isCSSWideKeyword` decides the
+shared keywords (`inherit`, `initial`, `unset`, `revert`, rejected by every
+property that cannot implement them, including `font-family`), and the
+tokenizer's escape decoder is the only place a backslash sequence is decoded, for
+strings, identifiers and hashes alike.
 
 ## What is missing and why
 
@@ -190,7 +212,7 @@ with `resource/limit` during parsing, before any walk over the rules.
 | `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm. |
 | gradients, shadows, rounded corners, transparency | not needed in printed documents; they complicate the output |
 | `background-position`, `background-repeat`, `background-size: contain/auto/lengths` | the cover model is one scaling rule with a centered crop; a positioning grammar is a larger surface for a case no document needs yet |
-| `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |
+| `hyphens: auto` | requires hyphenation dictionaries; a known gap, not an active change |
 | JavaScript | the engine is static; the document is not executed |
 | web fonts (WOFF, WOFF2) and fonts by URL | see `docs/fonts.md` |
 | external CSS by URL | the engine does not access the network; `<link>` accepts only a local file |
@@ -203,13 +225,7 @@ with `resource/limit` during parsing, before any walk over the rules.
 `<link rel="stylesheet">` includes a local file. Rules:
 
 - the path is resolved relative to the run's `BaseDir`; when `BaseDir` is set, going outside it is forbidden;
-
-A configured `BaseDir` or `FontDir` that cannot be opened fails with
-`options/asset-root` before any asset is read; it never falls back to an
-unbounded root. The reference command refuses an output that names the input
-file, rejects an input larger than `pdfgen.DefaultLimits().MaxInputBytes` before
-reading it, and writes through a temporary file renamed into place.
-- `media` on `<link>` and `<style>` with the value `print`, `all` or empty applies the sheet; any other value (including a list without `print`) skips it without an error;
+- `media` on `<link>` and `<style>` with a value that contains `print` or `all`, or with no value at all, applies the sheet; any other list (one without `print`) skips it without an error, the same way a browser skips it for print;
 - a `rel` other than `stylesheet` (`icon`, `canonical`) is silently ignored;
 - `http(s)://` and `data:` are rejected: remote stylesheets are not loaded;
 - the sheet is decoded with the document's encoding (CSS 2.1 gives a linked
@@ -220,6 +236,28 @@ reading it, and writes through a temporary file renamed into place.
   that byte;
 - the cascade order is the document order, so `<style>`, `<link>`, `<style>` apply in exactly that sequence;
 - an error inside an included file names the file, the line and the column in it.
+
+A configured `BaseDir` or `FontDir` that cannot be opened fails with
+`options/asset-root` before any asset is read; it never falls back to an
+unbounded root. The reference command refuses an output that names the input
+file, rejects an input larger than `pdfgen.DefaultLimits().MaxInputBytes` before
+reading it, and writes through a temporary file renamed into place.
+
+## Known gaps
+
+Two features are documented gaps rather than planned work, so a reader knows
+where they stand:
+
+- `text-decoration` (`u`, `s`, `del`, `ins`) and `<blockquote>`: the mPDF port
+  found them missing. They are outside the closed profile as it stands and are
+  not covered by an active OpenSpec change; adding one means a requirement, a
+  default rule and a golden, not a local edit.
+- `hyphens: auto`: needs hyphenation dictionaries and a hyphenation pass; no
+  active change covers it.
+
+Everything else that is open work lives as an OpenSpec change under
+`openspec/changes/`, and `TODO.md` records the review passes and the fixtures
+they left behind.
 
 ## Nesting depth
 
@@ -240,31 +278,104 @@ as `html/parse` otherwise; neither escapes as a raw error or a panic.
 
 ## Diagnostics
 
-Every error contains the file, line, column and element path:
+A diagnostic decided from the document contains the file, the line, the
+character column and the enclosing element path:
 
 ```
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/unsupported-attribute`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `html/parse`, `text/glyph`, `text/font` (no face could be resolved for a family), `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
+The position rule is the same for every code and every class: a diagnostic whose
+cause is in the document carries a position, and a diagnostic whose cause is the
+caller's configuration or the conversion's budget carries none — `options/*`
+values name the option, `resource/limit` names the budget, and `pdf/write` names
+the writer. A column counts characters, not bytes (see "Input encodings").
+
+The catalogue below is generated from the registry in `internal/diag/codes.go`;
+a code cannot be emitted or documented without the other side, because a test
+compares this table with the registry.
+
+<!-- diagnostics:start -->
+| Code | Meaning |
+|---|---|
+| `css/incomplete-font-face` | an @font-face rule is missing font-family or src |
+| `css/link-encoding` | a linked stylesheet cannot be decoded or declares a conflicting @charset |
+| `css/link-load` | a linked asset cannot be read |
+| `css/link-path` | a stylesheet reference cannot be resolved |
+| `css/link-remote` | a remote stylesheet is referenced |
+| `css/link-unsupported` | a data: stylesheet is referenced |
+| `css/syntax` | a stylesheet or a declaration list is not valid CSS for the profile |
+| `css/unsupported-at-rule` | an at-rule or a nesting the profile cannot represent |
+| `css/unsupported-margin-box` | a page margin box the profile does not implement |
+| `css/unsupported-media` | a media query list that does not apply to print |
+| `css/unsupported-page-selector` | a page selector other than the plain @page |
+| `css/unsupported-property` | a property outside the profile |
+| `css/unsupported-selector` | a selector the profile does not implement |
+| `css/unsupported-value` | a value or declaration the profile rejects |
+| `font/unavailable` | a font file cannot be loaded or parsed |
+| `html/encoding` | the document declares or uses an encoding outside the accepted set |
+| `html/ignored-script` | a script element is ignored |
+| `html/invalid-span` | a colspan or rowspan outside the allowed range |
+| `html/no-body` | the document has no body element |
+| `html/parse` | the HTML tree construction failed |
+| `html/truncated` | the document ends inside a tag |
+| `html/unsupported-attribute` | an attribute the profile does not read |
+| `html/unsupported-element` | an element outside the profile |
+| `img/load` | an image cannot be loaded or decoded |
+| `img/no-loader` | the conversion was asked to lay out an image without a loader |
+| `layout/loop` | pagination cannot make progress because of a layout cycle |
+| `layout/no-progress` | content cannot be placed and pagination cannot advance |
+| `layout/overflow` | content is wider or taller than its box and is clipped |
+| `options/asset-root` | a configured asset directory cannot be opened |
+| `options/author` | the author metadata is not valid UTF-8 |
+| `options/charset` | the caller-named encoding is not supported |
+| `options/date` | the creation date is outside the representable range |
+| `options/keywords` | the keywords metadata is not valid UTF-8 |
+| `options/margin` | the page margin cannot be parsed |
+| `options/page-size` | the page size cannot be parsed |
+| `options/subject` | the subject metadata is not valid UTF-8 |
+| `options/title` | the title metadata is not valid UTF-8 |
+| `page/margin-box` | a page margin box names a content value it cannot render |
+| `pagination/target-counter` | a target-counter refers to a target it cannot resolve |
+| `pagination/unknown-target` | a link refers to an id the document does not contain |
+| `pdf/write` | the PDF writer failed for a reason other than the work budget |
+| `raster/render` | the rasterizer could not render a page |
+| `resource/limit` | a work, page, asset or structural limit stopped the conversion |
+| `text/font` | no font face could be resolved for a family |
+| `text/glyph` | a character has no glyph or a mark cannot be attached |
+<!-- diagnostics:end -->
 
 ## Work budget
 
 `Options.Limits.MaxOperations` bounds the total work of one conversion, not only
-the parsed tokens. One operation is charged for every stylesheet rule evaluated
-by the cascade (once per compound in its selector), every GPOS lookup, subtable
-and coverage entry read from a font, every 64 KiB of decoded image pixels, every
-layout box, placed line, copied drawing operation and diagnostic path segment
-built, and every PDF writing operation. Text shaping is bounded by the same
-token and line charges.
+the parsed tokens. Each stage states what one unit means, and the suite keeps an
+invariant test that a hostile fixture at `MaxOperations = N` spends work and
+memory within a constant multiple of `N`:
+
+| Stage | One unit is |
+|---|---|
+| HTML parsing | one element or one text node |
+| CSS tokenizing and parsing | one token, one rule or declaration, one stored problem |
+| Cascade | one compound of a rule's selector, per element |
+| Font parsing | one GiB/1024 of file, one GPOS lookup, subtable, pairing or coverage entry, one charstring instruction or converted glyph |
+| Text shaping and line building | one rune, one built line |
+| Image decoding | one image plus one unit per 64 KiB of pixels |
+| Layout | one box, one placed line, one drawing operation, one table grid slot |
+| Diagnostics | one path segment of a diagnostic element path |
+| PDF writing | one written glyph, CID, page operation, or 4 KiB of serialised bytes |
 
 The first stage to exhaust the budget stops with `resource/limit`, and a
 cancelled context is returned as `context.Canceled` from that stage instead of
-being reported as a document diagnostic. The default is 20,000,000 operations.
+being reported as a document diagnostic. A stage that allocates per input unit
+without charging the guard is a defect, and the invariant test in
+`internal/engine/budget_stages_test.go` fails when a fixture's memory grows out
+of proportion to its budget. The default is 20,000,000 operations.
 
 ## Asset limits
 
 `Options.Limits` bounds the assets of one conversion in addition to each file.
+`MaxImagePixels` (40,000,000) and `MaxImageBytes` (32 MiB) bound one image;
+`MaxFontBytes` (16 MiB) bounds one font;
 `MaxTotalImageBytes` (64 MiB) and `MaxTotalImagePixels` (80,000,000) cap every
 image one conversion reads; `MaxTotalFontBytes` (32 MiB) caps every font it
 parses. A document that would cross a total fails with `resource/limit` before

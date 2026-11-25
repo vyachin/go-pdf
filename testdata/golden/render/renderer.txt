@@ -1,1 +1,1 @@
-pdftoppm version 26.01.0
+pdftoppm version 24.02.0

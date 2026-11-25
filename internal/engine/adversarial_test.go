@@ -87,6 +87,17 @@ func adversarialCases() []adversarialCase {
 			},
 		},
 		{
+			// RV4-01: 1024 covered glyphs share one 65,535-pair PairSet, so the
+			// map would need 67 million entries from a 264 KB file. The
+			// declared-pair cap refuses it under the default limits.
+			ID:      "P1-gpos-pairs",
+			Fixture: "p1-gpos-pairs.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{FallbackFont: filepath.Join(dir, "gpos-pairs.ttf"), File: "pairs.html"}
+			},
+		},
+		{
 			ID:      "P2-wide-image",
 			Fixture: "p2-wide-image.html",
 			Options: func(t *testing.T, dir string) Options {
@@ -101,11 +112,81 @@ func adversarialCases() []adversarialCase {
 			},
 		},
 		{
+			// RV4-07: 5000 sibling paragraphs matched by `p + p`. The hop to
+			// the preceding element sibling is constant time, and the cascade
+			// charges per compound, so a small budget stops the conversion
+			// instead of scanning every preceding sibling per element.
+			ID:      "P2-adjacent-siblings",
+			Fixture: "p2-adjacent-siblings.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "adjacent.html", FallbackFont: testFontPath(t), Limits: Limits{MaxOperations: 3000}}
+			},
+		},
+		{
+			// RV4-06: 20,000 serialised glyphs. The writer charges every
+			// glyph, CID and serialised byte, so a small budget stops it
+			// instead of writing a multi-megabyte document.
+			ID:      "P2-many-glyphs",
+			Fixture: "p2-many-glyphs.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "glyphs.html", FallbackFont: testFontPath(t), Limits: Limits{MaxOperations: 5000}}
+			},
+		},
+		{
+			// RV4-05: a 394 KB OTTO font whose 65,535 charstrings call a
+			// ten-deep subroutine chain that draws a hundred curves each. The
+			// conversion charges every instruction, so the budget stops it.
+			ID:      "P2-cff-bomb",
+			Fixture: "p2-cff-bomb.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					FallbackFont: filepath.Join(dir, "cff-bomb.otf"),
+					File:         "cff.html",
+					Limits:       Limits{MaxOperations: 200_000},
+				}
+			},
+		},
+		{
+			// RV4-04: one word of 4000 characters. Shaping charges one unit per
+			// rune, so the small budget stops it before the glyph and state
+			// slices are built.
+			ID:      "P2-huge-word",
+			Fixture: "p2-huge-word.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "word.html", FallbackFont: testFontPath(t), Limits: Limits{MaxOperations: 1000}}
+			},
+		},
+		{
+			// RV4-02: 4096 stray braces would be 4096 problems without the
+			// per-sheet cap; the parser stops at MaxProblems with one
+			// resource/limit.
+			ID:      "P2-stray-braces",
+			Fixture: "p2-stray-braces.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options { return Options{File: "stray.html"} },
+		},
+		{
 			ID:      "P2-dom-depth",
 			Fixture: "p2-dom-depth.html",
 			Want:    "resource/limit",
 			Options: func(t *testing.T, dir string) Options {
 				return Options{File: "depth.html", Limits: Limits{MaxDOMDepth: 8}}
+			},
+		},
+		{
+			// RV4-03: 60 nested break-inside: avoid blocks of 30 words. Every
+			// level re-measures its subtree, so without a width-keyed line cache
+			// the cost is quadratic in the depth; a small budget must stop it
+			// without spending that time.
+			ID:      "P2-nested-avoid",
+			Fixture: "p2-nested-avoid.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "avoid.html", Limits: Limits{MaxOperations: 2000}}
 			},
 		},
 		{

@@ -111,6 +111,39 @@ func readLimited(f *os.File, limit int) ([]byte, error) {
 	return data, nil
 }
 
+// full joins a relative path with the root directory. A relative path is
+// interpreted inside the root, not against the process working directory.
+func (r *Root) full(path string) string {
+	if r == nil || r.dir == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(r.dir, path)
+}
+
+// relative returns the containment-checked path relative to the root.
+func (r *Root) relative(path string) (string, error) {
+	abs, err := filepath.Abs(r.full(path))
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		// A path that does not exist has no resolved form, so containment is
+		// judged on the clean absolute path. A traversal above the root is then
+		// an escape rather than a missing file, which is the diagnostic the
+		// callers report for it.
+		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
+			return "", ErrOutsideRoot
+		}
+		return "", err
+	}
+	rel, err := filepath.Rel(r.dir, real)
+	if err != nil || escapes(rel) {
+		return "", ErrOutsideRoot
+	}
+	return rel, nil
+}
+
 // escapes reports whether rel leaves the directory it was computed against.
 func escapes(rel string) bool {
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
@@ -131,7 +164,7 @@ func (r *Root) Resolve(path string) (string, error) {
 		}
 		return abs, nil
 	}
-	abs, err := filepath.Abs(path)
+	abs, err := filepath.Abs(r.full(path))
 	if err != nil {
 		return "", err
 	}
@@ -153,13 +186,26 @@ func (r *Root) Resolve(path string) (string, error) {
 // Read, so a caller can reject an asset before opening it. A missing path keeps
 // its stat error.
 func (r *Root) Size(path string) (int64, error) {
-	real, err := r.Resolve(path)
+	if r == nil || r.dir == "" {
+		real, err := r.Resolve(path)
+		if err != nil {
+			return 0, err
+		}
+		info, err := os.Stat(real)
+		if err != nil {
+			return 0, err
+		}
+		return info.Size(), nil
+	}
+	rel, err := r.relative(path)
 	if err != nil {
 		return 0, err
 	}
-	info, err := os.Stat(real)
+	// The size is read through the root handle, like the content: a symlink
+	// swapped between the two calls cannot point the stat somewhere else.
+	info, err := r.handle.Stat(rel)
 	if err != nil {
-		return 0, err
+		return 0, classifyOpenError(err)
 	}
 	return info.Size(), nil
 }
@@ -170,24 +216,9 @@ func (r *Root) open(path string) (*os.File, error) {
 	if r == nil || r.dir == "" {
 		return os.Open(path)
 	}
-	abs, err := filepath.Abs(path)
+	rel, err := r.relative(path)
 	if err != nil {
 		return nil, err
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		// A path that does not exist has no resolved form, so containment is
-		// judged on the clean absolute path. A traversal above the root is then
-		// an escape rather than a missing file, which is the diagnostic the
-		// callers report for it.
-		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
-			return nil, ErrOutsideRoot
-		}
-		return nil, err
-	}
-	rel, err := filepath.Rel(r.dir, real)
-	if err != nil || escapes(rel) {
-		return nil, ErrOutsideRoot
 	}
 	f, err := r.handle.Open(rel)
 	if err != nil {

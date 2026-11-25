@@ -21,7 +21,12 @@ type Options struct {
 	// Margin is the fallback page margin, for example "20mm" or "15mm 20mm".
 	// Empty means "20mm".
 	Margin string
-	// FontDir is the directory used to resolve relative @font-face paths.
+	// FontDir is the directory used to resolve relative @font-face paths. A
+	// relative src in an @font-face rule resolves against FontDir and, when
+	// FontDir is empty, against BaseDir; an absolute src is read as written.
+	// FontDir confines the fonts the document may load: a path or symlink that
+	// leaves it is rejected. A configured directory that cannot be opened is
+	// reported as options/asset-root before any font is read.
 	FontDir string
 	// BaseDir is the directory used to resolve relative image paths. When it
 	// is set, reads are confined to that directory: a path or symlink that
@@ -282,8 +287,12 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 }
 
 // Validate parses, lays out and checks a template without writing a PDF. It
-// reports the same problems as Convert, including a missing image and a
-// character without a glyph, so it belongs in a CI check.
+// reports the same problems as Convert, including a missing image, a character
+// without a glyph and an invalid metadata value, so it belongs in a CI check.
+//
+// Serialisation is the only stage Validate does not run: a document rejected
+// only by the writer's work budget is reported by Convert as resource/limit, and
+// that is the one difference between the two entry points.
 //
 // Like Convert it returns an *Error when the template is invalid and the
 // context error when ctx is done.
@@ -307,9 +316,15 @@ func Validate(ctx context.Context, src []byte, opts Options) (Diagnostics, error
 
 // CharsetSupported reports whether name is a supported input encoding. It
 // matches the labels Options.Charset accepts, so "cp1251" and "windows-1251"
-// both report true. The reference command uses it to reject a bad -charset as a
-// usage error before reading the input.
+// both report true, and the empty name is valid because an empty
+// Options.Charset asks the engine to detect the encoding. A caller that wants to
+// check only named encodings writes name != "" && CharsetSupported(name).
+// The reference command uses it to reject a bad -charset as a usage error
+// before reading the input.
 func CharsetSupported(name string) bool {
+	if name == "" {
+		return true
+	}
 	_, err := charset.Validate(name)
 	return err == nil
 }
