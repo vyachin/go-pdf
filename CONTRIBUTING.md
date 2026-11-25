@@ -6,33 +6,65 @@ documentation is the README; nothing here is required reading to use the package
 ## Layout
 
 ```
-  HTML
-   |
-   v
- html/      scan (positions, limits) + standard tree + model
-   |
-   v
- css/       tokenizer, parser, selectors, cascade
-   |
-   v
- profile/   allow-list, validation, diagnostics
-   |
-   v
- layout/    box tree -> lines -> fragments -> pages
-   |   \
-   |    text/   shaping, line breaking, metrics
-   v
- backend/pdf/     PDF writer, fonts, ToUnicode
- backend/raster/  debug raster for tests
+  HTML bytes
+     |
+     v
+ internal/html      scan (positions, limits) + standard tree + model
+     |
+     v
+ internal/css       tokenizer, parser, selectors, cascade
+     |
+     v
+ internal/profile   allow-list, validation, diagnostics
+     |
+     v
+ internal/engine    orchestration: prepare, layout, write; one work guard
+     |        \
+     |         +-> internal/assets   confined reads, identity, accounting
+     v
+ internal/layout    box tree -> lines -> fragments -> pages
+     |        \
+     |         +-> internal/backend/raster   debug raster (tests only)
+     v
+ internal/text      shaping, line breaking, metrics
+     |
+     v
+ internal/pdf       PDF writer, fonts, ToUnicode
 ```
 
-`pdfgen` is the only public package; everything under `internal/` is an
-implementation detail that Go hides from other modules. Geometry is integer
-millipoints (1/1000 pt), so results never depend on floating point.
+`pdfgen` is the only public package; every `internal/...` package is an
+implementation detail that Go hides from other modules. `cmd/pdfgen` is the
+reference example and must stay one: it imports `pdfgen` and the standard
+library only, because the command's job is to prove the public API is enough.
 
-`cmd/pdfgen` is the reference example and must stay one: it imports `pdfgen`
-and the standard library only, because the command's job is to prove the public
-API is enough.
+Who owns what:
+
+- `internal/engine` orchestrates one conversion: it prepares the document, owns
+  the single `budget.Guard` every stage charges, runs layout, and hands the
+  layout's drawing operations to the writer. It creates the `internal/assets`
+  registry and closes it on every exit, so a cancelled or failed conversion
+  releases every file handle.
+- `internal/assets` owns resource access: the confined readers (`internal/fsx`
+  roots), the identity of an asset (kind, canonical file or content digest, and
+  decoding inputs), the conversion's admission counters, and typed failures.
+  `internal/asset` is the URL-path resolver it uses.
+- `internal/layout` owns geometry and page composition: the box tree, line
+  breaking, fragments, pages, and the drawing operations the writer serialises.
+  `internal/text` owns shaping, metrics and the glyph scaling it needs.
+- `internal/pdf` owns serialisation only: objects, the `Identity-H` font,
+  `ToUnicode` and number formatting. It does not decide layout.
+- `internal/docdump` dumps the prepared model for the document snapshots, and
+  `internal/backend/raster` rasterises layout's drawing operations for
+  `Options.RenderPNG` and the render goldens. Both are debugging and test
+  consumers of what layout already produced; neither is a prerequisite for
+  writing the PDF.
+
+Geometry is stored in integer millipoints (1/1000 pt): `int32` positions, sizes
+and advances. Not every calculation is integer — `text.Scale` converts font
+units to millipoints with `math.Round` over `float64`, and the writer scales
+font descriptors and nominal widths the same way. The determinism guarantee
+comes from identical inputs and a fixed rounding rule, not from avoiding
+floating point entirely.
 
 ## Standard library first
 
