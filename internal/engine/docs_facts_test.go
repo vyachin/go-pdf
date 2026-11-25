@@ -52,30 +52,32 @@ func TestDocumentedLimitsMatchTheCode(t *testing.T) {
 	}
 }
 
-// TestDocumentedCIPinMatchesTheWorkflow guards the same rule for the CI image
-// and the renderer record: the workflow, the documentation and renderer.txt
-// name one image and one renderer.
-func TestDocumentedCIPinMatchesTheWorkflow(t *testing.T) {
+// TestDocumentedCIImageMatchesTheWorkflow guards the CI image rule: every job
+// runs on one label, the documentation names that label, and renderer.txt
+// records the rasterizer those goldens came from.
+func TestDocumentedCIImageMatchesTheWorkflow(t *testing.T) {
 	workflow := readDoc(t, ".github", "workflows", "ci.yml")
-	image := regexp.MustCompile(`runs-on: (ubuntu-[0-9.]+)`).FindStringSubmatch(workflow)
-	if image == nil {
-		t.Fatal("ci.yml names no pinned image")
+	labels := regexp.MustCompile(`runs-on: (\S+)`).FindAllStringSubmatch(workflow, -1)
+	if len(labels) == 0 {
+		t.Fatal("ci.yml names no runner image")
 	}
-	pinned := image[1]
-	if strings.Contains(workflow, "ubuntu-latest") {
-		t.Fatalf("ci.yml still uses ubuntu-latest")
+	label := labels[0][1]
+	for _, m := range labels[1:] {
+		if m[1] != label {
+			t.Fatalf("ci.yml mixes runner images: %q and %q", label, m[1])
+		}
 	}
 	renderer := strings.TrimSpace(readDoc(t, "testdata", "golden", "render", "renderer.txt"))
 	if !strings.HasPrefix(renderer, "pdftoppm version ") {
 		t.Fatalf("renderer.txt does not record the rasterizer: %q", renderer)
 	}
 	golden := readDoc(t, "docs", "golden.md")
-	if !strings.Contains(golden, pinned) && !strings.Contains(golden, strings.TrimPrefix(pinned, "ubuntu-")) {
-		t.Errorf("docs/golden.md does not name the pinned image %q", pinned)
+	if !strings.Contains(golden, label) {
+		t.Errorf("docs/golden.md does not name the runner image %q", label)
 	}
 	contributing := readDoc(t, "CONTRIBUTING.md")
-	if !strings.Contains(contributing, pinned) {
-		t.Errorf("CONTRIBUTING.md does not name the pinned image %q", pinned)
+	if !strings.Contains(contributing, label) {
+		t.Errorf("CONTRIBUTING.md does not name the runner image %q", label)
 	}
 }
 

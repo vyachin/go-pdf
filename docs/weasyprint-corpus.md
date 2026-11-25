@@ -84,8 +84,8 @@ replacing a reference PDF without regenerating its oracle fails with the
 regeneration command, so a stale reference cannot pass silently.
 
 The committed oracles were produced with **`pdftotext` 26.11.0** (Homebrew, macOS).
-CI never runs `pdftotext`: the poppler of the CI image (24.02 on `ubuntu-24.04`)
-is there for the render goldens only, and the oracle is committed. Regenerating
+CI never runs `pdftotext`: the poppler of the CI image (26.01 on `ubuntu-latest`,
+currently Ubuntu 26.04) is there for the render goldens only, and the oracle is committed. Regenerating
 the oracle with another poppler changes spacing and possibly reading order, so it
 is a deliberate commit whose text diff is reviewed like any other golden.
 

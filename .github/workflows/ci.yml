@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   unit:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +64,7 @@ jobs:
           fi
 
   race:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -84,11 +84,12 @@ jobs:
         run: go test -shuffle=on -race ./...
 
   golden:
-    # The render goldens are produced with the poppler of this image: Ubuntu
-    # 24.04 ships poppler 24.02.0, which is the version the goldens and
-    # renderer.txt were recorded with. Moving the pin means regenerating the
-    # goldens, renderer.txt, docs/golden.md and CONTRIBUTING.md in one change.
-    runs-on: ubuntu-24.04
+    # The render goldens are produced with the poppler of this image:
+    # ubuntu-latest is Ubuntu 26.04 and ships poppler 26.01.0, which is the
+    # version renderer.txt records. The label floats, so a new image means
+    # regenerating the goldens, renderer.txt, docs/golden.md and CONTRIBUTING.md
+    # in one change.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -135,7 +136,7 @@ jobs:
           if-no-files-found: ignore
 
   fuzz:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -154,7 +155,7 @@ jobs:
           go test ./pdfgen -run '^$' -fuzz '^FuzzConvert$' -fuzztime 15s
 
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -187,7 +188,7 @@ jobs:
     # as a failure, so a suite that never ran cannot pass.
     needs: [unit, race, golden, fuzz, lint]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every job succeeded

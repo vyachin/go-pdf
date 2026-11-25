@@ -201,9 +201,9 @@ own check:
 | `fuzz` | a short fuzz session per target | Go |
 | `lint` | `gofmt` and the pinned `golangci-lint` | Go, `golangci-lint` |
 
-The render tests are required only in `golden`, which owns the pinned
-`ubuntu-24.04` image and its poppler; `unit` and `race` skip them, so they do not
-pay for a rasterizer. The `gate` job depends on all five and fails when any of
+The render tests are required only in `golden`, which runs on the workflow's
+`ubuntu-latest` image and installs its poppler; `unit` and `race` skip them, so
+they do not pay for a rasterizer. The `gate` job depends on all five and fails when any of
 them is not successful, including a skipped one.
 
 Branch protection must require the `gate` check and reject a force push to
@@ -217,9 +217,10 @@ a new version. If a branch was rewritten by accident, restore the pushed commits
 and land the correction as a new commit.
 
 Remaining inputs stay manual because every bump of them is a decision rather
-than a refresh: the `ubuntu-24.04` runner and its poppler, which determine the
-golden rasters; `pdfcpu`, whose version must stay buildable by the Go minimum in
-`go.mod`; the pinned `golangci-lint` version; and the `go` directive itself.
+than a refresh: the poppler the `ubuntu-latest` image ships, which determines the
+golden rasters and must be accepted by regenerating them and the renderer record;
+`pdfcpu`, whose version must stay buildable by the Go minimum in `go.mod`; the
+pinned `golangci-lint` version; and the `go` directive itself.
 
 Action references and Go module requirements are kept current by Dependabot,
 configured in `.github/dependabot.yml`: weekly, with a cooldown before a fresh
