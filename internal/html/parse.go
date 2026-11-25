@@ -267,11 +267,11 @@ func (b *builder) startPosition(tag string) (int, int, bool) {
 	return int(s.start), int(s.end), true
 }
 
-// textSpanFor returns the range of the text token whose bytes are data. Foster
-// parenting reorders the tree, so the next token in tree order is not
-// necessarily this node's content: matching the bytes keeps the content and its
-// position together instead of giving a node another node's span. When no
-// token matches, the node falls back to its parent's range.
+// textSpanFor returns the range of the text token whose decoded text is data.
+// Foster parenting reorders the tree, so the next token in tree order is not
+// necessarily this node's content: matching the text keeps the content and its
+// position together instead of giving a node another node's span. When no token
+// matches, the node falls back to its parent's range.
 func (b *builder) textSpanFor(data string) (int, int, bool) {
 	if data == "" {
 		return 0, 0, false
@@ -282,7 +282,7 @@ func (b *builder) textSpanFor(data string) (int, int, bool) {
 			b.spanCur++
 			continue
 		}
-		if sameText(string(b.doc.text[s.start:s.end]), data) {
+		if b.scan.textOf(b.doc.text, s) == data {
 			b.spanCur++
 			b.lower = int(s.end)
 			return int(s.start), int(s.end), true
@@ -296,29 +296,11 @@ func (b *builder) textSpanFor(data string) (int, int, bool) {
 		if s.kind != spanText {
 			continue
 		}
-		if sameText(string(b.doc.text[s.start:s.end]), data) {
+		if b.scan.textOf(b.doc.text, s) == data {
 			return int(s.start), int(s.end), true
 		}
 	}
 	return 0, 0, false
-}
-
-// sameText reports whether two strings are equal once line endings are
-// normalized, which is what the tree does to a raw-text element's contents: the
-// span still holds the source verbatim, CRLF included.
-func sameText(a, b string) bool {
-	if a == b {
-		return true
-	}
-	return normalizeLineEndings(a) == normalizeLineEndings(b)
-}
-
-func normalizeLineEndings(s string) string {
-	if !strings.ContainsRune(s, '\r') {
-		return s
-	}
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	return strings.ReplaceAll(s, "\r", "\n")
 }
 
 // lastChild returns the last child of n, or nil.

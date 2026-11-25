@@ -172,6 +172,58 @@ func TestCharacterReferences(t *testing.T) {
 	}
 }
 
+// TestTextNodeWithCharacterReferenceKeepsItsOwnSpan guards the matching rule for
+// decoded text: the node names its own token's range, not its parent element's.
+func TestTextNodeWithCharacterReferenceKeepsItsOwnSpan(t *testing.T) {
+	src := []byte(`<p>a &amp; b</p>`)
+	doc, err := Parse(src, "entity.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := findElement(doc.Root, "p")
+	if p == nil || len(p.Children) == 0 {
+		t.Fatal("no paragraph text")
+	}
+	text := p.Children[0]
+	if text.Type != TextNode {
+		t.Fatalf("first child is not text: %+v", text)
+	}
+	if got, want := text.Data, "a & b"; got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	if got, want := string(doc.Source()[text.Start:text.End]), "a &amp; b"; got != want {
+		t.Fatalf("range holds %q, want %q", got, want)
+	}
+	if pos := doc.Pos(text); pos.Line != 1 || pos.Col != 4 {
+		t.Fatalf("text position = %+v, want 1:4", pos)
+	}
+}
+
+// TestReferenceNextToLiteralAmpersand guards that a decoded reference and a
+// literal ampersand keep their own ranges instead of sharing one.
+func TestReferenceNextToLiteralAmpersand(t *testing.T) {
+	src := []byte(`<p>&amp;</p><p>&</p>`)
+	doc, err := Parse(src, "amp.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := doc.Body()
+	if body == nil || len(body.Children) != 2 {
+		t.Fatalf("body children = %d, want 2", len(body.Children))
+	}
+	first := body.Children[0].Children[0]
+	second := body.Children[1].Children[0]
+	if got, want := string(doc.Source()[first.Start:first.End]), "&amp;"; got != want {
+		t.Fatalf("first range holds %q, want %q", got, want)
+	}
+	if got, want := string(doc.Source()[second.Start:second.End]), "&"; got != want {
+		t.Fatalf("second range holds %q, want %q", got, want)
+	}
+	if first.Start == second.Start {
+		t.Fatal("both text nodes share one span")
+	}
+}
+
 func TestPositions(t *testing.T) {
 	src := "<p>\nhello</p>"
 	doc, err := Parse([]byte(src), "doc.html")
