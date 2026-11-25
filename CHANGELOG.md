@@ -11,6 +11,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`html/truncated` diagnostic.** A document that ends inside an HTML tag
   fails with that diagnostic at the position of the incomplete tag, instead of
   converting a document shorter than the author wrote.
+- **Input encodings.** A template no longer has to be UTF-8. windows-1251,
+  KOI8-R and IBM866 are accepted alongside UTF-8, detected the way the HTML
+  standard detects them — a byte order mark, then a `<meta charset>` or
+  `http-equiv` declaration in the first 1024 bytes — or named explicitly with
+  `Options.Charset` and the reference command's `-charset`, which wins over both.
+  A UTF-8 byte order mark is removed instead of becoming a character in the
+  body, and a document that uses one now converts to the same bytes as the same
+  document without it. Failures name their cause: `html/encoding` for an
+  encoding outside the set, a byte the encoding does not define, a UTF-16 input
+  and a document that is neither valid UTF-8 nor declared; `css/link-encoding`
+  for a linked stylesheet that cannot be decoded or that carries a conflicting
+  `@charset`; `options/charset` for an unsupported caller-named encoding,
+  reported before any asset is read. A linked stylesheet is decoded with the
+  document's encoding, and every diagnostic keeps pointing at the byte, line and
+  column of the original file.
 
 ### Changed
 
@@ -25,7 +40,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Dependencies.** The module may now require a module the Go team maintains,
   pinned and covered by `go.sum`. The previous "no dependencies" rule is
   replaced by that allowlist; `golang.org/x/net` is the first requirement
-  outside the standard library.
+  outside the standard library. The HTML charset package now decodes legacy
+  input, so `golang.org/x/net` brings its encoding tables along and the binary
+  grows by about 830 KB.
 - **Text normalization.** `golang.org/x/text/unicode/norm` performs canonical
   composition instead of a generated table and its undocumented generator, so
   the result follows the Unicode version of the module. Canonical decomposition

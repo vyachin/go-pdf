@@ -81,7 +81,11 @@ go test ./internal/engine -bench .             # benchmarks
 - Generated PDFs are validated by the independent `pdfcpu` tool when it is in
   `PATH`; CI requires it through `PDF_REQUIRE_VALIDATOR=1`.
 - The `testdata/*.html` corpus holds an invoice, an act and a contract with real
-  layout; `testdata/fixtures/` adds one small document per profile feature.
+  layout; `testdata/fixtures/` adds one small document per profile feature. Four
+  of those fixtures are not UTF-8 on purpose: `cp1251-invoice.html`,
+  `koi8r-invoice.html`, `utf8-bom-invoice.html` and the `cp1251-styles.css` the
+  invoice links. Their bytes are what the encoding tests read, so
+  `.gitattributes` marks them `-text`; never normalise or "fix" them.
 - The mPDF corpus (`internal/mpdfcompat`) contains 149 documents extracted from
   the mPDF tests. It checks that a document inside the profile yields a valid
   deterministic PDF, while a document outside the profile is rejected with

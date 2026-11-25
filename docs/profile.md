@@ -16,6 +16,43 @@ img span br hr strong b em i a title meta style link
 
 An unknown element is the error `html/unsupported-element`. The supported attributes are `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (for `ol`), `name`/`content` (for `meta`).
 
+## Input encodings
+
+The input does not have to be UTF-8. The encoding is detected as the HTML
+standard detects it:
+
+1. a byte order mark, which also decides between UTF-8 and UTF-16;
+2. a `<meta charset>` or `<meta http-equiv="Content-Type">` declaration in the
+   first 1024 bytes;
+3. otherwise UTF-8.
+
+A UTF-8 byte order mark is removed before parsing. A declaration overrides the
+bytes: a document that says `windows-1251` is read as windows-1251 even when its
+bytes happen to be valid UTF-8, exactly as a browser would read it.
+
+The supported set is closed: `utf-8`, `windows-1251`, `koi8-r` and `ibm866`. A
+declaration of anything else — `shift_jis`, `windows-1252`, a UTF-16 byte order
+mark — fails with `html/encoding` naming the encoding, and the position of the
+first `<meta>` in the window when there is one. windows-1252 is deliberately not
+supported: the standard library reports it both for a document that declares it
+and for a document that declares nothing and is not valid UTF-8, so accepting it
+would read an undeclared windows-1251 document as Latin mojibake. Convert such a
+file, or name the real encoding.
+
+A document that is not valid UTF-8 and declares nothing fails with
+`html/encoding` at its first invalid byte, and a byte the selected encoding does
+not define (windows-1251 `0x98`) fails at that byte. Bytes are never replaced
+with U+FFFD.
+
+`Options.Charset` (`-charset` in the reference command) names the encoding
+explicitly and wins over the mark and the declaration; an unsupported value is
+`options/charset`, reported before any asset is read. It is the way to convert a
+document that declares nothing.
+
+A position inside a decoded document or stylesheet is reported in the bytes of
+the original file: a diagnostic after a Cyrillic word on one line names the
+column the author would see, not the longer UTF-8 column.
+
 ## Properties
 
 | Property | Inherited | Values |
@@ -126,6 +163,12 @@ Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-cent
 - `media` on `<link>` and `<style>` with the value `print`, `all` or empty applies the sheet; any other value (including a list without `print`) skips it without an error;
 - a `rel` other than `stylesheet` (`icon`, `canonical`) is silently ignored;
 - `http(s)://` and `data:` are rejected: remote stylesheets are not loaded;
+- the sheet is decoded with the document's encoding (CSS 2.1 gives a linked
+  sheet without its own `@charset` the encoding of the referring document);
+- a `@charset` rule at the very start of the file is accepted and ignored when
+  it names the document's encoding, and is `css/link-encoding` when it names
+  another one; a byte the encoding does not define is `css/link-encoding` at
+  that byte;
 - the cascade order is the document order, so `<style>`, `<link>`, `<style>` apply in exactly that sequence;
 - an error inside an included file names the file, the line and the column in it.
 
@@ -137,4 +180,7 @@ Every error contains the file, line, column and element path:
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `text/glyph`, `layout/overflow`.
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `text/glyph`, `layout/overflow`.
+
+An option error, such as `options/charset` or `options/page-size`, names no
+position: it is about the call, not the document.
