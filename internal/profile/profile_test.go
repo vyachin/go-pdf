@@ -2,6 +2,8 @@ package profile
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -282,4 +284,17 @@ func TestGeneratorsAreRestrictedToTheirContext(t *testing.T) {
 func validateSheetDiags(t *testing.T, doc *html.Document, sheet *css.Stylesheet) diag.List {
 	t.Helper()
 	return ValidateSheets(doc, Options{}, []*css.Stylesheet{sheet}, nil)
+}
+
+// TestReadConfinedRejectsNilRoot guards the failed-root path: a nil root must
+// return an error instead of reading without a boundary.
+func TestReadConfinedRejectsNilRoot(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "style.css")
+	if err := os.WriteFile(path, []byte("p { color: #f00 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readConfined(nil, path, 1024); err == nil {
+		t.Fatal("a nil root read an existing file without a boundary")
+	}
 }

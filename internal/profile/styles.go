@@ -49,10 +49,13 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 	var out diag.List
 	root, rootErr := fsx.Open(opts.BaseDir)
 	if rootErr != nil {
-		out.Errorf("css/link-load", diag.Position{}, "", "cannot open the base directory: %v", rootErr)
-	} else {
-		defer func() { _ = root.Close() }()
+		// A configured root that cannot be opened is a configuration error.
+		// Continuing with a nil root would mean "no boundary" and read an
+		// absolute link outside the directory the caller named.
+		out.Errorf("options/asset-root", diag.Position{}, "", "cannot open the base directory: %v", rootErr)
+		return nil, out
 	}
+	defer func() { _ = root.Close() }()
 	stopped := false
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
@@ -285,6 +288,9 @@ func isCSSSpace(b byte) bool {
 // readConfined reads a stylesheet through a root confined to the base
 // directory and maps failures to the diagnostics the profile reports for links.
 func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
+	if root == nil {
+		return nil, &linkError{code: "options/asset-root", msg: "the asset root is unavailable"}
+	}
 	data, err := root.ReadLimit(path, limit)
 	if err == nil {
 		return data, nil

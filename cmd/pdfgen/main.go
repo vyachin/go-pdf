@@ -67,7 +67,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *out == "" {
 		*out = outputPath(input)
 	}
-
+	// Writing the PDF over its own source would truncate the template, so the
+	// resolved paths are compared before anything is opened for writing.
+	if sameFile(input, *out) {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: the output %q is the input file; refusing to overwrite the source\n\n", *out)
+		usage(stderr)
+		return exitUsage
+	}
+	// The package limit is checked before the file is loaded: an oversized
+	// template must not be read into memory just to be rejected.
+	info, err := os.Stat(input)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
+		return exitFailure
+	}
+	limits := pdfgen.DefaultLimits()
+	if info.Size() > int64(limits.MaxInputBytes) {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: input is %d bytes, the limit is %d\n", info.Size(), limits.MaxInputBytes)
+		return exitFailure
+	}
 	src, err := os.ReadFile(input)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
@@ -106,13 +124,69 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// The write is the caller's decision and happens only after a complete PDF
-	// exists, so a failed conversion leaves the destination untouched.
-	if err := os.WriteFile(*out, res.PDF, 0o644); err != nil {
+	// exists. The temporary file and rename keep a failed write from leaving a
+	// partial file at the destination.
+	if err := writeFileAtomic(*out, res.PDF); err != nil {
 		_, _ = fmt.Fprintf(stderr, "pdfgen: %v\n", err)
 		return exitFailure
 	}
 	_, _ = fmt.Fprintf(stdout, "wrote %s (%d bytes)\n", *out, len(res.PDF))
 	return exitOK
+}
+
+// sameFile reports whether input and output name the same file. Existing
+// paths are compared by identity, so a symlink or a differently spelled path
+// is caught; a missing output falls back to the absolute paths, folded for a
+// case-insensitive filesystem.
+func sameFile(input, output string) bool {
+	inInfo, err := os.Stat(input)
+	if err != nil {
+		return false
+	}
+	if outInfo, err := os.Stat(output); err == nil {
+		return os.SameFile(inInfo, outInfo)
+	}
+	inAbs, inErr := filepath.Abs(input)
+	outAbs, outErr := filepath.Abs(output)
+	if inErr != nil || outErr != nil {
+		return false
+	}
+	return inAbs == outAbs || strings.EqualFold(inAbs, outAbs)
+}
+
+// writeFileAtomic writes data to a temporary file beside path and renames it
+// into place after a complete write, preserving 0o644. A failure removes the
+// temporary file and leaves any previous destination untouched.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".pdfgen-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	fail := func(err error) error {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	if err := os.Chmod(name, 0o644); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 func usage(w io.Writer) {
@@ -129,7 +203,12 @@ The input encoding is detected from the document: a byte order mark, then a
 it explicitly and wins over both. The supported encodings are utf-8,
 windows-1251, koi8-r and ibm866.
 
-Exit codes: 0 success, 1 the document cannot be converted, 2 a usage error.
+The output must not name the input file, and an input larger than the default
+MaxInputBytes limit is rejected before it is read. On success the PDF is written
+to a temporary file in the destination directory and renamed into place.
+
+Exit codes: 0 success, 1 the document cannot be converted, 2 a usage error,
+including an output that names the input file.
 
 This command is a reference example for the pdfgen package and carries no
 compatibility promise; only the package is versioned.

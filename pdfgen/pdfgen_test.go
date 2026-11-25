@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vyachin/go-pdf/internal/engine"
 	"github.com/vyachin/go-pdf/pdfgen"
 )
 
@@ -466,4 +467,37 @@ func colorName(red bool) string {
 		return "red"
 	}
 	return "blank"
+}
+
+// TestDefaultLimitsMatchesConversion guards the exported defaults: they are the
+// values a zero Limits applies, and the conversion rejects a larger input.
+func TestDefaultLimitsMatchesConversion(t *testing.T) {
+	d := pdfgen.DefaultLimits()
+	want := engine.DefaultLimits()
+	if d.MaxInputBytes != want.MaxInputBytes || d.MaxStylesheetBytes != want.MaxStylesheetBytes ||
+		d.MaxPages != want.MaxPages || d.MaxImagePixels != want.MaxImagePixels ||
+		d.MaxImageBytes != want.MaxImageBytes || d.MaxRasterPixels != want.MaxRasterPixels ||
+		d.MaxFontBytes != want.MaxFontBytes || d.MaxTotalImageBytes != want.MaxTotalImageBytes ||
+		d.MaxTotalImagePixels != want.MaxTotalImagePixels || d.MaxTotalFontBytes != want.MaxTotalFontBytes ||
+		d.MaxDOMDepth != want.MaxDOMDepth || d.MaxTableCells != want.MaxTableCells ||
+		d.MaxOperations != want.MaxOperations {
+		t.Fatalf("defaults = %+v, engine says %+v", d, want)
+	}
+	res, err := pdfgen.Convert(context.Background(), make([]byte, d.MaxInputBytes+1), pdfgen.Options{})
+	if err == nil || len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != "resource/limit" {
+		t.Fatalf("an oversized input was not rejected: err=%v diags=%v", err, res.Diagnostics)
+	}
+}
+
+// TestTotalAssetLimitReachesTheEngine guards the Limits mapping: a caller's
+// aggregate font limit must reach the engine instead of being dropped in the
+// pdfgen wrapper.
+func TestTotalAssetLimitReachesTheEngine(t *testing.T) {
+	res, err := pdfgen.Convert(context.Background(), []byte(`<p>x</p>`), pdfgen.Options{
+		FallbackFont: filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf"),
+		Limits:       pdfgen.Limits{MaxTotalFontBytes: 1},
+	})
+	if err == nil || len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != "resource/limit" {
+		t.Fatalf("the total font limit was not applied: err=%v diags=%v", err, res.Diagnostics)
+	}
 }

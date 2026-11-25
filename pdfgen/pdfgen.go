@@ -326,18 +326,51 @@ func (o Options) toEngine() engine.Options {
 		Charset:       o.Charset,
 		Strict:        o.Strict,
 		ImportBrowser: o.ImportBrowser,
-		Limits: engine.Limits{
-			MaxInputBytes:      o.Limits.MaxInputBytes,
-			MaxStylesheetBytes: o.Limits.MaxStylesheetBytes,
-			MaxPages:           o.Limits.MaxPages,
-			MaxImagePixels:     o.Limits.MaxImagePixels,
-			MaxImageBytes:      o.Limits.MaxImageBytes,
-			MaxRasterPixels:    o.Limits.MaxRasterPixels,
-			MaxFontBytes:       o.Limits.MaxFontBytes,
-			MaxDOMDepth:        o.Limits.MaxDOMDepth,
-			MaxTableCells:      o.Limits.MaxTableCells,
-			MaxOperations:      o.Limits.MaxOperations,
-		},
+		Limits:        o.Limits.toEngine(),
+	}
+}
+
+// DefaultLimits returns the limits a zero Limits resolves to. A caller that
+// reads its own input can reject an oversized file before loading it with
+// DefaultLimits().MaxInputBytes, and the values always match the conversion
+// defaults.
+func DefaultLimits() Limits {
+	return fromEngineLimits(engine.DefaultLimits())
+}
+
+func (l Limits) toEngine() engine.Limits {
+	return engine.Limits{
+		MaxInputBytes:       l.MaxInputBytes,
+		MaxStylesheetBytes:  l.MaxStylesheetBytes,
+		MaxPages:            l.MaxPages,
+		MaxImagePixels:      l.MaxImagePixels,
+		MaxImageBytes:       l.MaxImageBytes,
+		MaxRasterPixels:     l.MaxRasterPixels,
+		MaxFontBytes:        l.MaxFontBytes,
+		MaxTotalImageBytes:  l.MaxTotalImageBytes,
+		MaxTotalImagePixels: l.MaxTotalImagePixels,
+		MaxTotalFontBytes:   l.MaxTotalFontBytes,
+		MaxDOMDepth:         l.MaxDOMDepth,
+		MaxTableCells:       l.MaxTableCells,
+		MaxOperations:       l.MaxOperations,
+	}
+}
+
+func fromEngineLimits(l engine.Limits) Limits {
+	return Limits{
+		MaxInputBytes:       l.MaxInputBytes,
+		MaxStylesheetBytes:  l.MaxStylesheetBytes,
+		MaxPages:            l.MaxPages,
+		MaxImagePixels:      l.MaxImagePixels,
+		MaxImageBytes:       l.MaxImageBytes,
+		MaxRasterPixels:     l.MaxRasterPixels,
+		MaxFontBytes:        l.MaxFontBytes,
+		MaxTotalImageBytes:  l.MaxTotalImageBytes,
+		MaxTotalImagePixels: l.MaxTotalImagePixels,
+		MaxTotalFontBytes:   l.MaxTotalFontBytes,
+		MaxDOMDepth:         l.MaxDOMDepth,
+		MaxTableCells:       l.MaxTableCells,
+		MaxOperations:       l.MaxOperations,
 	}
 }
 

@@ -187,6 +187,12 @@ with `resource/limit` during parsing, before any walk over the rules.
 `<link rel="stylesheet">` includes a local file. Rules:
 
 - the path is resolved relative to the run's `BaseDir`; when `BaseDir` is set, going outside it is forbidden;
+
+A configured `BaseDir` or `FontDir` that cannot be opened fails with
+`options/asset-root` before any asset is read; it never falls back to an
+unbounded root. The reference command refuses an output that names the input
+file, rejects an input larger than `pdfgen.DefaultLimits().MaxInputBytes` before
+reading it, and writes through a temporary file renamed into place.
 - `media` on `<link>` and `<style>` with the value `print`, `all` or empty applies the sheet; any other value (including a list without `print`) skips it without an error;
 - a `rel` other than `stylesheet` (`icon`, `canonical`) is silently ignored;
 - `http(s)://` and `data:` are rejected: remote stylesheets are not loaded;
