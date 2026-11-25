@@ -9,7 +9,7 @@ documentation is the README; nothing here is required reading to use the package
   HTML
    |
    v
- html/      tokenizer + tree
+ html/      scan (positions, limits) + standard tree + model
    |
    v
  css/       tokenizer, parser, selectors, cascade
@@ -67,8 +67,8 @@ go test ./internal/engine -bench .             # benchmarks
   matches the reference text, and the suite enforces that declaration; the
   current distance from the profile is in
   [docs/weasyprint-corpus.md](docs/weasyprint-corpus.md).
-- Fuzz targets cover the HTML and CSS tokenizers, TrueType parsing, the PDF
-  writer and the public `Convert` boundary (arbitrary bytes never panic).
+- Fuzz targets cover the HTML frontend, the CSS tokenizer, TrueType parsing,
+  the PDF writer and the public `Convert` boundary (arbitrary bytes never panic).
 
 The suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical on
 every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it for the

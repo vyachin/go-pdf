@@ -137,4 +137,4 @@ Every error contains the file, line, column and element path:
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `html/unsupported-element`, `text/glyph`, `layout/overflow`.
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `text/glyph`, `layout/overflow`.

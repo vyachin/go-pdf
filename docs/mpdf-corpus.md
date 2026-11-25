@@ -30,15 +30,21 @@ render snapshot sets.
 Current run result:
 
 ```
-36 convert, 59 rejected by the profile, 54 skipped
+38 convert, 57 rejected by the profile, 54 skipped
 
-issue:    converted=36 rejected=45 skipped=51
+issue:    converted=38 rejected=43 skipped=51
 snapshot: converted=0  rejected=14 skipped=3
 
-rejections: unsupported-property 19, unsupported-element 19,
-           img/load 8, unsupported-value 6, text/glyph 6,
-           unsupported-page-selector 1
+rejections: unsupported-property 18, unsupported-element 18,
+           truncated 7, unsupported-value 5, text/glyph 5,
+           img/load 2, link-load 1, unsupported-page-selector 1
 ```
+
+Seven entries were extracted as an incomplete tag because the PHP test built the
+rest of the markup from a variable: `<img src="` and `<barcode code="` are the
+whole document. They are rejected with `html/truncated`, which is what the engine
+reports for any document that ends inside a tag; a silent empty page would be
+worse than a named failure.
 
 ## Why the snapshot documents do not convert
 
@@ -46,18 +52,18 @@ This is exactly the map of the gap between mPDF and our profile. The first reaso
 
 | Document | Blocks |
 |---|---|
-| `auto-font-snapshot` | `text/glyph`: the Devanagari character `अ` is missing from the test font |
+| `auto-font-snapshot` | `text/glyph`: the character `ہ` (U+06C1) is missing from the test font |
 | `backgrounds-and-borders-snapshot` | `background-gradient` |
-| `barcode-snapshot` | `position` |
+| `barcode-snapshot` | `<barcode>`, an mPDF extension |
 | `basic-html-snapshot` | `float` |
 | `dot-tab-snapshot` | `outdent` (an mPDF-specific property) |
 | `justify-snapshot` | `<s>` — `text-decoration` is needed |
 | `line-height-snapshot` | `background-gradient` |
-| `list-style-type-snapshot` | `clear` |
+| `list-style-type-snapshot` | `border-bottom` |
 | `paging-css-snapshot` | `<htmlpageheader>` (an mPDF-specific tag) |
 | `paging-html-snapshot` | `<pageheader>` (an mPDF-specific tag) |
-| `positioned-html-snapshot` | `clear` |
-| `rtl-snapshot` | `direction` |
+| `positioned-html-snapshot` | `background-gradient` |
+| `rtl-snapshot` | `background-gradient` |
 | `table-snapshot` | `<link rel="stylesheet">` — external CSS |
 | `watermark-snapshot` | `<blockquote>` |
 

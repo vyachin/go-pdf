@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`html/truncated` diagnostic.** A document that ends inside an HTML tag
+  fails with that diagnostic at the position of the incomplete tag, instead of
+  converting a document shorter than the author wrote.
+
+### Changed
+
+- **HTML frontend.** Documents are parsed by `golang.org/x/net/html`, the
+  standard tree-construction algorithm maintained by the Go team, instead of the
+  in-house tokenizer and tree builder. Character references now follow the HTML
+  standard (including legacy names without a semicolon and windows-1252 numeric
+  references), and implied elements such as `tbody` appear exactly as a browser
+  would produce them. Source positions are unchanged for every element written
+  in the document; elements the parser implies inherit the position of their
+  nearest ancestor.
+- **Dependencies.** The module may now require a module the Go team maintains,
+  pinned and covered by `go.sum`. The previous "no dependencies" rule is
+  replaced by that allowlist; `golang.org/x/net` is the first requirement
+  outside the standard library.
+
 ## [1.0.0] - 2026-11-25
 
 First release. The engine had been used for printed business documents since
