@@ -132,6 +132,9 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 		parentSize = parent.FontSize
 	}
 	st := NewStyle(parent)
+	// HTML width and height attributes are presentation hints: they enter below
+	// author declarations, so author CSS — including an explicit auto — wins.
+	applyImageHints(st, n)
 	for _, e := range c.cascadeEntries(n) {
 		if e.pseudo {
 			items, err := ParseContent(e.decl.Value)

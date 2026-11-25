@@ -29,6 +29,16 @@ error.
 | `td`, `th` | `colspan`, `rowspan` |
 | `ol` | `start` |
 
+`img` `width` and `height` are presentation hints: an integer number of CSS
+pixels (96 dpi, so `width="10"` is `width: 10px`). They enter the cascade below
+author declarations, exactly as CSS defines presentation hints: an author rule —
+including an explicit `width: auto` or an `!important` declaration — overrides the
+attribute, and equivalent CSS sizing produces the same geometry. A value that is
+not a non-negative integer — negative, carrying a unit, a percentage, or too large
+for the geometry range — is ignored as absent, so it cannot wrap or overflow the
+geometry. Zero is valid and yields a non-visible dimension. When only one
+dimension is effective, the other follows the image's intrinsic aspect ratio.
+
 The HTML `hidden` attribute hides the element's subtree like `display: none`;
 its content is not laid out and does not appear in the PDF.
 
