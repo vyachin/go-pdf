@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/vyachin/go-pdf/internal/testfont"
 	"image"
 	"image/color"
 	"image/png"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/budget"
@@ -168,28 +168,7 @@ func TestDiffToleratesAntiAliasing(t *testing.T) {
 
 func loadFont(t *testing.T) *font.Font {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
-	}
-	candidates = append(candidates,
-		"/System/Library/Fonts/Supplemental/Arial.ttf",
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, p := range candidates {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		f, err := font.Parse(data)
-		if err != nil {
-			continue
-		}
-		return f
-	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
-	return nil
+	return testfont.Load(t)
 }
 
 func TestImageAlphaCompositesOverThePage(t *testing.T) {

@@ -395,3 +395,33 @@ func TestForcedBreakDocumentsHaveNoEmptyPages(t *testing.T) {
 		})
 	}
 }
+
+// TestAvoidBlockTallerThanThePageDoesNotStartOne guards RV4-12: a
+// break-inside: avoid box taller than the page cannot be kept together, so the
+// page transition before it used to add an empty first page and the block was
+// then placed anyway. The block must be split where it is, and the paragraph
+// after it must follow.
+func TestAvoidBlockTallerThanThePageDoesNotStartOne(t *testing.T) {
+	h := newHarness(t)
+	var body strings.Builder
+	body.WriteString(`<div style="break-inside: avoid">`)
+	for i := 0; i < 60; i++ {
+		body.WriteString("line<br>")
+	}
+	body.WriteString(`</div><p>after</p>`)
+	size, margin := forcedBreakPage()
+	doc := h.runRawOrFail(body.String(), size, margin)
+	if len(doc.Pages) < 2 {
+		t.Fatalf("the document produced %d pages, want at least 2", len(doc.Pages))
+	}
+	if text := pageText(doc, 1); !strings.Contains(text, "line") {
+		t.Fatalf("page 1 is empty of the avoid block: %q", text)
+	}
+	if strings.TrimSpace(pageText(doc, 1)) == "" {
+		t.Fatal("the avoid block started an empty page")
+	}
+	last := pageText(doc, len(doc.Pages))
+	if !strings.Contains(last, "after") {
+		t.Fatalf("the paragraph after the block is not on the last page: %q", last)
+	}
+}

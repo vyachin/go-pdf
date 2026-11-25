@@ -1,8 +1,14 @@
 package font
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 func coverageFormat1Test(gids []uint16) []byte {
@@ -369,5 +375,46 @@ func TestExtensionPosIgnoresOtherLookupTypes(t *testing.T) {
 	}
 	if parsed.gpos != nil && parsed.Kerning(65, 86) != 0 {
 		t.Fatalf("an extension of lookup type 4 was treated as kerning")
+	}
+}
+
+// TestPairBombIsCapped guards RV4-01: a 264 KB font points every covered glyph
+// at one 65,535-pair PairSet, so the file size bounds nothing while the pair
+// map would need 67 million entries. The parser must refuse it before building
+// the map, whatever the budget.
+func TestPairBombIsCapped(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "adversarial", "gpos-pairs.ttf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := budget.New(context.Background(), 20_000_000)
+	if _, err := ParseWithOptions(data, ParseOptions{Guard: g}); !errors.Is(err, ErrLimit) {
+		t.Fatalf("the pair bomb was not refused: %v", err)
+	}
+	if used := g.Used(); used > 1_000_000 {
+		t.Fatalf("the pair bomb spent %d units before it was refused", used)
+	}
+	// The declared-pair cap is a parsing bound, not a budget: a standalone
+	// parse refuses the same table.
+	if _, err := Parse(data); !errors.Is(err, ErrLimit) {
+		t.Fatalf("a standalone parse accepted the pair bomb: %v", err)
+	}
+}
+
+// TestCoverageIsChargedByExpansion guards the second half of RV4-01: a coverage
+// table that expands to 65,535 glyphs costs 65,535 units, not two.
+func TestCoverageIsChargedByExpansion(t *testing.T) {
+	g := budget.New(context.Background(), 0)
+	k := &kerning{guard: g}
+	coverage := coverageFormat2Test([][2]uint16{{0, 65534}})
+	cover, ok, err := k.parseCoverage(coverage, 0, maxKerningGlyphs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || len(cover) != 65535 {
+		t.Fatalf("coverage expanded to %d glyphs", len(cover))
+	}
+	if used := g.Used(); used < 65535 {
+		t.Fatalf("the expansion of 65,535 glyphs cost %d units", used)
 	}
 }

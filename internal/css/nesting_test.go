@@ -1,9 +1,12 @@
 package css
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 // nestedAtRules renders depth nested @media blocks around one style rule.
@@ -66,5 +69,40 @@ func TestUnclosedDeepSheetReportsOneProblem(t *testing.T) {
 	sh := Parse([]byte(strings.Repeat("@media {\n", 20_000)))
 	if len(sh.Problems) != 1 || sh.Problems[0].Code != "resource/limit" {
 		t.Fatalf("problems = %d, want one resource/limit: %v", len(sh.Problems), sh.Problems)
+	}
+}
+
+// TestProblemCapBoundsStrayBraces guards RV4-02: a megabyte of stray braces
+// used to record one problem per byte, with a diagnostic and an error line for
+// each. The sheet now stops at MaxProblems with one resource/limit, and the
+// memory stays proportional to that cap rather than to the input.
+func TestProblemCapBoundsStrayBraces(t *testing.T) {
+	src := []byte(strings.Repeat("}", 1<<20))
+	sh := Parse(src)
+	if len(sh.Problems) != MaxProblems+1 {
+		t.Fatalf("the sheet recorded %d problems, want %d", len(sh.Problems), MaxProblems+1)
+	}
+	last := sh.Problems[len(sh.Problems)-1]
+	if last.Code != "resource/limit" {
+		t.Fatalf("the last problem is %q, want resource/limit", last.Code)
+	}
+	allocs := testing.AllocsPerRun(1, func() {
+		Parse(src)
+	})
+	if allocs > 200 {
+		t.Fatalf("a megabyte of stray braces allocated %v objects", allocs)
+	}
+}
+
+// TestGuardStopsTheTokenizer guards the charging half of RV4-02: the tokenizer
+// spends the conversion's budget and stops with a single resource/limit.
+func TestGuardStopsTheTokenizer(t *testing.T) {
+	g := budget.New(context.Background(), 1000)
+	sh := ParseSheet(SheetOptions{Guard: g}, []byte(strings.Repeat("a{", 10000)))
+	if len(sh.Problems) != 1 || sh.Problems[0].Code != "resource/limit" {
+		t.Fatalf("problems = %v, want one resource/limit", sh.Problems)
+	}
+	if sh.Rules != nil {
+		t.Fatalf("a stopped parse kept %d rules", len(sh.Rules))
 	}
 }

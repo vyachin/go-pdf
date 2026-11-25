@@ -76,7 +76,7 @@ func (l *layouter) stopReason() error {
 	}
 	if errors.Is(err, budget.ErrExceeded) && !l.limitReported {
 		l.limitReported = true
-		l.diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+		l.diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 	}
 	return err
 }
@@ -87,7 +87,7 @@ func (l *layouter) reportPageLimit() {
 		return
 	}
 	l.pageLimitReported = true
-	l.diags.Errorf("resource/limit", diag.Position{}, "", "the document needs more than %d pages", l.maxPages)
+	l.diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "the document needs more than %d pages", l.maxPages)
 }
 
 // tick records one unit of pagination work and reports why layout must stop.

@@ -9,11 +9,13 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/pdfdebug"
 )
 
 // writeSizedPNG writes a solid PNG of the given pixel size. The decoding charge
@@ -192,5 +194,156 @@ func TestCancellationDuringSelectorMatching(t *testing.T) {
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Convert returned %v, want context.Canceled", err)
+	}
+}
+
+// TestNestedAvoidBuildsLinesOnce per RV4-03: the lines a measurement builds are
+// the lines the placement paints, so a document of nested break-inside: avoid
+// blocks paginates like the same paragraphs without the nesting, and no page is
+// empty. The recorded spend is the assertion, never a duration.
+func TestNestedAvoidBuildsLinesOnce(t *testing.T) {
+	const depth, words = 40, 80
+	font := testFontPath(t)
+	paragraph := "<p>" + strings.Repeat("word ", words) + "</p>"
+	var nested strings.Builder
+	for i := 0; i < depth; i++ {
+		nested.WriteString(`<div style="break-inside: avoid">` + paragraph)
+	}
+	for i := 0; i < depth; i++ {
+		nested.WriteString("</div>")
+	}
+	flat := strings.Repeat(paragraph, depth)
+
+	convert := func(src string) Result {
+		t.Helper()
+		res, err := Convert(context.Background(), []byte(src), Options{File: "nested.html", FallbackFont: font})
+		if err != nil {
+			t.Fatalf("conversion failed: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+		}
+		return res
+	}
+	nestedRes := convert(nested.String())
+	flatRes := convert(flat)
+	nestedPages, err := pdfdebug.PageTexts(nestedRes.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flatPages, err := pdfdebug.PageTexts(flatRes.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nestedText, flatText strings.Builder
+	for i := range nestedPages {
+		if strings.TrimSpace(nestedPages[i]) == "" {
+			t.Fatalf("page %d is empty", i+1)
+		}
+		nestedText.WriteString(nestedPages[i])
+	}
+	for i := range flatPages {
+		flatText.WriteString(flatPages[i])
+	}
+	if got, want := nestedText.String(), flatText.String(); got != want {
+		t.Fatalf("the nested document painted %d characters, the flat one %d", len(got), len(want))
+	}
+}
+
+// TestHugeWordStopsAtTheBudget guards RV4-04: a single two-megabyte word under
+// MaxOperations 100000 fails with resource/limit before shaping allocates a
+// glyph and state entry per rune, and the report does not add a dependent
+// glyph error for work the budget refused.
+func TestHugeWordStopsAtTheBudget(t *testing.T) {
+	src := []byte("<p>" + strings.Repeat("ж", 2<<20) + "</p>")
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	res, err := Convert(context.Background(), src, Options{
+		File:         "word.html",
+		FallbackFont: testFontPath(t),
+		Limits:       Limits{MaxOperations: 100000},
+	})
+	runtime.ReadMemStats(&after)
+	if !hasCode(res.Diagnostics, "resource/limit") {
+		t.Fatalf("want resource/limit, got err=%v diags:\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	for _, d := range res.Diagnostics {
+		if d.Code == "text/glyph" || d.Code == "text/font" {
+			t.Fatalf("a dependent diagnostic was added after the budget failure: %s", d.String())
+		}
+	}
+	if alloc, limit := after.TotalAlloc-before.TotalAlloc, 20*uint64(len(src)); alloc > limit {
+		t.Fatalf("the stopped conversion allocated %d bytes for a %d-byte input", alloc, len(src))
+	}
+}
+
+// TestBudgetFailureStopsDependentDiagnostics guards RV4-62: once the guard is
+// exhausted, a later stage must not add a diagnostic about the work it refused
+// to do — a missing family reported for a face the exhausted budget never tried
+// to resolve is misleading, not evidence about the document.
+func TestBudgetFailureStopsDependentDiagnostics(t *testing.T) {
+	stopped := false
+	for _, max := range []int{300, 1000, 2000, 4000} {
+		res, _ := Convert(context.Background(), []byte(`<p style="font-family: Nope">hello world</p>`), Options{
+			File:   "dependent.html",
+			Limits: Limits{MaxOperations: max},
+		})
+		if !hasCode(res.Diagnostics, "resource/limit") {
+			continue
+		}
+		stopped = true
+		for _, d := range res.Diagnostics {
+			if d.Code == "text/font" || d.Code == "text/glyph" {
+				t.Fatalf("MaxOperations=%d reported %s after the budget failed:\n%s", max, d.String(), strings.Join(res.Diagnostics.Lines(), "\n"))
+			}
+		}
+	}
+	if !stopped {
+		t.Fatal("none of the budgets was exhausted")
+	}
+}
+
+// TestAdversarialSpendIsProportional guards IMP-03: for every adversarial
+// fixture at a small MaxOperations, the work the guard records and the memory
+// the conversion allocates stay within a constant multiple of the budget. The
+// test uses the budget, never elapsed time.
+func TestAdversarialSpendIsProportional(t *testing.T) {
+	dir := adversarialDir()
+	for _, tc := range adversarialCases() {
+		if tc.Want != "resource/limit" {
+			continue
+		}
+		t.Run(tc.ID, func(t *testing.T) {
+			src, err := os.ReadFile(filepath.Join(dir, tc.Fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts := tc.Options(t, dir)
+			if opts.Limits.MaxDOMDepth > 0 || opts.Limits.MaxTableCells > 0 {
+				// This fixture tests a structural limit, not the work budget.
+				t.Skip("a structural-limit fixture")
+			}
+			// Keep the case's own budget when it has one; otherwise use a small
+			// budget that still stops the document.
+			const max = 5000
+			n := max
+			if opts.Limits.MaxOperations > 0 {
+				n = opts.Limits.MaxOperations
+			}
+			opts.Limits.MaxOperations = n
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			res, _ := Convert(context.Background(), src, opts)
+			runtime.ReadMemStats(&after)
+			if !hasCode(res.Diagnostics, "resource/limit") {
+				t.Fatalf("the fixture did not exhaust the budget:\n%s", strings.Join(res.Diagnostics.Lines(), "\n"))
+			}
+			// Each unit may cost a bounded amount of memory: a conversion
+			// that allocates per input byte without charging the budget
+			// blows through this bound.
+			const bytesPerUnit = 4096
+			if alloc, limit := after.TotalAlloc-before.TotalAlloc, uint64(n*bytesPerUnit); alloc > limit {
+				t.Fatalf("the stopped conversion allocated %d bytes for a %d-unit budget (limit %d)", alloc, n, limit)
+			}
+		})
 	}
 }

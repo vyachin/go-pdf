@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-25
 
 ### Removed
 
@@ -16,6 +16,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with ordinary diagnostics and no PDF. Callers must remove the field from their
   option literals and rewrite the template within the documented profile; the
   browser-oriented certificate remains in the test corpus as a rejection fixture.
+
+### Migration from 1.x
+
+This is a major release: it removes one exported field and tightens validation.
+A caller migrating from v1.0.0:
+
+1. Deletes `Options.ImportBrowser` from its option literals; the field no longer
+   exists, so a 1.x literal does not compile.
+2. Rewrites the template within the profile instead of relying on lowering:
+   flex columns become a table or block layout, an absolutely positioned cover
+   image becomes an `<img>` with a declared width, border-box sizing becomes the
+   default content-box model with explicit padding, `rem`/`vw` become `pt`/`%`,
+   custom properties become literals, and cosmetic declarations are removed.
+3. Expects `resource/limit` from a document that now spends more of the work
+   budget: shaping, line building, stylesheet parsing, font conversion, the
+   writer and adjacent-sibling matching are all charged.
+4. Expects `html/encoding` for a document that declares windows-1252, even when
+   its bytes happen to be valid UTF-8, and `css/unsupported-value` for a
+   percentage `height`, a CSS-wide keyword in `font-family` and a
+   pseudo-element outside the final compound.
+5. Expects a 16-bit PNG to keep its depth, so its PDF is larger than in 1.x,
+   and a capped `/BaseFont` for a very long family name.
+
+`CharsetSupported("")` now reports true, because the empty `Options.Charset` is
+the valid request "detect the encoding"; a caller that checks only named
+encodings writes `name != "" && CharsetSupported(name)`.
 
 ### Added
 

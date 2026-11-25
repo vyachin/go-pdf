@@ -4,12 +4,17 @@ import (
 	"fmt"
 
 	"github.com/vyachin/go-pdf/internal/css"
-	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // finishFragment paints the background and borders of the fragment that ends
 // at the current vertical position.
 func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
+	// Record what this fragment consumed against a declared height, so a
+	// continuation reserves only the remainder. The baseline makes the record
+	// idempotent when placement retries on the same page.
+	if b.Style != nil && b.Style.Height.Kind == css.MP && b.Style.Height.Value > 0 {
+		b.heightConsumed = satAdd(b.consumedBase, satSub(f.y, b.contentTopY))
+	}
 	top := b.fragStartY
 	bottom := f.y
 	if completed {
@@ -131,7 +136,7 @@ func inlineBaseline(line *Line, it LineItem) int32 {
 // paintLineAt draws one line of text.
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
 	st := b.Style
-	x += line.Indent
+	x = satAdd(x, line.Indent)
 	// Natural already contains the indent, so the free space is measured from
 	// the full content width. Subtracting the indent again shifted every
 	// right-aligned and centred line that had a text-indent.
@@ -164,11 +169,11 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				l.ops++
 				page.Ops = append(page.Ops, Op{
 					Kind:  ImageOpKind,
-					Rect:  Rect{X: x, Y: y + inlineBaseline(line, it), W: it.W, H: it.H},
+					Rect:  Rect{X: x, Y: satAdd(y, inlineBaseline(line, it)), W: it.W, H: it.H},
 					Image: &ImageOp{Image: it.Image},
 				})
 			}
-			x += it.W
+			x = satAdd(x, it.W)
 		default:
 			w := it.W
 			if it.Kind == SpaceItem && justify > 0 && remaining > 0 {
@@ -178,7 +183,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				justify -= share
 			}
 			if len(it.Run.Glyphs) > 0 {
-				baseline := y + inlineBaseline(line, it)
+				baseline := satAdd(y, inlineBaseline(line, it))
 				emit := func(glyphs []Glyph, gx, gy int32) {
 					if len(glyphs) == 0 {
 						return
@@ -251,7 +256,7 @@ func (l *layouter) paintListMarkerAt(page *Page, b *Box, left int32) {
 	default:
 		label = "•"
 	}
-	run, err := text.Shape(face.Font, face.Size, label)
+	run, err := l.shape(face, label)
 	if err != nil {
 		return
 	}

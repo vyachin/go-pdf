@@ -3,6 +3,8 @@ package font
 import (
 	"encoding/binary"
 	"fmt"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 // A CFF table is read here, not by the TrueType parser: an OpenType font with
@@ -26,8 +28,14 @@ const cffMaxHints = 96
 // cffTable is the part of a CFF 1 table the outline conversion needs.
 type cffTable struct {
 	charStrings [][]byte
-	gsubrs      [][]byte
-	fds         []cffFontDict
+	// guard bounds the outline conversion of this table and carries
+	// cancellation. Nil means unlimited work.
+	guard *budget.Guard
+	// instructions counts the charstring instructions executed across every
+	// glyph of this font, the font-wide bound on the conversion.
+	instructions int
+	gsubrs       [][]byte
+	fds          []cffFontDict
 	// fdSelect maps a glyph to its entry in fds. It is nil for a name-keyed
 	// font, which has one font dict.
 	fdSelect []uint8

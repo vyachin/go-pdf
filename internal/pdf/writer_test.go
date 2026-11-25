@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vyachin/go-pdf/internal/testfont"
 	"go/build"
 	"image"
 	"image/color"
@@ -14,7 +15,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,33 +26,7 @@ import (
 
 func loadFont(t *testing.T) *font.Font {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
-	}
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			"/System/Library/Fonts/Supplemental/Arial.ttf",
-			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-		)
-	}
-	candidates = append(candidates,
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, p := range candidates {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		f, err := font.Parse(data)
-		if err != nil {
-			continue
-		}
-		return f
-	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
-	return nil
+	return testfont.Load(t)
 }
 
 func TestSinglePageDocument(t *testing.T) {
@@ -560,7 +534,7 @@ func TestPNGAlphaUsesASoftMask(t *testing.T) {
 		return buf.Bytes()
 	}
 	render := func(data []byte) (rgb, mask []byte) {
-		obj, err := imageObject(&Image{Data: data, Format: "png", PixelW: 1, PixelH: 1}, func(m []byte) int {
+		obj, err := imageObject(nil, &Image{Data: data, Format: "png", PixelW: 1, PixelH: 1}, func(m []byte) int {
 			mask = append([]byte(nil), m...)
 			return 7
 		})
@@ -605,7 +579,7 @@ func TestCMYKJPEGIsNotEmbeddedAsRGB(t *testing.T) {
 	if err != nil {
 		t.Skipf("no CMYK fixture in this Go distribution: %v", err)
 	}
-	_, err = imageObject(&Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1}, nil)
+	_, err = imageObject(nil, &Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1}, nil)
 	if err == nil || !strings.Contains(err.Error(), "CMYK") {
 		t.Fatalf("a four-component JPEG must not be embedded as RGB, got %v", err)
 	}
@@ -635,7 +609,7 @@ func TestJPEGColorSpaceFromTheStandardLibrary(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the fixture does not decode: %v", err)
 			}
-			obj, err := imageObject(&Image{Data: data, Format: "jpeg"}, nil)
+			obj, err := imageObject(nil, &Image{Data: data, Format: "jpeg"}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -668,7 +642,7 @@ func TestUnsupportedJPEGIsRejectedWithoutAnImageObject(t *testing.T) {
 	}
 	unsupported := append([]byte(nil), data...)
 	unsupported[i+4] = 12
-	obj, err := imageObject(&Image{Data: unsupported, Format: "jpeg"}, nil)
+	obj, err := imageObject(nil, &Image{Data: unsupported, Format: "jpeg"}, nil)
 	if err == nil {
 		t.Fatal("a 12-bit JPEG must be rejected")
 	}
@@ -732,7 +706,9 @@ func TestSharedGlyphKeepsBothRunes(t *testing.T) {
 			content += decoded
 		}
 	}
-	if !strings.Contains(content, "<0000>") || !strings.Contains(content, "<0001>") {
+	// Contiguous glyphs share one string: the two CIDs are the two 2-byte
+	// codes of the same hexadecimal string.
+	if !strings.Contains(content, "<00000001>") {
 		t.Fatalf("content does not address both CIDs: %q", content)
 	}
 }

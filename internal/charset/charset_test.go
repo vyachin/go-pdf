@@ -76,13 +76,13 @@ func TestResolve(t *testing.T) {
 			name:   "declared windows-1252",
 			src:    append([]byte(`<meta charset="windows-1252">`), cp1251(t, "Счёт")...),
 			errHas: []string{"windows-1252", Windows1251, "Options.Charset"},
-			errAt:  29,
+			errAt:  0,
 		},
 		{
-			name:  "ascii document declaring windows-1252",
-			src:   []byte(`<meta charset="windows-1252"><p>x</p>`),
-			want:  UTF8,
-			errAt: -2,
+			name:   "ascii document declaring windows-1252",
+			src:    []byte(`<meta charset="windows-1252"><p>x</p>`),
+			errHas: []string{"unsupported document encoding", "windows-1252"},
+			errAt:  0,
 		},
 		{
 			name:     "explicit unsupported label",
@@ -375,5 +375,35 @@ func TestDecodeExplicitEncodingStripsUTF8BOM(t *testing.T) {
 	m := NewMapper(src, dec.Text, dec.Widths, dec.Skip)
 	if line, col := m.Position(0); line != 1 || col != 1 {
 		t.Fatalf("position 0 = %d:%d, want 1:1", line, col)
+	}
+}
+
+// TestMetaOffsetSurvivesCaseFolding guards RV4-38: firstMetaOffset used
+// bytes.ToLower, which changes the byte length of a rune whose lowercase form
+// is longer, so the reported column shifted. Folding ASCII only keeps the byte
+// offset of the declaration exact.
+func TestMetaOffsetSurvivesCaseFolding(t *testing.T) {
+	cases := map[string][]byte{
+		"after Cyrillic": []byte("<p>Привет</p><meta charset=\"big5\">"),
+		"after dotted I": []byte("<p>İstanbul</p><meta charset=\"big5\">"),
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			want := bytes.Index(src, []byte("<meta"))
+			if want < 0 {
+				t.Fatal("the fixture has no meta tag")
+			}
+			_, err := Resolve(src, "")
+			if err == nil {
+				t.Fatal("an unsupported declaration was accepted")
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("error %T is not a *charset.Error", err)
+			}
+			if e.Offset != want {
+				t.Fatalf("the diagnostic points at byte %d, want %d", e.Offset, want)
+			}
+		})
 	}
 }

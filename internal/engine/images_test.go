@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -72,7 +74,7 @@ func TestLoadDataURI(t *testing.T) {
 
 		{"no comma", "data:" + pngHeader, "", "missing ','"},
 		{"no base64 marker", uri("image/png", pngPayload), "", "must be base64-encoded"},
-		{"empty payload", uri(pngHeader, ""), "", "unexpected EOF"},
+		{"empty payload", uri(pngHeader, ""), "", "unrecognised format"},
 		{"unknown media type", uri("image/svg+xml;base64", "PHN2Zy8+"), "", "unsupported data: URI image type"},
 	}
 	for _, tc := range cases {
@@ -227,5 +229,154 @@ func TestWideImageIntrinsicSizeDoesNotWrap(t *testing.T) {
 		if bytes.Contains(stream, []byte("q -")) {
 			t.Fatalf("the image scale is negative: %q", stream)
 		}
+	}
+}
+
+// writeTemp writes data under dir with name and returns the path.
+func writeTemp(t *testing.T, dir, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// readFixture returns one file of the repository's test data.
+func readFixture(t *testing.T, parts ...string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{repoRoot(), "testdata"}, parts...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// TestImageFormatComesFromContent guards RV4-21: the format was chosen from the
+// extension, so a PNG named .jpg failed and a PNG without an extension was
+// unsupported. The magic bytes decide, and a mismatch names the detected format.
+func TestImageFormatComesFromContent(t *testing.T) {
+	png := readFixture(t, "adversarial", "a.png")
+	dir := t.TempDir()
+	for _, name := range []string{"misnamed.jpg", "no-extension", "image.PNG"} {
+		writeTemp(t, dir, name, png)
+	}
+	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
+	for _, name := range []string{"misnamed.jpg", "no-extension", "image.PNG"} {
+		img, err := loader.Load(name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if img.Format != "png" {
+			t.Fatalf("%s loaded as %q, want png", name, img.Format)
+		}
+	}
+	// A genuinely unsupported format is named by its content, not its name.
+	gif := append([]byte("GIF89a"), make([]byte, 20)...)
+	writeTemp(t, dir, "actually.png", gif)
+	if _, err := loader.Load("actually.png"); err == nil || !strings.Contains(err.Error(), "GIF") {
+		t.Fatalf("a GIF named .png returned %v, want an error naming GIF", err)
+	}
+}
+
+// TestAssetReferenceIsAURLPath guards RV4-22: a reference copied from a web
+// template carried its query, fragment, percent encoding or surrounding spaces
+// into the file name, so it never resolved.
+func TestAssetReferenceIsAURLPath(t *testing.T) {
+	png := readFixture(t, "adversarial", "a.png")
+	dir := t.TempDir()
+	writeTemp(t, dir, "logo.png", png)
+	writeTemp(t, dir, "logo x.png", png)
+	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
+	for _, src := range []string{"logo.png?v=2", "logo.png#top", "logo%20x.png", " logo.png "} {
+		if _, err := loader.Load(src); err != nil {
+			t.Fatalf("%q did not resolve: %v", src, err)
+		}
+	}
+	// A missing file names the local path, not the polluted reference.
+	_, err := loader.Load("missing.png?v=1")
+	if err == nil || !strings.Contains(err.Error(), "missing.png") || strings.Contains(err.Error(), "?v=1") {
+		t.Fatalf("the diagnostic = %v", err)
+	}
+}
+
+// pngHeaderBytes builds a PNG header whose declared area overflows int32 but
+// not int64, which is the case the 64-bit comparison must catch.
+func pngHeaderBytes(w, h uint32) []byte {
+	var b bytes.Buffer
+	b.WriteString("\x89PNG\r\n\x1a\n")
+	chunk := make([]byte, 4+4+13)
+	binary.BigEndian.PutUint32(chunk[0:4], 13) // IHDR length
+	copy(chunk[4:8], "IHDR")
+	binary.BigEndian.PutUint32(chunk[8:12], w)
+	binary.BigEndian.PutUint32(chunk[12:16], h)
+	chunk[16] = 8                        // bit depth
+	chunk[17] = 2                        // colour type: truecolour
+	crc := crc32.ChecksumIEEE(chunk[4:]) // type and data
+	var sum [4]byte
+	binary.BigEndian.PutUint32(sum[:], crc)
+	b.Write(chunk)
+	b.Write(sum[:])
+	return b.Bytes()
+}
+
+// TestImageAreaIsComputedIn64Bits guards RV4-33: cfg.Width*cfg.Height was
+// multiplied as int, so on a 32-bit build the product wrapped and bypassed
+// MaxImagePixels. The comparison is in 64 bits now.
+func TestImageAreaIsComputedIn64Bits(t *testing.T) {
+	dir := t.TempDir()
+	// 65535 * 65535 = 4294836225, which does not fit an int32.
+	writeTemp(t, dir, "huge.png", pngHeaderBytes(65535, 65535))
+	loader := &imageLoader{baseDir: dir, maxPixels: 1000}
+	defer func() { _ = loader.Close() }()
+	_, err := loader.Load("huge.png")
+	if err == nil || !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("a 4.29-gigapixel header returned %v, want resource/limit", err)
+	}
+	if !strings.Contains(err.Error(), "4294836225") {
+		t.Fatalf("the diagnostic does not name the area: %v", err)
+	}
+}
+
+// TestFailedImageDoesNotConsumeTheBudget guards RV4-34: a failed load kept its
+// bytes and pixels in the aggregate totals, so a later valid image was rejected.
+func TestFailedImageDoesNotConsumeTheBudget(t *testing.T) {
+	png := readFixture(t, "adversarial", "a.png")
+	dir := t.TempDir()
+	corrupt := bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 100) // 400 bytes of damage
+	writeTemp(t, dir, "corrupt.png", corrupt)
+	writeTemp(t, dir, "good.png", png)
+	// Enough for the good image and one copy of the corrupt bytes, not for
+	// both counted twice.
+	loader := &imageLoader{
+		baseDir:       dir,
+		maxTotalBytes: len(corrupt) + len(png),
+	}
+	defer func() { _ = loader.Close() }()
+	if _, err := loader.Load("corrupt.png"); err == nil {
+		t.Fatal("the corrupt image loaded")
+	}
+	if _, err := loader.Load("good.png"); err != nil {
+		t.Fatalf("the valid image after a corrupt one failed: %v", err)
+	}
+}
+
+// TestTruncatedJPEGIsRejected guards RV4-35: a JPEG cut before its
+// end-of-image marker was embedded as-is, while a truncated PNG failed.
+func TestTruncatedJPEGIsRejected(t *testing.T) {
+	full := readFixture(t, "fixtures", "hello-world.jpg")
+	truncated := full[:len(full)*2/3]
+	dir := t.TempDir()
+	writeTemp(t, dir, "cut.jpg", truncated)
+	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
+	if _, err := loader.Load("cut.jpg"); err == nil || !strings.Contains(err.Error(), "end-of-image") {
+		t.Fatalf("a truncated JPEG returned %v", err)
+	}
+	writeTemp(t, dir, "ok.jpg", full)
+	if _, err := loader.Load("ok.jpg"); err != nil {
+		t.Fatalf("a complete JPEG was rejected: %v", err)
 	}
 }

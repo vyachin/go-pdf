@@ -17,8 +17,8 @@ type PropSpec struct {
 	Set       func(s *Style, v Value, parentFontSize int32) error
 }
 
-// PropOrder lists supported properties in a stable order, used by the CLI
-// profile listing.
+// PropOrder lists the supported properties in a stable order, which is the
+// order docs/profile.md documents them in.
 var PropOrder = []string{
 	"display",
 	"width", "height",
@@ -50,7 +50,7 @@ var Table = map[string]PropSpec{
 		},
 	},
 	"width":  {Name: "width", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Width = l })},
-	"height": {Name: "height", Parse: parseNonNegativeLength, Set: setLength(func(s *Style, l Length) { s.Height = l })},
+	"height": {Name: "height", Parse: parseHeight, Set: setLength(func(s *Style, l Length) { s.Height = l })},
 	"margin": {Name: "margin", Parse: parseMarginShorthand, Set: func(s *Style, v Value, _ int32) error {
 		s.Margin = v.Box
 		return nil
@@ -416,6 +416,20 @@ func parseSingleLength(toks []Token) (Value, error) {
 }
 
 // parseNonNegativeLength parses width or height: auto or a non-negative length.
+// parseHeight accepts an absolute length or auto. A percentage is rejected
+// instead of validated and then ignored: layout resolves only an absolute
+// height, so accepting 50% silently rendered the box as height:auto.
+func parseHeight(toks []Token) (Value, error) {
+	v, err := parseNonNegativeLength(toks)
+	if err != nil {
+		return Value{}, err
+	}
+	if v.Length.Kind == Percent {
+		return Value{}, fmt.Errorf("height does not accept a percentage: use an absolute length or auto")
+	}
+	return v, nil
+}
+
 func parseNonNegativeLength(toks []Token) (Value, error) {
 	v, err := parseSingleLength(toks)
 	if err != nil {
@@ -635,7 +649,34 @@ func closingParen(toks []Token, open int) (int, bool) {
 	return 0, false
 }
 
+// cssWideKeywords are the values every property shares. A property that cannot
+// implement one of them rejects it instead of storing it as a literal value: an
+// identifier that means "inherit" must not become a family name, a colour or a
+// break value.
+var cssWideKeywords = map[string]bool{
+	"inherit": true, "initial": true, "unset": true, "revert": true,
+}
+
+// isCSSWideKeyword reports whether s is one of the shared keyword values.
+func isCSSWideKeyword(s string) bool { return cssWideKeywords[strings.ToLower(s)] }
+
+// rejectCSSWide reports a value that is a CSS-wide keyword when the property
+// cannot implement it.
+func rejectCSSWide(toks []Token, what string) error {
+	f := filterWhitespace(toks)
+	if len(f) == 1 && f[0].Kind == IdentToken && isCSSWideKeyword(f[0].Text) {
+		return fmt.Errorf("%s does not accept the CSS-wide keyword %q", what, f[0].Text)
+	}
+	return nil
+}
+
 func parseFontFamily(toks []Token) (Value, error) {
+	// The profile implements neither inherit for this property nor the other
+	// shared keywords, so a bare keyword is rejected rather than stored as a
+	// family that then falls through to a system font.
+	if err := rejectCSSWide(toks, "font-family"); err != nil {
+		return Value{}, err
+	}
 	var families []string
 	var current []string
 	flush := func() {

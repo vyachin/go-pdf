@@ -3,8 +3,6 @@
 package profile
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/css"
@@ -63,24 +61,24 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 			return false
 		}
 		if n.Tag == "script" {
-			out.Warnf("html/ignored-script", doc.Pos(n), n.Path(), "scripts are not executed and were ignored")
+			out.Warnf(diag.HTMLIgnoredScript, doc.Pos(n), n.Path(), "scripts are not executed and were ignored")
 			return true
 		}
 		if !css.SupportedElements[n.Tag] {
-			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
+			out.Errorf(diag.HTMLUnsupportedElement, doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
 		} else {
 			for _, attr := range n.Attrs {
 				if allowedAttribute(n.Tag, attr.Key) {
 					continue
 				}
-				out.Warnf("html/unsupported-attribute", doc.Pos(n), n.Path(), "attribute %q is not supported", attr.Key)
+				out.Warnf(diag.HTMLUnsupportedAttribute, doc.Pos(n), n.Path(), "attribute %q is not supported", attr.Key)
 			}
 		}
 		if n.Tag == "td" || n.Tag == "th" {
 			for _, name := range []string{"colspan", "rowspan"} {
 				if v, ok := n.Attr(name); ok {
 					if _, valid := css.ParseTableSpan(v); !valid {
-						out.Errorf("html/invalid-span", doc.Pos(n), n.Path(), "%s value %q is outside 1..%d", name, v, css.MaxTableSpan)
+						out.Errorf(diag.HTMLInvalidSpan, doc.Pos(n), n.Path(), "%s value %q is outside 1..%d", name, v, css.MaxTableSpan)
 					}
 				}
 			}
@@ -88,7 +86,7 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 		if style, ok := n.Attr("style"); ok {
 			decls, probs := css.ParseDeclarations(style)
 			for _, prob := range probs {
-				out.Errorf("css/syntax", doc.Pos(n), n.Path(), "%s", prob.Message)
+				out.Errorf(diag.CSSSyntax, doc.Pos(n), n.Path(), "%s", prob.Message)
 			}
 			validateDeclarations(doc, doc.Pos(n), n.Path(), decls, &out)
 		}
@@ -116,13 +114,14 @@ var allowedAttributes = map[string]bool{
 // global list. Keeping this table next to the profile documentation means a
 // new attribute read by layout must be added in both places.
 var elementAttributes = map[string]map[string]bool{
-	"a":    {"href": true},
-	"img":  {"src": true, "alt": true, "width": true, "height": true},
-	"link": {"rel": true, "href": true, "media": true},
-	"meta": {"name": true, "content": true, "charset": true, "http-equiv": true},
-	"td":   {"colspan": true, "rowspan": true},
-	"th":   {"colspan": true, "rowspan": true},
-	"ol":   {"start": true},
+	"a":     {"href": true},
+	"img":   {"src": true, "alt": true, "width": true, "height": true},
+	"link":  {"rel": true, "href": true, "media": true},
+	"style": {"media": true},
+	"meta":  {"name": true, "content": true, "charset": true, "http-equiv": true},
+	"td":    {"colspan": true, "rowspan": true},
+	"th":    {"colspan": true, "rowspan": true},
+	"ol":    {"start": true},
 }
 
 // allowedAttribute reports whether the profile reads the attribute.
@@ -154,9 +153,9 @@ func walkElements(n *html.Node, fn func(*html.Node) bool) bool {
 
 func validateSheet(doc *html.Document, sh *css.Stylesheet, out *diag.List) {
 	for _, p := range sh.Problems {
-		code := p.Code
+		code := diag.Code(p.Code)
 		if code == "" {
-			code = "css/syntax"
+			code = diag.CSSSyntax
 		}
 		out.Errorf(code, toDiag(sh.Position(p.Offset)), "", "%s", p.Message)
 	}
@@ -183,7 +182,7 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 		switch r.Kind {
 		case css.StyleRule:
 			if r.Err != nil {
-				out.Errorf("css/unsupported-selector", rulePos(r), "", "selector %q: %v", r.SelectorText, r.Err)
+				out.Errorf(diag.CSSUnsupportedSelector, rulePos(r), "", "selector %q: %v", r.SelectorText, r.Err)
 				continue
 			}
 			if pseudo := r.Selector.PseudoElement(); pseudo != "" {
@@ -198,14 +197,16 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 		case css.PageMarginRule:
 			validatePageMargin(doc, r, out)
 		case css.MediaRule:
-			name := strings.ToLower(strings.TrimSpace(r.Name))
-			if name != "print" && name != "all" {
-				out.Errorf("css/unsupported-media", rulePos(r), "", "@media %q is not supported, only print and all", r.Name)
+			// The query list is parsed by the same function that decides
+			// whether the rules apply, so "@media print, screen" is accepted
+			// for print instead of being rejected while it applies.
+			if !css.MediaAppliesToPrint(r.Name) {
+				out.Errorf(diag.CSSUnsupportedMedia, rulePos(r), "", "@media %q is not supported, only print and all", r.Name)
 				continue
 			}
 			stack = append(stack, frame{rules: r.Rules})
 		case css.UnknownAtRule:
-			out.Errorf("css/unsupported-at-rule", rulePos(r), "", "@%s is not supported", r.Name)
+			out.Errorf(diag.CSSUnsupportedAtRule, rulePos(r), "", "@%s is not supported", r.Name)
 		}
 	}
 }
@@ -215,29 +216,29 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 func validateGeneratedContent(doc *html.Document, r css.Rule, pseudo string, out *diag.List) {
 	pos := rulePos(r)
 	if pseudo != "after" {
-		out.Errorf("css/unsupported-selector", pos, "", "pseudo-element ::%s is not supported, only a::after", pseudo)
+		out.Errorf(diag.CSSUnsupportedSelector, pos, "", "pseudo-element ::%s is not supported, only a::after", pseudo)
 		return
 	}
 	// Any ancestor part is allowed, but the generated content must belong to an
 	// anchor: the last compound has to be <a>.
 	if len(r.Selector.Compounds) == 0 || r.Selector.Compounds[len(r.Selector.Compounds)-1].Tag != "a" {
-		out.Errorf("css/unsupported-selector", pos, "", "only a::after is supported, got %q", r.SelectorText)
+		out.Errorf(diag.CSSUnsupportedSelector, pos, "", "only a::after is supported, got %q", r.SelectorText)
 		return
 	}
 	for _, d := range r.Decls {
 		declPos := declPosOr(d, pos)
 		if d.Property != "content" {
-			out.Errorf("css/unsupported-property", declPos, "", "only content is allowed inside a::after, got %q", d.Property)
+			out.Errorf(diag.CSSUnsupportedProperty, declPos, "", "only content is allowed inside a::after, got %q", d.Property)
 			continue
 		}
 		items, err := css.ParseContent(d.Value)
 		if err != nil {
-			out.Errorf("css/unsupported-value", declPos, "", "content: %v", err)
+			out.Errorf(diag.CSSUnsupportedValue, declPos, "", "content: %v", err)
 			continue
 		}
 		for _, item := range items {
 			if item.Kind == css.ContentPageNumber || item.Kind == css.ContentPageCount {
-				out.Errorf("css/unsupported-value", declPos, "", "counter(page) is not available in a::after; use target-counter")
+				out.Errorf(diag.CSSUnsupportedValue, declPos, "", "counter(page) is not available in a::after; use target-counter")
 			}
 		}
 	}
@@ -250,18 +251,18 @@ func validateDeclarations(doc *html.Document, pos diag.Position, elementPath str
 			pos = p
 		}
 		if _, ok := css.Table[d.Property]; !ok {
-			out.Errorf("css/unsupported-property", pos, elementPath, "property %q is not supported", d.Property)
+			out.Errorf(diag.CSSUnsupportedProperty, pos, elementPath, "property %q is not supported", d.Property)
 			continue
 		}
 		st := css.DefaultStyle()
 		if err := css.ApplyDecl(st, d.Property, d.Value, 12000); err != nil {
-			out.Errorf("css/unsupported-value", pos, elementPath, "%s: %v", d.Property, err)
+			out.Errorf(diag.CSSUnsupportedValue, pos, elementPath, "%s: %v", d.Property, err)
 			continue
 		}
 		if d.Property == "display" && st.Display == css.DisplayInlineBlock {
 			// Layout has no atomic inline-block box: it would silently lose the
 			// width, height and decorations, so the profile rejects it.
-			out.Errorf("css/unsupported-value", pos, elementPath, "display: inline-block is not supported")
+			out.Errorf(diag.CSSUnsupportedValue, pos, elementPath, "display: inline-block is not supported")
 		}
 	}
 }
@@ -271,7 +272,7 @@ func validateFontFace(doc *html.Document, r css.Rule, out *diag.List) {
 	for _, d := range r.Decls {
 		pos := declPosOr(d, rulePos(r))
 		if !fontFaceProperties[d.Property] {
-			out.Errorf("css/unsupported-property", pos, "", "property %q is not supported inside @font-face", d.Property)
+			out.Errorf(diag.CSSUnsupportedProperty, pos, "", "property %q is not supported inside @font-face", d.Property)
 			continue
 		}
 		switch d.Property {
@@ -279,65 +280,65 @@ func validateFontFace(doc *html.Document, r css.Rule, out *diag.List) {
 			hasFamily = true
 			st := css.DefaultStyle()
 			if err := css.ApplyDecl(st, d.Property, d.Value, 12000); err != nil {
-				out.Errorf("css/unsupported-value", pos, "", "font-family: %v", err)
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "font-family: %v", err)
 			}
 		case "src":
 			hasSrc = true
 			if _, err := ParseFontFaceSrc(d.Value); err != nil {
-				out.Errorf("css/unsupported-value", pos, "", "src: %v", err)
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "src: %v", err)
 			}
 		case "font-weight", "font-style":
 			st := css.DefaultStyle()
 			if err := css.ApplyDecl(st, d.Property, d.Value, 12000); err != nil {
-				out.Errorf("css/unsupported-value", pos, "", "%s: %v", d.Property, err)
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "%s: %v", d.Property, err)
 			}
 		}
 	}
 	if !hasFamily || !hasSrc {
-		out.Errorf("css/incomplete-font-face", rulePos(r), "", "@font-face requires font-family and src")
+		out.Errorf(diag.CSSIncompleteFontFace, rulePos(r), "", "@font-face requires font-family and src")
 	}
 }
 
 func validatePageRule(doc *html.Document, r css.Rule, out *diag.List) {
 	if name := strings.TrimSpace(r.Name); name != "" {
-		out.Errorf("css/unsupported-page-selector", rulePos(r), "", "@page %q selectors are not supported", name)
+		out.Errorf(diag.CSSUnsupportedPageSelector, rulePos(r), "", "@page %q selectors are not supported", name)
 	}
 	for _, d := range r.Decls {
 		pos := declPosOr(d, rulePos(r))
 		switch d.Property {
 		case "size":
 			if _, err := css.ParsePageSizeSpec(d.Value); err != nil {
-				out.Errorf("css/unsupported-value", pos, "", "size: %v", err)
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "size: %v", err)
 			}
 		case "margin":
 			if _, err := css.ParsePageMargin(d.Value); err != nil {
-				out.Errorf("css/unsupported-value", pos, "", "margin: %v", err)
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "margin: %v", err)
 			}
 		default:
-			out.Errorf("css/unsupported-property", pos, "", "property %q is only allowed inside a margin box, not in @page", d.Property)
+			out.Errorf(diag.CSSUnsupportedProperty, pos, "", "property %q is only allowed inside a margin box, not in @page", d.Property)
 		}
 	}
 }
 
 func validatePageMargin(doc *html.Document, r css.Rule, out *diag.List) {
 	if !css.MarginBoxNames[r.Name] {
-		out.Errorf("css/unsupported-margin-box", rulePos(r), "", "margin box @%s is not supported", r.Name)
+		out.Errorf(diag.CSSUnsupportedMarginBox, rulePos(r), "", "margin box @%s is not supported", r.Name)
 		return
 	}
 	for _, d := range r.Decls {
 		pos := declPosOr(d, rulePos(r))
 		if d.Property != "content" {
-			out.Errorf("css/unsupported-property", pos, "", "property %q is not supported inside @%s", d.Property, r.Name)
+			out.Errorf(diag.CSSUnsupportedProperty, pos, "", "property %q is not supported inside @%s", d.Property, r.Name)
 			continue
 		}
 		items, err := css.ParseContent(d.Value)
 		if err != nil {
-			out.Errorf("css/unsupported-value", pos, "", "content: %v", err)
+			out.Errorf(diag.CSSUnsupportedValue, pos, "", "content: %v", err)
 			continue
 		}
 		for _, item := range items {
 			if item.Kind == css.ContentTarget {
-				out.Errorf("css/unsupported-value", pos, "", "target-counter is not available in a margin box; use counter(page)")
+				out.Errorf(diag.CSSUnsupportedValue, pos, "", "target-counter is not available in a margin box; use counter(page)")
 			}
 		}
 	}
@@ -350,39 +351,4 @@ func declPosOr(d css.Declaration, fallback diag.Position) diag.Position {
 		return p
 	}
 	return fallback
-}
-
-// Text renders the profile as human readable documentation, used by the CLI.
-func Text() string {
-	var b strings.Builder
-	b.WriteString("Supported elements:\n")
-	for _, name := range css.ElementOrder() {
-		fmt.Fprintf(&b, "  %s\n", name)
-	}
-	b.WriteString("\nSupported properties:\n")
-	for _, name := range css.PropOrder {
-		spec := css.Table[name]
-		inherited := ""
-		if spec.Inherited {
-			inherited = " (inherited)"
-		}
-		fmt.Fprintf(&b, "  %s%s\n", name, inherited)
-	}
-	b.WriteString("\nPage rules:\n")
-	b.WriteString("  @page { size; margin }\n")
-	b.WriteString("  margin boxes @top-left, @top-center, @top-right,\n")
-	b.WriteString("               @bottom-left, @bottom-center, @bottom-right\n")
-	b.WriteString("  content values: strings, counter(page), counter(pages), target-counter(attr(href), page)\n")
-	b.WriteString("\nEverything outside this list is rejected by validation.\n")
-	return b.String()
-}
-
-// Elements returns the supported element names, sorted.
-func Elements() []string { return css.ElementOrder() }
-
-// Properties returns the supported property names in profile order.
-func Properties() []string {
-	out := slices.Clone(css.PropOrder)
-	slices.Sort(out)
-	return out
 }

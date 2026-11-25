@@ -36,6 +36,10 @@ type prepared struct {
 	pageStyle layout.PageStyle
 	fonts     *fontRegistry
 	guard     *budget.Guard
+	// title, author, subject and keywords are the validated metadata values.
+	// Both entry points share them, because preparation checks them before
+	// layout: serialisation is the only stage Validate does not run.
+	title, author, subject, keywords string
 }
 
 // prepare validates the template and resolves everything that does not need
@@ -53,25 +57,28 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	optionInvalid := false
 	if opts.Charset != "" {
 		if _, err := charset.Validate(opts.Charset); err != nil {
-			diags.Errorf("options/charset", diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.OptionsCharset, diag.Position{}, "", "%v", err)
 			charsetInvalid, optionInvalid = true, true
 		}
 	}
 	if p, err := ParsePageSize(opts.PageSize); err != nil {
-		diags.Errorf("options/page-size", diag.Position{}, "", "%v", err)
+		diags.Errorf(diag.OptionsPageSize, diag.Position{}, "", "%v", err)
 		optionInvalid = true
 	} else {
 		pageSize = p
 	}
 	if m, err := ParseMargin(opts.Margin); err != nil {
-		diags.Errorf("options/margin", diag.Position{}, "", "%v", err)
+		diags.Errorf(diag.OptionsMargin, diag.Position{}, "", "%v", err)
 		optionInvalid = true
 	} else {
 		margin = m
 	}
 	if !opts.Date.IsZero() {
-		if year := opts.Date.Year(); year < 0 || year > 9999 {
-			diags.Errorf("options/date", diag.Position{}, "", "year %d is outside 0..9999", year)
+		// The instant is written as UTC, so the UTC year is what must fit: a
+		// local 9999-12-31 23:30 in a zone behind UTC becomes year 10000 in the
+		// PDF, which strict validators reject.
+		if year := opts.Date.UTC().Year(); year < 0 || year > 9999 {
+			diags.Errorf(diag.OptionsDate, diag.Position{}, "", "the UTC year %d is outside 0..9999", year)
 			optionInvalid = true
 		}
 	}
@@ -80,7 +87,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		return nil, diags, nil
 	}
 	if len(src) > limits.MaxInputBytes {
-		diags.Errorf("resource/limit", diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
+		diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
 		return nil, diags, nil
 	}
 	doc, err := html.ParseWithOptions(src, html.ParseOptions{
@@ -94,7 +101,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		// shared guard is not the source, so it must be turned into a
 		// diagnostic here.
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 			return nil, diags, nil
 		}
 		if failed, ctxErr := budgetFailure(guard, &diags); failed {
@@ -102,12 +109,12 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		}
 		var truncated *html.TruncatedError
 		if errors.As(err, &truncated) {
-			diags.Errorf("html/truncated", truncated.Position, "", "%v", err)
+			diags.Errorf(diag.HTMLTruncated, truncated.Position, "", "%v", err)
 			return nil, diags, nil
 		}
 		var parseErr *html.ParseError
 		if errors.As(err, &parseErr) {
-			diags.Errorf(parseErr.Code, diag.Position{}, "", "%v", parseErr.Err)
+			diags.Errorf(diag.Code(parseErr.Code), diag.Position{}, "", "%v", parseErr.Err)
 			return nil, diags, nil
 		}
 		// A document that cannot be decoded is reported at the offending byte
@@ -118,7 +125,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 			if encErr.Line > 0 {
 				pos = diag.Position{File: sourceName(opts), Line: encErr.Line, Col: encErr.Col}
 			}
-			diags.Errorf("html/encoding", pos, "", "%s", encErr.Msg)
+			diags.Errorf(diag.HTMLEncoding, pos, "", "%s", encErr.Msg)
 			return nil, diags, nil
 		}
 		return nil, diags, err
@@ -134,7 +141,13 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		// its inline CSS and attributes are reported in the same pass. Linked
 		// stylesheets and fonts are not opened: no asset is read for a request
 		// that cannot proceed.
-		diags = append(diags, profile.ValidateSheets(doc, profileOpts, nil, nil)...)
+		// Inline rules are validated even though an option is wrong: the
+		// document's own CSS needs no asset, and the author must see both
+		// problems in one pass.
+		inline, inlineDiags := profile.CollectInlineStylesheets(doc, profileOpts)
+		diags = append(diags, inlineDiags...)
+		diags = append(diags, profile.ValidateSheets(doc, profileOpts, inline, nil)...)
+		validateMetadata(doc, opts, &diags)
 		diags.Sort()
 		return nil, diags, nil
 	}
@@ -147,7 +160,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		}
 		root, rootErr := fsx.Open(dir)
 		if rootErr != nil {
-			diags.Errorf("options/asset-root", diag.Position{}, "", "cannot open the asset directory %q: %v", dir, rootErr)
+			diags.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the asset directory %q: %v", dir, rootErr)
 			diags.Sort()
 			return nil, diags, nil
 		}
@@ -171,10 +184,20 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 			return nil, diags, ctxErr
 		}
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 			return nil, diags, nil
 		}
-		diags.Errorf("font/unavailable", diag.Position{}, "", "%v", err)
+		var srcErr *fontSourceError
+		if errors.As(err, &srcErr) {
+			diags.Errorf(diag.FontUnavailable, srcErr.pos, "", "%v", err)
+			return nil, diags, nil
+		}
+		diags.Errorf(diag.FontUnavailable, diag.Position{}, "", "%v", err)
+		return nil, diags, nil
+	}
+	title, author, subject, keywords := validateMetadata(doc, opts, &diags)
+	if diags.HasErrors() {
+		diags.Sort()
 		return nil, diags, nil
 	}
 	return &prepared{
@@ -186,7 +209,36 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		pageStyle: pageStyle,
 		fonts:     registry,
 		guard:     guard,
+		title:     title,
+		author:    author,
+		subject:   subject,
+		keywords:  keywords,
 	}, diags, nil
+}
+
+// validateMetadata checks the document metadata that Convert writes into the
+// PDF info dictionary. It runs in preparation, so Validate reports the same
+// options/title, options/author, options/subject and options/keywords
+// diagnostics as Convert; serialisation is the only stage Validate leaves out.
+func validateMetadata(doc *html.Document, opts Options, diags *diag.List) (title, author, subject, keywords string) {
+	title = documentTitle(doc, opts)
+	author = metaContent(doc, "author")
+	subject = metaContent(doc, "description")
+	keywords = metaContent(doc, "keywords")
+	for _, meta := range []struct {
+		code  diag.Code
+		value string
+	}{
+		{"options/title", title},
+		{"options/author", author},
+		{"options/subject", subject},
+		{"options/keywords", keywords},
+	} {
+		if !utf8.ValidString(meta.value) {
+			diags.Errorf(meta.code, diag.Position{}, "", "the metadata value is not valid UTF-8")
+		}
+	}
+	return title, author, subject, keywords
 }
 
 // budgetFailure reports why the shared work guard stopped. A cancelled context
@@ -199,7 +251,7 @@ func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
 		return false, nil
 	}
 	if errors.Is(err, budget.ErrExceeded) {
-		diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+		diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 		return true, nil
 	}
 	return true, err
@@ -223,6 +275,9 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 	}
 	defer func() { _ = images.Close() }()
 
+	// Style computation reports a declaration that validation accepted but that
+	// cannot be applied against the resolved parent font size.
+	p.cascade.SetDiagnostics(diags)
 	// target-counter needs a second pass: the page numbers written into the
 	// table of contents can change the page breaks themselves.
 	targets := map[string]int{}
@@ -265,12 +320,12 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 		targets = next
 		positions = nextPositions
 		if pass == maxPasses-1 {
-			diags.Warnf("pagination/target-counter", diag.Position{}, "", "target-counter did not converge after %d passes", maxPasses)
+			diags.Warnf(diag.PaginationTargetCounter, diag.Position{}, "", "target-counter did not converge after %d passes", maxPasses)
 		}
 	}
 	for id, page := range targets {
 		if page == 0 {
-			diags.Warnf("pagination/unknown-target", positions[id], "", "no element with id %q, the table of contents shows 0", id)
+			diags.Warnf(diag.PaginationUnknownTarget, positions[id], "", "no element with id %q, the table of contents shows 0", id)
 		}
 	}
 	*diags = append(*diags, layoutDiags...)
@@ -307,33 +362,11 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		return Result{Diagnostics: diags}, diags.Error()
 	}
 
-	doc := p.doc
-	title := documentTitle(doc, opts)
-	author := metaContent(doc, "author")
-	subject := metaContent(doc, "description")
-	keywords := metaContent(doc, "keywords")
-	for _, meta := range []struct {
-		code  string
-		value string
-	}{
-		{"options/title", title},
-		{"options/author", author},
-		{"options/subject", subject},
-		{"options/keywords", keywords},
-	} {
-		if !utf8.ValidString(meta.value) {
-			diags.Errorf(meta.code, diag.Position{}, "", "the metadata value is not valid UTF-8")
-		}
-	}
-	if diags.HasErrors() {
-		diags.Sort()
-		return Result{Diagnostics: diags}, diags.Error()
-	}
 	writer := pdf.New(pdf.Options{
-		Title:        title,
-		Author:       author,
-		Subject:      subject,
-		Keywords:     keywords,
+		Title:        p.title,
+		Author:       p.author,
+		Subject:      p.subject,
+		Keywords:     p.keywords,
 		CreationDate: opts.Date,
 		Outline:      toPDFOutline(pages.Outline),
 		Budget:       p.guard,
@@ -347,14 +380,14 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	data, err := writer.Bytes()
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 			diags.Sort()
 			return Result{Diagnostics: diags}, diags.Error()
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Result{Diagnostics: diags}, ctxErr
 		}
-		diags.Errorf("pdf/write", diag.Position{}, "", "%v", err)
+		diags.Errorf(diag.PDFWrite, diag.Position{}, "", "%v", err)
 		diags.Sort()
 		return Result{Diagnostics: diags}, diags.Error()
 	}
@@ -373,11 +406,11 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 				return Result{Diagnostics: diags}, ctxErr
 			}
 			if errors.Is(err, budget.ErrExceeded) {
-				diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+				diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 				diags.Sort()
 				return Result{Diagnostics: diags}, diags.Error()
 			}
-			diags.Errorf("raster/render", diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.RasterRender, diag.Position{}, "", "%v", err)
 			diags.Sort()
 			return Result{Diagnostics: diags}, diags.Error()
 		}
@@ -407,7 +440,7 @@ func stageFailure(guard *budget.Guard, stage, diags *diag.List) error {
 			return nil
 		}
 	}
-	diags.Errorf("resource/limit", diag.Position{}, "", "%v", err)
+	diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
 	return nil
 }
 
@@ -605,10 +638,11 @@ func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image) []pdf.Op {
 			shared, ok := images[key]
 			if !ok {
 				shared = &pdf.Image{
-					Data:   img.Data,
-					Format: img.Format,
-					PixelW: img.PixelW,
-					PixelH: img.PixelH,
+					Data:    img.Data,
+					Format:  img.Format,
+					PixelW:  img.PixelW,
+					PixelH:  img.PixelH,
+					Decoded: img.Decoded,
 				}
 				images[key] = shared
 			}

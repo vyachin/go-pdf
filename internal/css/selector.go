@@ -254,21 +254,14 @@ func (s Selector) matchAdjacent(n *html.Node, m *matcher) bool {
 	return rec(len(starts)-1, n)
 }
 
-// previousElement returns the sibling immediately before n, skipping text.
+// previousElement returns the sibling immediately before n, skipping text. The
+// tree records the hop when it is built, so this stays constant time however
+// many siblings precede n.
 func previousElement(n *html.Node) *html.Node {
-	if n == nil || n.Parent == nil {
+	if n == nil {
 		return nil
 	}
-	var prev *html.Node
-	for _, c := range n.Parent.Children {
-		if c == n {
-			return prev
-		}
-		if c.Type == html.ElementNode {
-			prev = c
-		}
-	}
-	return nil
+	return n.PrevElementSibling()
 }
 
 func parentElement(n *html.Node) *html.Node {
@@ -372,6 +365,15 @@ func ParseSelector(text string) (Selector, error) {
 	if expectCompound || len(sel.Compounds) == 0 {
 		return Selector{}, fmt.Errorf("incomplete selector %q", s)
 	}
+	// A pseudo-element only exists in the final compound: the pseudo-element
+	// belongs to the element the selector ends at. Accepting it elsewhere made
+	// `a::after span` style the span, because matching ignored the pseudo-
+	// element and the next compound matched its descendants.
+	for i, c := range sel.Compounds {
+		if c.PseudoElement != "" && i != len(sel.Compounds)-1 {
+			return Selector{}, fmt.Errorf("a pseudo-element is only valid in the final compound of a selector")
+		}
+	}
 	return sel, nil
 }
 
@@ -403,6 +405,11 @@ func parseCompound(s string) (Compound, int, error) {
 			i += 1 + n
 			started = true
 		case '#':
+			if c.ID != "" {
+				// A second id in one compound can never match, and keeping only
+				// the last one also under-counted the specificity.
+				return Compound{}, 0, fmt.Errorf("a compound selector cannot contain two ids")
+			}
 			name, n := readIdent(s[i+1:])
 			if n == 0 {
 				return Compound{}, 0, fmt.Errorf("id selector without a name")

@@ -637,7 +637,6 @@ func TestLongSelectorMatchesLikeTheNaiveMatcher(t *testing.T) {
 		":root body div + div",
 		":root > body p",
 		"div + p::after",
-		"p::after + span",
 		"div + div .y .z #b",
 	}
 	for _, text := range selectors {

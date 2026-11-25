@@ -18,14 +18,19 @@ import (
 // a resource/limit diagnostic, while a cancelled context is returned as is.
 var ErrExceeded = errors.New("budget: work limit exceeded")
 
-// checkEvery is how many Add calls may pass between context checks. A cancelled
-// context is checked under a mutex, so checking on every token or line would
-// cost more than the work it guards.
+// checkEvery is how many Add calls may pass between context checks. The check
+// reads the context's error, which may take a lock inside the context, so doing
+// it on every token or line would cost more than the work it guards.
 const checkEvery = 512
 
 // Guard records the work of one conversion and reports why it must stop.
 // A nil *Guard accepts unlimited work and is never cancelled, so code that
 // does not care about budgets can pass nil.
+//
+// A Guard belongs to one conversion and is not safe for concurrent use: its
+// counters are plain fields, because every stage of a conversion runs on one
+// goroutine. A caller that converts the same document on several goroutines
+// gives each conversion its own Guard.
 type Guard struct {
 	ctx     context.Context
 	max     uint64

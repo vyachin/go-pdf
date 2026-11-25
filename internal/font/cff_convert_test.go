@@ -2,12 +2,18 @@ package font
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 )
@@ -73,7 +79,7 @@ func TestConvertedFontKeepsTables(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			converted, err := convertCFF(data, tables)
+			converted, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -118,11 +124,11 @@ func TestConvertCFFDeterministic(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			first, err := convertCFF(data, tables)
+			first, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			second, err := convertCFF(data, tables)
+			second, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -260,7 +266,7 @@ func TestConvertedPointsAreRoundedOnce(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			converted, err := convertCFF(data, tables)
+			converted, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -320,7 +326,7 @@ func TestConvertedOutlinesMatchSourceGeometrically(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			converted, err := convertCFF(data, tables)
+			converted, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -523,7 +529,7 @@ func TestSubsetOfConvertedFont(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	converted, err := convertCFF(data, tables)
+	converted, err := convertCFF(data, tables, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +622,7 @@ func TestConvertedGlyfLimitFourTimes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = convertCFF(fontData, tables)
+	_, err = convertCFF(fontData, tables, nil)
 	if err == nil {
 		t.Fatalf("the conversion of a %d-byte font with %d charstring bytes was accepted", len(fontData), len(charstring))
 	}
@@ -647,7 +653,7 @@ func TestConvertedGlyphPointCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = convertCFF(fontData, tables)
+	_, err = convertCFF(fontData, tables, nil)
 	if err == nil {
 		t.Fatal("a glyph beyond the point cap was accepted")
 	}
@@ -912,7 +918,7 @@ func TestConvertedFontRoundTripsThroughSFNT(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			converted, err := convertCFF(data, tables)
+			converted, err := convertCFF(data, tables, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -990,4 +996,76 @@ func testCFFTableNoPrivate(charstring []byte) []byte {
 	out = append(out, testCFFIndex([][]byte{charstring})...)
 	binary.BigEndian.PutUint32(out[topDictStart+1:topDictStart+5], uint32(charStringsOffset))
 	return out
+}
+
+// TestCFFConversionIsCharged guards RV4-05: converting a CFF font charges one
+// unit per glyph and per charstring instruction, so a 394 KB bomb stops with a
+// font limit long before it executes its millions of instructions.
+func TestCFFConversionIsCharged(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "adversarial", "cff-bomb.otf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := budget.New(context.Background(), 100_000)
+	if _, err := LoadWithOptions(data, ParseOptions{Guard: g}); !errors.Is(err, fontErrLimit()) {
+		t.Fatalf("the CFF bomb was not refused: %v", err)
+	}
+	if used := g.Used(); used > 200_000 {
+		t.Fatalf("the bomb spent %d units before it was refused", used)
+	}
+}
+
+// fontErrLimit is the sentinel the conversion reports.
+func fontErrLimit() error { return ErrLimit }
+
+// cancelAfterContext reports a cancellation after a number of Err calls, so a
+// test observes cancellation in the middle of a conversion without timing it.
+type cancelAfterContext struct {
+	context.Context
+	mu    sync.Mutex
+	calls int
+	after int
+}
+
+func (c *cancelAfterContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	if c.calls > c.after {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestCFFConversionHonoursCancellation guards the cancellation half of RV4-05:
+// a context cancelled mid-conversion returns the context error after a bounded
+// number of instructions, not after the whole font is converted.
+func TestCFFConversionHonoursCancellation(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "adversarial", "cff-bomb.otf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := &cancelAfterContext{Context: context.Background(), after: 3}
+	g := budget.New(ctx, 0)
+	_, err = LoadWithOptions(data, ParseOptions{Guard: g})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled conversion returned %v", err)
+	}
+	if used := g.Used(); used > 100_000 {
+		t.Fatalf("the cancelled conversion spent %d units", used)
+	}
+}
+
+// TestCFFFontWideInstructionCap guards the backstop for a caller with no work
+// guard: a font that executes more than cffMaxTotalInstructions between all of
+// its glyphs is refused instead of converting for minutes.
+func TestCFFFontWideInstructionCap(t *testing.T) {
+	f := &cffTable{
+		charStrings:  [][]byte{{139, 139, 21, 139, 139, 21, 14}},
+		fds:          []cffFontDict{{}},
+		instructions: cffMaxTotalInstructions,
+	}
+	if _, err := f.glyphOutline(0); !errors.Is(err, ErrLimit) {
+		t.Fatalf("the font-wide instruction cap did not stop the glyph: %v", err)
+	}
 }

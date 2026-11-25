@@ -1,46 +1,23 @@
 package text
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/vyachin/go-pdf/internal/testfont"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/font"
 )
 
 func testFont(t *testing.T) *font.Font {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
-	}
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			"/System/Library/Fonts/Supplemental/Arial.ttf",
-			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-		)
-	}
-	candidates = append(candidates,
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, path := range candidates {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		f, err := font.Parse(data)
-		if err != nil {
-			continue
-		}
-		return f
-	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
-	return nil
+	return testfont.Load(t)
 }
 
 func TestNormalize(t *testing.T) {
@@ -118,7 +95,7 @@ func TestSplit(t *testing.T) {
 		{
 			name: "non breaking space stays in the word",
 			in:   "г.\u00a0Москва",
-			want: []Item{{Kind: Word, Text: "г. Москва"}},
+			want: []Item{{Kind: Word, Text: "г.\u00a0Москва"}},
 		},
 		{
 			name: "hyphen ends a word and allows a break",
@@ -317,5 +294,58 @@ func TestSplitUnicodeSeparators(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestShapingIsChargedPerRune guards RV4-04: shaping charges one unit per rune
+// before it builds the glyph slice, so a huge word stops at the budget instead
+// of allocating runes, glyphs and per-rune state first.
+func TestShapingIsChargedPerRune(t *testing.T) {
+	f := testFont(t)
+	g := budget.New(context.Background(), 100)
+	_, err := ShapeWithOptions(f, 12000, strings.Repeat("a", 1000), ShapeOptions{Guard: g})
+	if !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("a thousand runes under a hundred-unit budget returned %v", err)
+	}
+	if used := g.Used(); used != 1000 {
+		t.Fatalf("shaping charged %d units for 1000 runes", used)
+	}
+}
+
+// TestShapingKeepsItsOutput pins that the per-rune state slice is gone: the
+// same text shapes to the same glyphs, advances and mark offsets without a
+// slice entry per rune.
+func TestShapingKeepsItsOutput(t *testing.T) {
+	f := testFont(t)
+	run, err := Shape(f, 12000, "AVa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Glyphs) != 3 {
+		t.Fatalf("shaped %d glyphs, want 3", len(run.Glyphs))
+	}
+	if run.Width <= 0 {
+		t.Fatalf("shaped width = %d", run.Width)
+	}
+}
+
+// TestNonBreakingSpaceKeepsItsCharacter guards RV4-31: the run and the
+// ToUnicode source keep U+00A0, while the text layer still treats it as one
+// unbreakable word.
+func TestNonBreakingSpaceKeepsItsCharacter(t *testing.T) {
+	f := testFont(t)
+	run, err := Shape(f, 12000, "a\u00a0b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Glyphs) != 3 {
+		t.Fatalf("shaped %d glyphs, want 3", len(run.Glyphs))
+	}
+	if run.Glyphs[1].Rune != '\u00a0' {
+		t.Fatalf("the middle glyph carries %U, want U+00A0", run.Glyphs[1].Rune)
+	}
+	items := Split("a\u00a0b", false)
+	if len(items) != 1 || items[0].Kind != Word {
+		t.Fatalf("the non-breaking space produced %v", items)
 	}
 }

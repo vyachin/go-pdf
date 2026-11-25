@@ -35,6 +35,12 @@ const (
 	// A charstring that recurses is already stopped at cffMaxSubrDepth; this
 	// stops a long but legal one from drawing for minutes.
 	cffMaxInstructions = 100_000
+	// cffMaxTotalInstructions bounds the work of the whole font, because the
+	// per-glyph bound multiplies by the declared glyph count: 65,535 glyphs of
+	// 100,000 instructions each is 6.5 billion instructions from one file. The
+	// cap is a backstop for a caller with no work guard; the guard normally
+	// stops the conversion first.
+	cffMaxTotalInstructions = 12_000_000
 	// cffTrue is the fixed-point value of "true" for the arithmetic operators.
 	cffTrue = int64(1) << 16
 	// cffFixedOne is one font unit in 16.16 fixed point.
@@ -115,6 +121,15 @@ func (t *cffInterp) run(code []byte, depth int) error {
 		t.instructions++
 		if t.instructions > cffMaxInstructions {
 			return fmt.Errorf("%w: glyph %d runs more than %d charstring instructions", ErrLimit, t.gid, cffMaxInstructions)
+		}
+		// Every instruction is charged, so the conversion is bounded by the
+		// same budget as the rest of the font's parsing.
+		t.font.instructions++
+		if t.font.instructions > cffMaxTotalInstructions {
+			return fmt.Errorf("%w: the CFF conversion runs more than %d charstring instructions", ErrLimit, cffMaxTotalInstructions)
+		}
+		if err := cffCharge(t.font.guard, 1); err != nil {
+			return err
 		}
 		b := code[pos]
 		if b == 28 || b >= 32 {

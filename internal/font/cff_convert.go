@@ -2,7 +2,10 @@ package font
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 // The conversion of a CFF outline into TrueType contours is bounded by a few
@@ -23,10 +26,34 @@ const (
 	maxConvertedGlyf    = 64 << 20
 )
 
+// cffCharge records conversion work. A budget failure becomes a font limit, so
+// the engine reports resource/limit rather than a generic parse error.
+func cffCharge(guard *budget.Guard, n uint64) error {
+	if err := guard.Add(n); err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			return fmt.Errorf("%w: the CFF conversion exceeds the work budget", ErrLimit)
+		}
+		return err
+	}
+	return nil
+}
+
+// cffCheck reports a cancelled or exhausted conversion promptly. A cancelled
+// context is returned as is; the engine reports it as cancellation.
+func cffCheck(guard *budget.Guard) error {
+	if err := guard.Err(); err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			return fmt.Errorf("%w: the CFF conversion exceeds the work budget", ErrLimit)
+		}
+		return err
+	}
+	return nil
+}
+
 // convertCFF builds a TrueType font from an OpenType/CFF font. The glyph
 // numbering, the character map, the kerning and the metrics are those of the
 // source: only the outlines and the tables that describe them are rewritten.
-func convertCFF(data []byte, tables map[string][]byte) ([]byte, error) {
+func convertCFF(data []byte, tables map[string][]byte, guard *budget.Guard) ([]byte, error) {
 	cffData, ok := tables["CFF "]
 	if !ok {
 		return nil, fmt.Errorf("font: OpenType font has no CFF table")
@@ -40,6 +67,9 @@ func convertCFF(data []byte, tables map[string][]byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The guard belongs to the whole conversion: the charstrings below charge
+	// it per instruction, and the glyph loop checks it between glyphs.
+	cff.guard = guard
 
 	limit := convertedGlyfLimit(len(data))
 	glyf := make([]byte, 0, len(cffData))
@@ -48,6 +78,14 @@ func convertCFF(data []byte, tables map[string][]byte) ([]byte, error) {
 	var bbox [4]int16
 	haveBBox := false
 	for gid := 0; gid < numGlyphs; gid++ {
+		// One unit per glyph, and a prompt cancellation check between glyphs:
+		// without it a cancelled conversion ran to the end of the font.
+		if err := cffCheck(guard); err != nil {
+			return nil, err
+		}
+		if err := cffCharge(guard, 1); err != nil {
+			return nil, err
+		}
 		loca[gid] = uint32(len(glyf))
 		segments, err := cff.glyphOutline(uint16(gid))
 		if err != nil {

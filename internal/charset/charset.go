@@ -82,11 +82,17 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 	case Windows1251, KOI8R, IBM866:
 		return &Encoding{name: name, table: tableFor(name, enc)}, nil
 	case "windows-1252":
-		// The standard library reports this both for a pure ASCII document and
-		// for a document that declares nothing and is not valid UTF-8. ASCII is
-		// identical in every supported encoding, so the first is accepted as
-		// UTF-8; the second is exactly the failure this package exists to name,
-		// and it is reported at its first invalid byte.
+		// The standard library reports this both for a document that declares
+		// windows-1252 and for a document that declares nothing and is not valid
+		// UTF-8. A declaration is rejected whatever its bytes happen to be: only
+		// the no-declaration fallback may be accepted as UTF-8.
+		if label := declaredCharset(src); label != "" {
+			return nil, newError(src, 0, firstMetaOffset(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", label, supportedClause())
+		}
+		// ASCII is identical in every supported encoding, so a document that
+		// declares nothing and decodes as UTF-8 is accepted; anything else is
+		// exactly the failure this package exists to name, reported at its
+		// first invalid byte.
 		if utf8.Valid(src) {
 			return &Encoding{name: UTF8, utf8: true}, nil
 		}
@@ -99,7 +105,7 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 		}
 		// A declaration the set does not accept. The standard library does not
 		// expose where it found it, so the first <meta> of the window is named.
-		return nil, newError(src, 0, firstMetaOffset(src), "unsupported document encoding %q: supported encodings are %s", name, supportedClause())
+		return nil, newError(src, 0, firstMetaOffset(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", name, supportedClause())
 	}
 }
 
@@ -248,11 +254,88 @@ func byteOrderMark(src []byte) (skip, offset int) {
 }
 
 // firstMetaOffset returns the offset of the first <meta> tag in the window the
-// standard library scans for a declaration, or -1 when there is none.
+// standard library scans for a declaration, or -1 when there is none. Only ASCII
+// is folded: bytes.ToLower can change the byte length of a non-ASCII rune and
+// would shift the reported column.
 func firstMetaOffset(src []byte) int {
 	window := src
 	if len(window) > 1024 {
 		window = window[:1024]
 	}
-	return bytes.Index(bytes.ToLower(window), []byte("<meta"))
+	return bytes.Index(foldASCII(window), []byte("<meta"))
+}
+
+// foldASCII returns a copy of b with A-Z lowercased and every other byte
+// unchanged, so a folded window keeps the original byte offsets.
+func foldASCII(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
+}
+
+// declaredCharset returns the label of the document's own encoding declaration
+// in the first 1024 bytes, or "" when it declares none. It is the prescan of
+// the HTML standard restricted to what this package can decide: <meta charset>
+// and <meta http-equiv="Content-Type" content="...charset=...">.
+func declaredCharset(src []byte) string {
+	window := src
+	if len(window) > 1024 {
+		window = window[:1024]
+	}
+	folded := foldASCII(window)
+	for start := 0; start < len(folded); {
+		idx := bytes.Index(folded[start:], []byte("<meta"))
+		if idx < 0 {
+			return ""
+		}
+		begin := start + idx
+		end := bytes.IndexByte(folded[begin:], '>')
+		if end < 0 {
+			end = len(folded) - begin
+		}
+		tag := folded[begin : begin+end]
+		if label := charsetLabel(tag); label != "" {
+			return label
+		}
+		start = begin + len("<meta")
+	}
+	return ""
+}
+
+// charsetLabel extracts the encoding label from one folded <meta> tag.
+func charsetLabel(tag []byte) string {
+	idx := bytes.Index(tag, []byte("charset"))
+	if idx < 0 {
+		return ""
+	}
+	rest := bytes.TrimLeft(tag[idx+len("charset"):], " \t\r\n\f=")
+	if len(rest) == 0 {
+		return ""
+	}
+	quote := byte(0)
+	if rest[0] == '"' || rest[0] == '\'' {
+		quote = rest[0]
+		rest = rest[1:]
+	}
+	end := len(rest)
+	for i, c := range rest {
+		if quote != 0 && c == quote {
+			end = i
+			break
+		}
+		if quote == 0 && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '/' || c == '>') {
+			end = i
+			break
+		}
+	}
+	label := strings.TrimSpace(string(rest[:end]))
+	if label == "" || !strings.ContainsAny(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") {
+		return ""
+	}
+	return label
 }

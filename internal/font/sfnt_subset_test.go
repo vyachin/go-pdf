@@ -217,7 +217,7 @@ func TestOutlineDivergenceIsCaught(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a font with one changed outline byte must still parse: %v", err)
 	}
-	err = compareOutlines(eng, sf)
+	_, err = compareOutlines(eng, sf, false)
 	if err == nil {
 		t.Fatal("the outline comparison missed a changed byte")
 	}

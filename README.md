@@ -99,9 +99,11 @@ Every guarantee above is enforced by a test in the package.
 A closed profile rather than a browser: blocks, inline text, lists, tables with
 fixed layout, `@page` with margin boxes and page counters, `@font-face` with
 TrueType and OpenType/CFF fonts, images, and page breaks that respect
-`orphans`/`widows` and repeated table headers. The profile has no flexbox, grid, float, absolute
-positioning or JavaScript; a browser-oriented template can be lowered to it
-first.
+`orphans`/`widows` and repeated table headers. The profile has no flexbox, grid,
+float, absolute positioning or JavaScript. There is no lowering pass: a
+browser-oriented template must be rewritten within the profile, and the
+migration table in [CHANGELOG.md](CHANGELOG.md) lists the replacements for the
+removed compatibility layer.
 
 - The complete list of elements, properties and limits is in
   [docs/profile.md](docs/profile.md).
@@ -137,8 +139,9 @@ A linked stylesheet is decoded with the document's encoding. A `@charset` rule
 that names the same encoding is accepted and ignored; one that names another
 fails with `css/link-encoding`. Every diagnostic still points at the original
 file: a position inside a decoded document or stylesheet is translated back to
-its byte, line and column, so the column never counts UTF-8 bytes the author did
-not write.
+its line and column, and a column counts characters, not bytes, so a diagnostic
+after a Cyrillic word names the column the author sees in an editor in a UTF-8
+and in a legacy document alike.
 
 ## Reference command
 
@@ -161,9 +164,11 @@ imports nothing but `pdfgen` and the standard library.
 
 ## Compatibility
 
-The package is v1.0.0 and follows semantic versioning: within 1.x a release may
+The package is v2.0.0 and follows semantic versioning: within 2.x a release may
 add to the API but does not rename or remove what exists, and a breaking change
-takes a major release. Diagnostic codes, `Options` fields (additive only) and
+takes a major release. The v1 to v2 migration — the removed
+`Options.ImportBrowser` field and the stricter validation — is documented in
+[CHANGELOG.md](CHANGELOG.md). Diagnostic codes, `Options` fields (additive only) and
 the deterministic output are the stable surface; the reference command, the
 `internal/` packages and the breadth of the CSS profile are not part of the
 promise. Every release is recorded in [CHANGELOG.md](CHANGELOG.md).

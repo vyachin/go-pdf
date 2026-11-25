@@ -1,10 +1,20 @@
 package css
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/diag"
 )
+
+// MaxProblems bounds the problems one stylesheet records. A stray brace costs
+// one byte and one problem, so without a cap a megabyte of them would produce a
+// million diagnostics and an error text of tens of megabytes. The cap is
+// reported as one resource/limit and parsing stops there.
+const MaxProblems = 100
 
 // MaxAtRuleNesting bounds how deeply at-rules may nest inside one another:
 // @media inside @media, a margin box inside @page, and every other nested
@@ -68,7 +78,7 @@ func RulesForPrint(sheets []*Stylesheet) []Rule {
 			r := top.rules[top.next]
 			top.next++
 			if r.Kind == MediaRule {
-				if mediaAppliesToPrint(r.Name) {
+				if MediaAppliesToPrint(r.Name) {
 					stack = append(stack, frame{rules: r.Rules})
 				}
 				continue
@@ -79,7 +89,11 @@ func RulesForPrint(sheets []*Stylesheet) []Rule {
 	return out
 }
 
-func mediaAppliesToPrint(name string) bool {
+// MediaAppliesToPrint reports whether a comma separated media query list
+// applies to print. It is the one media-list parser: stylesheet collection,
+// rule filtering and profile validation all call it, so a list cannot be
+// accepted by one of them and rejected by another.
+func MediaAppliesToPrint(name string) bool {
 	for _, part := range strings.Split(name, ",") {
 		q := strings.ToLower(strings.TrimSpace(part))
 		if q == "" || q == "all" || q == "print" {
@@ -106,9 +120,9 @@ type Rule struct {
 type Problem struct {
 	Message string
 	Offset  int
-	// Code is the diagnostic code. It is empty for a plain syntax problem,
-	// which validation reports as css/syntax, and set when the parser hits a
-	// resource limit.
+	// Code is the registered diagnostic code. It is empty for a plain syntax
+	// problem, which validation reports as css/syntax, and set when the parser
+	// hits a resource limit.
 	Code string
 }
 
@@ -141,6 +155,9 @@ type SheetOptions struct {
 	// Locate maps an absolute offset to a position. Inline styles use the
 	// position function of the HTML document.
 	Locate func(offset int) Position
+	// Guard charges tokenizing and parsing to the conversion's work budget and
+	// reports cancellation. Nil means unlimited work.
+	Guard *budget.Guard
 }
 
 // Position converts a token offset into a source position.
@@ -176,17 +193,82 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
+// tokenReader supplies the parser's tokens. The lexer path reads the source on
+// demand, so a pathological stylesheet is never materialised as a token slice
+// with one entry per input byte.
+type tokenReader interface {
+	peek() (Token, error)
+	next() (Token, error)
+}
+
+// lexerReader adapts the streaming lexer to the parser's one-token lookahead.
+type lexerReader struct {
+	lex  *lexer
+	tok  Token
+	err  error
+	have bool
+}
+
+func (r *lexerReader) peek() (Token, error) {
+	if r.have {
+		return r.tok, r.err
+	}
+	t, err := r.lex.next()
+	r.tok, r.err, r.have = t, err, true
+	return t, err
+}
+
+func (r *lexerReader) next() (Token, error) {
+	t, err := r.peek()
+	if err != nil || t.Kind == EOFToken {
+		return t, err
+	}
+	r.have = false
+	return t, nil
+}
+
+// sliceReader serves tokens that are already materialised, which is what a
+// style attribute needs: it is short and its last token becomes a brace.
+type sliceReader struct {
+	toks []Token
+	pos  int
+}
+
+func (r *sliceReader) peek() (Token, error) {
+	if r.pos >= len(r.toks) {
+		return Token{Kind: EOFToken}, nil
+	}
+	return r.toks[r.pos], nil
+}
+
+func (r *sliceReader) next() (Token, error) {
+	t, err := r.peek()
+	if err != nil || t.Kind == EOFToken {
+		return t, err
+	}
+	r.pos++
+	return t, nil
+}
+
 type parser struct {
-	toks  []Token
-	pos   int
-	sheet *Stylesheet
+	reader tokenReader
+	tok    Token
+	have   bool
+	fail   error
+	failed bool
+	sheet  *Stylesheet
 	// depth is the current at-rule nesting level, so the parser can reject a
 	// stylesheet before it builds a tree no later walk could handle.
 	depth int
-	// limit records that the nesting limit was reported. Parsing stops there:
-	// the stylesheet is rejected, and the EOF that follows must not add one
-	// "unclosed block" problem per enclosing level.
+	// limit records that the nesting or problem limit was reported. Parsing
+	// stops there: the stylesheet is rejected, and the EOF that follows must
+	// not add one "unclosed block" problem per enclosing level.
 	limit bool
+	// problems counts the problems recorded for the sheet, so the cap is
+	// enforced before the list grows with the input.
+	problems int
+	// guard bounds parsing work and carries cancellation. Nil means no limit.
+	guard *budget.Guard
 }
 
 // Parse parses CSS from src with positions relative to the stylesheet itself.
@@ -194,16 +276,83 @@ func Parse(src []byte) *Stylesheet { return ParseSheet(SheetOptions{}, src) }
 
 // ParseSheet parses CSS and remembers how to map offsets to positions.
 func ParseSheet(opts SheetOptions, src []byte) *Stylesheet {
-	toks := Tokenize(src)
-	if opts.Base != 0 {
-		for i := range toks {
-			toks[i].Offset += opts.Base
-		}
-	}
 	sh := &Stylesheet{File: opts.File, src: src, lines: lineStarts(src), locate: opts.Locate}
-	p := &parser{toks: toks, sheet: sh}
+	p := &parser{
+		reader: &lexerReader{lex: &lexer{src: src, base: opts.Base, guard: opts.Guard}},
+		sheet:  sh,
+		guard:  opts.Guard,
+	}
 	sh.Rules, sh.Problems = p.parseRules(false)
+	if p.fail != nil {
+		// The guard stopped the lexer: the rules read so far are not a
+		// stylesheet, and the partial diagnostics would misdescribe the file.
+		sh.Rules = nil
+		sh.Problems = guardProblem(p.fail)
+	}
 	return sh
+}
+
+// guardProblem turns a guard failure into the one problem a stopped sheet
+// records. A cancellation is left to the caller, which reports the context
+// error itself.
+func guardProblem(err error) []Problem {
+	if errors.Is(err, budget.ErrExceeded) {
+		return []Problem{{
+			Code:    string(diag.ResourceLimit),
+			Message: fmt.Sprintf("the stylesheet exceeds the work budget: %v", err),
+		}}
+	}
+	return nil
+}
+
+// charge records parsing work. A nil guard is unlimited work.
+func (p *parser) charge(n uint64) error { return p.guard.Add(n) }
+
+// stop reports a guard failure as one resource/limit problem and stops the
+// parse. A cancellation adds no problem: the caller reports the context error.
+func (p *parser) stop(dst *[]Problem, err error) {
+	p.limit = true
+	if p.failed {
+		return
+	}
+	p.failed = true
+	*dst = append(*dst, guardProblem(err)...)
+}
+
+// addProblem records one problem unless the sheet has reached its cap. The cap
+// is reported once as resource/limit and stops parsing.
+func (p *parser) addProblem(dst *[]Problem, pr Problem) {
+	if p.fail != nil && pr.Code != "resource/limit" {
+		// A guard failure is reported once by stop; the problems the stopped
+		// parse would have found are not evidence about the document.
+		return
+	}
+	if p.limit {
+		// The problem that stopped the parse is still recorded, because the
+		// caller merges it after the limit was reported.
+		if pr.Code == "resource/limit" {
+			*dst = append(*dst, pr)
+		}
+		return
+	}
+	p.problems++
+	if p.problems > MaxProblems {
+		p.limit = true
+		*dst = append(*dst, Problem{
+			Code:    string(diag.ResourceLimit),
+			Message: fmt.Sprintf("a stylesheet records more than %d problems", MaxProblems),
+			Offset:  pr.Offset,
+		})
+		return
+	}
+	*dst = append(*dst, pr)
+}
+
+// mergeProblems records problems the parser produced in a nested block.
+func (p *parser) mergeProblems(dst *[]Problem, src []Problem) {
+	for _, pr := range src {
+		p.addProblem(dst, pr)
+	}
 }
 
 // ParseDeclarations parses a declaration list such as a style attribute.
@@ -212,23 +361,35 @@ func ParseDeclarations(src string) ([]Declaration, []Problem) {
 	if len(toks) > 0 {
 		toks[len(toks)-1] = Token{Kind: RBraceToken, Offset: len(src)}
 	}
-	p := &parser{toks: toks}
+	p := &parser{reader: &sliceReader{toks: toks}}
 	decls, _, probs := p.parseBlockContents()
 	return decls, probs
 }
 
 func (p *parser) peek() Token {
-	if p.pos >= len(p.toks) {
-		return Token{Kind: EOFToken}
+	if p.have {
+		return p.tok
 	}
-	return p.toks[p.pos]
+	t, err := p.reader.peek()
+	if err != nil {
+		// A budget or context failure stops the parse: the remaining loops see
+		// EOF, and stop records the reason once.
+		p.fail = err
+		p.tok = Token{Kind: EOFToken}
+		p.have = true
+		return p.tok
+	}
+	p.tok, p.have = t, true
+	return t
 }
 
 func (p *parser) next() Token {
 	t := p.peek()
-	if p.pos < len(p.toks)-1 {
-		p.pos++
+	if p.fail != nil || t.Kind == EOFToken {
+		return t
 	}
+	p.have = false
+	_, _ = p.reader.next()
 	return t
 }
 
@@ -243,20 +404,28 @@ func (p *parser) parseRules(nested bool) ([]Rule, []Problem) {
 	var problems []Problem
 	for {
 		p.skipTrivia()
+		if p.fail != nil {
+			p.stop(&problems, p.fail)
+			return rules, problems
+		}
 		if p.limit {
+			return rules, problems
+		}
+		if err := p.charge(1); err != nil {
+			p.stop(&problems, err)
 			return rules, problems
 		}
 		t := p.peek()
 		if t.Kind == EOFToken {
 			if nested {
-				problems = append(problems, Problem{Message: "unclosed block", Offset: t.Offset})
+				p.addProblem(&problems, Problem{Message: "unclosed block", Offset: t.Offset})
 			}
 			return rules, problems
 		}
 		if t.Kind == RBraceToken {
 			p.next()
 			if !nested {
-				problems = append(problems, Problem{Message: "unexpected '}'", Offset: t.Offset})
+				p.addProblem(&problems, Problem{Message: "unexpected '}'", Offset: t.Offset})
 				continue
 			}
 			return rules, problems
@@ -264,12 +433,12 @@ func (p *parser) parseRules(nested bool) ([]Rule, []Problem) {
 		if t.Kind == AtKeywordToken {
 			r, pr := p.parseAtRule()
 			rules = append(rules, r...)
-			problems = append(problems, pr...)
+			p.mergeProblems(&problems, pr)
 			continue
 		}
 		r, pr := p.parseQualifiedRule()
 		rules = append(rules, r...)
-		problems = append(problems, pr...)
+		p.mergeProblems(&problems, pr)
 	}
 }
 
@@ -289,7 +458,9 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset, Sheet: p.sheet}}, nil
 	}
 	if p.peek().Kind != LBraceToken {
-		return nil, []Problem{{Message: "malformed @" + name, Offset: at.Offset}}
+		var probs []Problem
+		p.addProblem(&probs, Problem{Message: "malformed @" + name, Offset: at.Offset})
+		return nil, probs
 	}
 	p.next() // {
 	// Reject the level that would exceed the limit before its body is parsed:
@@ -299,7 +470,7 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		p.limit = true
 		p.skipBlockBody()
 		return nil, []Problem{{
-			Code:    "resource/limit",
+			Code:    string(diag.ResourceLimit),
 			Message: fmt.Sprintf("at-rules are nested deeper than %d levels", MaxAtRuleNesting),
 			Offset:  at.Offset,
 		}}
@@ -311,19 +482,44 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		decls, nestedRules, probs := p.parseBlockContents()
 		rules := []Rule{{Kind: PageRule, Name: stringify(prelude), Decls: decls, Offset: at.Offset, Sheet: p.sheet}}
 		for _, nr := range nestedRules {
-			// An unknown nested at-rule inside @page is reported as an
-			// unsupported margin box.
-			if nr.Kind == UnknownAtRule {
+			switch nr.Kind {
+			case UnknownAtRule:
+				// An unknown nested at-rule inside @page is reported as an
+				// unsupported margin box.
 				nr.Kind = PageMarginRule
+				rules = append(rules, nr)
+			case PageMarginRule:
+				rules = append(rules, nr)
+			default:
+				// @page inside @page was hoisted and applied, and @media or
+				// @font-face inside a page rule cannot be represented.
+				p.addProblem(&probs, Problem{
+					Code:    "css/unsupported-at-rule",
+					Message: fmt.Sprintf("an at-rule nested inside @page is not supported: %s", ruleName(nr)),
+					Offset:  nr.Offset,
+				})
 			}
-			rules = append(rules, nr)
 		}
 		return rules, probs
 	case "font-face":
-		decls, _, probs := p.parseBlockContents()
+		decls, nested, probs := p.parseBlockContents()
+		for _, nr := range nested {
+			p.addProblem(&probs, Problem{
+				Code:    "css/unsupported-at-rule",
+				Message: fmt.Sprintf("an at-rule cannot appear inside @font-face: %s", ruleName(nr)),
+				Offset:  nr.Offset,
+			})
+		}
 		return []Rule{{Kind: FontFaceRule, Decls: decls, Offset: at.Offset, Sheet: p.sheet}}, probs
 	case "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right":
-		decls, _, probs := p.parseBlockContents()
+		decls, nested, probs := p.parseBlockContents()
+		for _, nr := range nested {
+			p.addProblem(&probs, Problem{
+				Code:    "css/unsupported-at-rule",
+				Message: fmt.Sprintf("an at-rule cannot appear inside a page margin box: %s", ruleName(nr)),
+				Offset:  nr.Offset,
+			})
+		}
 		return []Rule{{Kind: PageMarginRule, Name: name, Decls: decls, Offset: at.Offset, Sheet: p.sheet}}, probs
 	case "media":
 		inner, probs := p.parseRules(true)
@@ -332,6 +528,17 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		p.skipBlockBody()
 		return []Rule{{Kind: UnknownAtRule, Name: name, Offset: at.Offset, Sheet: p.sheet}}, nil
 	}
+}
+
+// ruleName names an at-rule for a diagnostic: "@page", "@media" and so on.
+func ruleName(r Rule) string {
+	if r.Kind == PageRule {
+		return "@page"
+	}
+	if r.Name != "" {
+		return "@" + r.Name
+	}
+	return "an at-rule"
 }
 
 // skipBlockBody consumes a block whose opening brace has already been read.
@@ -362,17 +569,20 @@ func (p *parser) parseQualifiedRule() ([]Rule, []Problem) {
 	}
 	if p.peek().Kind != LBraceToken {
 		p.skipBlock()
-		return nil, []Problem{{Message: "malformed rule", Offset: start}}
+		var probs []Problem
+		p.addProblem(&probs, Problem{Message: "malformed rule", Offset: start})
+		return nil, probs
 	}
 	p.next()
 	decls, nested, probs := p.parseBlockContents()
 	for _, nr := range nested {
-		probs = append(probs, Problem{Message: "nested at-rules are not supported here", Offset: nr.Offset})
+		p.addProblem(&probs, Problem{Message: "nested at-rules are not supported here", Offset: nr.Offset})
 	}
 	selText := stringify(prelude)
 	parts := splitTopLevelComma(selText)
 	if len(parts) == 0 {
-		return nil, append(probs, Problem{Message: "rule without a selector", Offset: start})
+		p.addProblem(&probs, Problem{Message: "rule without a selector", Offset: start})
+		return nil, probs
 	}
 	var rules []Rule
 	for _, part := range parts {
@@ -398,12 +608,20 @@ func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 	var probs []Problem
 	for {
 		p.skipTrivia()
+		if p.fail != nil {
+			p.stop(&probs, p.fail)
+			return decls, nested, probs
+		}
 		if p.limit {
+			return decls, nested, probs
+		}
+		if err := p.charge(1); err != nil {
+			p.stop(&probs, err)
 			return decls, nested, probs
 		}
 		t := p.peek()
 		if t.Kind == EOFToken {
-			probs = append(probs, Problem{Message: "unclosed block", Offset: t.Offset})
+			p.addProblem(&probs, Problem{Message: "unclosed block", Offset: t.Offset})
 			return decls, nested, probs
 		}
 		if t.Kind == RBraceToken {
@@ -413,14 +631,14 @@ func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 		if t.Kind == AtKeywordToken {
 			r, pr := p.parseAtRule()
 			nested = append(nested, r...)
-			probs = append(probs, pr...)
+			p.mergeProblems(&probs, pr)
 			continue
 		}
 		d, ok := p.parseDeclaration()
 		if !ok {
 			// A skipped declaration is a syntax error, not a silent success:
 			// the closed profile must report it.
-			probs = append(probs, Problem{Message: "skipping an invalid declaration", Offset: p.peek().Offset})
+			p.addProblem(&probs, Problem{Message: "skipping an invalid declaration", Offset: p.peek().Offset})
 			p.skipToDeclarationEnd()
 			continue
 		}

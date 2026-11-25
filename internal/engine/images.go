@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vyachin/go-pdf/internal/asset"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/layout"
@@ -63,13 +64,16 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if src == "" {
 		return nil, fmt.Errorf("image has no src")
 	}
-	lower := strings.ToLower(src)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+	ref, err := asset.Resolve(src)
+	if err != nil {
+		return nil, err
+	}
+	if ref.Remote {
 		return nil, fmt.Errorf("remote images are not supported: %s", src)
 	}
 	// A data: URI needs no file, so it must not open the base directory (which
 	// may be unset or absent) or count as a root read.
-	if strings.HasPrefix(lower, "data:") {
+	if ref.Data {
 		return l.loadDataURI(src)
 	}
 	l.mu.Lock()
@@ -83,9 +87,15 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if rootErr != nil {
 		return nil, fmt.Errorf("opening the base directory: %w", rootErr)
 	}
-	path := src
+	path := ref.Path
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.baseDir, path)
+		// A relative base directory is relative to the process working
+		// directory; the confined reader takes a path inside the root, so the
+		// absolute form is the one it must see.
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
 	}
 	canonical, err := root.Resolve(path)
 	if err != nil {
@@ -123,13 +133,16 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		}
 		return nil, err
 	}
-	switch {
-	case strings.HasSuffix(lower, ".png"):
+	// The format comes from the content, not from the extension: a PNG named
+	// .jpg or without an extension still loads, and a genuinely unsupported
+	// file is named by what it is.
+	switch asset.Sniff(data) {
+	case "png":
 		return l.decodePNG(src, path, data, key)
-	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
+	case "jpeg":
 		return l.decodeJPEG(src, path, data, key)
 	default:
-		return nil, fmt.Errorf("unsupported image format: %s (only png and jpeg are supported)", src)
+		return nil, fmt.Errorf("unsupported image format %s in %q (only PNG and JPEG are supported)", asset.FormatName(data), src)
 	}
 }
 
@@ -146,6 +159,16 @@ func intrinsicMillipoints(px int) int32 {
 		return 0
 	}
 	return int32(v)
+}
+
+// refundPixels releases the aggregate pixel total of an image that did not
+// decode, so a corrupt image cannot make a later valid one fail. The encoded
+// bytes need no refund: they are counted for every file the document names, and
+// a later image pays for its own bytes.
+func (l *imageLoader) refundPixels(n int64) {
+	l.mu.Lock()
+	l.totalPixels -= n
+	l.mu.Unlock()
 }
 
 // admitBytes counts one image's encoded size against the conversion total. It
@@ -237,13 +260,13 @@ func (l *imageLoader) loadDataURI(src string) (*layout.ImageData, error) {
 	if err := l.admitBytes(int64(len(data))); err != nil {
 		return nil, err
 	}
-	switch mime {
-	case "image/png":
+	switch asset.Sniff(data) {
+	case "png":
 		return l.decodePNG(src, "data:image/png", data, key)
-	case "image/jpeg", "image/jpg":
+	case "jpeg":
 		return l.decodeJPEG(src, "data:image/jpeg", data, key)
 	default:
-		return nil, fmt.Errorf("unsupported data: URI image type %q (only png and jpeg are supported)", mime)
+		return nil, fmt.Errorf("unsupported data: URI image type %q: the payload is %s (only PNG and JPEG are supported)", mime, asset.FormatName(data))
 	}
 }
 
@@ -253,10 +276,13 @@ func (l *imageLoader) decodePNG(src, name string, data []byte, key string) (*lay
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
-		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
-	}
+	// The area is multiplied in 64 bits before it is compared: on a 32-bit
+	// build the product of two 16-bit dimensions wraps and would bypass the
+	// limit.
 	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if l.maxPixels > 0 && pixels > int64(l.maxPixels) {
+		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, pixels, l.maxPixels)
+	}
 	if err := l.admitPixels(pixels); err != nil {
 		return nil, err
 	}
@@ -269,16 +295,21 @@ func (l *imageLoader) decodePNG(src, name string, data []byte, key string) (*lay
 	// The writer decodes the pixels when it embeds the image, so a truncated
 	// file passes the header check and fails only at render time. Decoding
 	// here keeps Validate and Convert reporting the same problem.
-	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
+	decoded, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		// The image did not decode, so it must not consume the aggregate
+		// budget a later valid image needs.
+		l.refundPixels(pixels)
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return l.store(key, &layout.ImageData{
-		Width:  intrinsicMillipoints(cfg.Width),
-		Height: intrinsicMillipoints(cfg.Height),
-		PixelW: cfg.Width,
-		PixelH: cfg.Height,
-		Format: "png",
-		Data:   data,
+		Width:   intrinsicMillipoints(cfg.Width),
+		Height:  intrinsicMillipoints(cfg.Height),
+		PixelW:  cfg.Width,
+		PixelH:  cfg.Height,
+		Format:  "png",
+		Data:    data,
+		Decoded: decoded,
 	}), nil
 }
 
@@ -293,10 +324,12 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte, key string) (*la
 		// this at image load time just like Convert does.
 		return nil, fmt.Errorf("pdf: CMYK JPEG images are not supported")
 	}
-	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
-		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
-	}
+	// The area is multiplied in 64 bits, like the PNG path: a 32-bit build
+	// must not wrap it.
 	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if l.maxPixels > 0 && pixels > int64(l.maxPixels) {
+		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, pixels, l.maxPixels)
+	}
 	if err := l.admitPixels(pixels); err != nil {
 		return nil, err
 	}
@@ -306,8 +339,13 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte, key string) (*la
 		return nil, err
 	}
 	l.countDecode()
-	// A JPEG is embedded as DCTDecode without decoding, so the header check
-	// is the whole check Convert performs.
+	// The data is embedded as DCTDecode without decoding, so it is checked for
+	// completeness here: a file cut before its end-of-image marker must fail at
+	// load time in both entry points, exactly as a truncated PNG does.
+	if !jpegComplete(data) {
+		l.refundPixels(pixels)
+		return nil, fmt.Errorf("%s: the JPEG ends before its end-of-image marker", name)
+	}
 	return l.store(key, &layout.ImageData{
 		Width:  intrinsicMillipoints(cfg.Width),
 		Height: intrinsicMillipoints(cfg.Height),
@@ -326,4 +364,67 @@ func (l *imageLoader) store(key string, img *layout.ImageData) *layout.ImageData
 	l.cache[key] = img
 	l.mu.Unlock()
 	return img
+}
+
+// jpegComplete reports whether data holds a complete JPEG: it walks the marker
+// segments from the start-of-image to the end-of-image marker, skipping the
+// entropy-coded data that follows each start-of-scan. A file cut short has no
+// end-of-image marker and no complete segment header.
+func jpegComplete(data []byte) bool {
+	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+		return false
+	}
+	i := 2
+	for i+1 < len(data) {
+		if data[i] != 0xFF {
+			return false
+		}
+		marker := data[i+1]
+		i += 2
+		switch {
+		case marker == 0xD9: // EOI
+			return true
+		case marker == 0x01, marker >= 0xD0 && marker <= 0xD7: // standalone markers
+			continue
+		case marker == 0xDA: // SOS: segment header, then entropy-coded data
+			if i+1 >= len(data) {
+				return false
+			}
+			length := int(data[i])<<8 | int(data[i+1])
+			if length < 2 {
+				return false
+			}
+			i += length
+			// Skip the entropy data up to the next real marker.
+			for i+1 < len(data) {
+				if data[i] != 0xFF {
+					i++
+					continue
+				}
+				next := data[i+1]
+				if next == 0x00 || next >= 0xD0 && next <= 0xD7 {
+					i += 2
+					continue
+				}
+				if next == 0xFF {
+					i++
+					continue
+				}
+				break
+			}
+			if i+1 >= len(data) {
+				return false
+			}
+		default:
+			if i+1 >= len(data) {
+				return false
+			}
+			length := int(data[i])<<8 | int(data[i+1])
+			if length < 2 {
+				return false
+			}
+			i += length
+		}
+	}
+	return false
 }

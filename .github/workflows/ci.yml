@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -46,13 +46,25 @@ jobs:
       - name: Test
         # The render tests need poppler, which only the golden job installs;
         # they skip here and golden owns them. The shuffle makes an order
-        # dependence fail here instead of staying a latent assumption.
+        # dependence fail here instead of staying a latent assumption. The
+        # validator is required: every produced PDF is checked independently.
         env:
           PDF_REQUIRE_VALIDATOR: "1"
-        run: go test -shuffle=on ./...
+        run: go test -shuffle=on -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Coverage floor
+        # Set from the current number (81%), not from an aspiration: a change
+        # that drops below the floor is a regression, and the floor rises with
+        # the suite.
+        run: |
+          total="$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')"
+          echo "total coverage: ${total}%"
+          if awk -v total="$total" 'BEGIN { exit !(total + 0 < 80) }'; then
+            echo "coverage ${total}% is below the floor 80%"
+            exit 1
+          fi
 
   race:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -72,10 +84,11 @@ jobs:
         run: go test -shuffle=on -race ./...
 
   golden:
-    # The render goldens are produced with the poppler of this image. The
-    # ubuntu-latest label moves, so when it does, regenerate the goldens in the
-    # same change.
-    runs-on: ubuntu-latest
+    # The render goldens are produced with the poppler of this image: Ubuntu
+    # 24.04 ships poppler 24.02.0, which is the version the goldens and
+    # renderer.txt were recorded with. Moving the pin means regenerating the
+    # goldens, renderer.txt, docs/golden.md and CONTRIBUTING.md in one change.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -122,7 +135,7 @@ jobs:
           if-no-files-found: ignore
 
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -141,7 +154,7 @@ jobs:
           go test ./pdfgen -run '^$' -fuzz '^FuzzConvert$' -fuzztime 15s
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -174,7 +187,7 @@ jobs:
     # as a failure, so a suite that never ran cannot pass.
     needs: [unit, race, golden, fuzz, lint]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every job succeeded

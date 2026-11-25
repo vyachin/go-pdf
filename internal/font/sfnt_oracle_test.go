@@ -12,6 +12,15 @@
 // the same questions — which rune maps to which glyph, how wide a glyph is,
 // where its outline goes — and the answers must agree.
 //
+// TrueType fonts are compared glyph by glyph, segment by segment. An
+// OpenType/CFF font is converted to TrueType first, so its cmap, advances and
+// vertical metrics are compared directly and its outlines are compared by their
+// on-curve anchors: the conversion replaces a cubic with fitted quadratics, so
+// the segment kinds differ by design while the source's anchors must survive in
+// order. Glyphs sfnt itself cannot decode (a coloured glyph, a missing glyph, a
+// charstring operator its CFF reader rejects) are counted and logged, never
+// skipped silently.
+//
 // Kerning is deliberately not compared: sfnt reads a Latin-only subset of
 // `GPOS` with a different lookup model, while the engine applies several
 // lookups in order and supports class-based subtables. A difference there is
@@ -19,6 +28,7 @@
 package font_test
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -50,6 +60,10 @@ type corpusFont struct {
 	name string
 	eng  *font.Font
 	sfnt *sfnt.Font
+	// converted records that the engine font came from an OTTO file through
+	// the CFF conversion, so its outlines are quadratics fitted to sfnt's
+	// cubics.
+	converted bool
 }
 
 // corpusFiles returns every font file under root, sorted.
@@ -93,6 +107,16 @@ func discover(root string) (fonts []corpusFont, skipped []string, err error) {
 			return nil, skipped, readErr
 		}
 		eng, engErr := font.Parse(data)
+		converted := false
+		if engErr != nil && len(data) >= 4 && binary.BigEndian.Uint32(data[0:4]) == 0x4F54544F {
+			// An OpenType/CFF font is converted to TrueType by Load, so the
+			// oracle can compare it too: the cmap, the advances and the
+			// vertical metrics are the source's, and the outline anchors are
+			// the ones the conversion fits.
+			if loaded, loadErr := font.Load(data); loadErr == nil {
+				eng, engErr, converted = loaded, nil, true
+			}
+		}
 		if engErr != nil {
 			skipped = append(skipped, fmt.Sprintf("%s: the engine rejects it: %v", rel, engErr))
 			continue
@@ -106,7 +130,7 @@ func discover(root string) (fonts []corpusFont, skipped []string, err error) {
 			skipped = append(skipped, fmt.Sprintf("%s: the engine maps no rune while sfnt maps 'A'; the cmap format is outside 4 and 12", rel))
 			continue
 		}
-		fonts = append(fonts, corpusFont{name: rel, eng: eng, sfnt: sf})
+		fonts = append(fonts, corpusFont{name: rel, eng: eng, sfnt: sf, converted: converted})
 	}
 	if len(fonts) < minComparedFonts {
 		return fonts, skipped, fmt.Errorf("compared %d fonts, want at least %d", len(fonts), minComparedFonts)
@@ -213,31 +237,89 @@ func compareMetrics(eng *font.Font, sf *sfnt.Font) error {
 // compareOutlines checks the outline of every glyph. The engine's contours are
 // converted into the segment sequence sfnt reports, so the two are compared as
 // the same kind of value.
-func compareOutlines(eng *font.Font, sf *sfnt.Font) error {
+func compareOutlines(eng *font.Font, sf *sfnt.Font, converted bool) (skipped int, err error) {
 	var buf sfnt.Buffer
 	ppem := fixed.Int26_6(sf.UnitsPerEm())
 	for gid := 0; gid < sf.NumGlyphs(); gid++ {
 		want, err := sf.LoadGlyph(&buf, sfnt.GlyphIndex(gid), ppem, nil)
 		if err != nil {
 			if errors.Is(err, sfnt.ErrColoredGlyph) || errors.Is(err, sfnt.ErrNotFound) {
+				// A coloured or missing glyph has no outline to compare; the
+				// count is reported so the suite does not silently pass.
+				skipped++
 				continue
 			}
-			return fmt.Errorf("glyph %d: sfnt outline: %w", gid, err)
+			if converted {
+				// sfnt's CFF reader cannot decode every charstring the engine's
+				// reader implements (it rejects the flex operators some corpus
+				// fonts use); the glyph is counted as skipped instead.
+				skipped++
+				continue
+			}
+			return 0, fmt.Errorf("glyph %d: sfnt outline: %w", gid, err)
 		}
 		contours, err := eng.GlyphPath(uint16(gid))
 		if err != nil {
 			// The documented limit of the engine on a glyph bomb, not a
 			// divergence.
 			if errors.Is(err, font.ErrGlyphTooComplex) {
+				skipped++
 				continue
 			}
-			return fmt.Errorf("glyph %d: engine outline: %w", gid, err)
+			return 0, fmt.Errorf("glyph %d: engine outline: %w", gid, err)
+		}
+		if converted {
+			// The conversion fits quadratics to sfnt's cubics, so the segment
+			// kinds differ by design. The on-curve anchors are the contract:
+			// every segment ends where sfnt's segment of the same index ends.
+			if err := compareAnchors(gid, contourSegments(contours), want); err != nil {
+				return 0, err
+			}
+			continue
 		}
 		if err := compareSegments(gid, contourSegments(contours), want); err != nil {
-			return err
+			return 0, err
+		}
+	}
+	return skipped, nil
+}
+
+// compareAnchors compares the on-curve anchors of two outlines as a
+// subsequence: every anchor sfnt reports must appear in the engine's anchor
+// sequence, in order and within the tolerance. The conversion subdivides one
+// cubic into several quadratics, so the engine has extra intermediate anchors;
+// the source's anchors are the ones that must survive.
+func compareAnchors(gid int, got, want sfnt.Segments) error {
+	ga, wa := anchors(got), anchors(want)
+	next := 0
+	for i := range wa {
+		found := false
+		for next < len(ga) {
+			if diff(int(ga[next].X), int(wa[i].X)) <= tolerance && diff(int(ga[next].Y), int(wa[i].Y)) <= tolerance {
+				found = true
+				next++
+				break
+			}
+			next++
+		}
+		if !found {
+			return fmt.Errorf("glyph %d anchor %d (%d,%d) is missing from the converted outline", gid, i, wa[i].X, wa[i].Y)
 		}
 	}
 	return nil
+}
+
+// anchors returns the final point of every segment, which is on the curve.
+func anchors(segs sfnt.Segments) []fixed.Point26_6 {
+	out := make([]fixed.Point26_6, 0, len(segs))
+	for _, s := range segs {
+		args := segmentArgs(s.Op)
+		if args == 0 {
+			continue
+		}
+		out = append(out, s.Args[args-1])
+	}
+	return out
 }
 
 // compareSegments compares one glyph's converted outline with sfnt's.
@@ -531,8 +613,12 @@ func TestOutlineAgreement(t *testing.T) {
 	for _, f := range fonts {
 		f := f
 		t.Run(f.name, func(t *testing.T) {
-			if err := compareOutlines(f.eng, f.sfnt); err != nil {
+			skipped, err := compareOutlines(f.eng, f.sfnt, f.converted)
+			if err != nil {
 				t.Fatal(err)
+			}
+			if skipped > 0 {
+				t.Logf("%d glyphs have no comparable outline (coloured, not found or beyond the engine's outline limit)", skipped)
 			}
 		})
 	}
@@ -548,7 +634,7 @@ func BenchmarkOutlineAgreement(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, f := range fonts {
-			if err := compareOutlines(f.eng, f.sfnt); err != nil {
+			if _, err := compareOutlines(f.eng, f.sfnt, f.converted); err != nil {
 				b.Fatal(err)
 			}
 		}

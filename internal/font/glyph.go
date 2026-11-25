@@ -58,7 +58,10 @@ func (e *expander) take(contours []Contour) error {
 
 func (f *Font) glyphPath(gid uint16, depth int, e *expander) ([]Contour, error) {
 	if depth > maxCompositeDepth {
-		return nil, nil
+		// An empty outline would make the glyph silently disappear from the
+		// page and from the subset; the caller reports the unsupported glyph
+		// instead.
+		return nil, fmt.Errorf("%w: a composite glyph nests deeper than %d levels", ErrGlyphTooComplex, maxCompositeDepth)
 	}
 	if cached, ok := e.cache[gid]; ok {
 		return cached, e.take(cached)
@@ -221,6 +224,13 @@ func (f *Font) compositeGlyph(data []byte, depth int, e *expander) ([]Contour, e
 			dx = float32(int8(data[pos]))
 			dy = float32(int8(data[pos+1]))
 			pos += 2
+		}
+		if flags&0x0002 == 0 {
+			// ARGS_ARE_XY_VALUES is clear: the two arguments are point indices
+			// (point matching), not an offset. Drawing them as coordinates
+			// silently places the component somewhere else, which is worse
+			// than refusing the glyph.
+			return nil, fmt.Errorf("font: a composite glyph places a component by point matching, which is not supported")
 		}
 		a, b, c, d := float32(1), float32(0), float32(0), float32(1)
 		switch {

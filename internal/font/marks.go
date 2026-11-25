@@ -20,6 +20,10 @@ type markLookup struct {
 	kind  int
 	marks map[uint16]markRecord
 	bases map[uint16][]markAnchor
+	// ignoreMarks is the lookup's IgnoreMarks flag and filter its mark
+	// filtering set: a mark outside the set does not attach.
+	ignoreMarks bool
+	filter      map[uint16]bool
 }
 
 // markAttachment collects the mark lookups of a font in table order.
@@ -42,6 +46,10 @@ func (f *Font) MarkAttachment(mark, base uint16) (dx, dy int16, kind int, ok boo
 	for _, lookup := range f.marks.lookups {
 		rec, ok := lookup.marks[mark]
 		if !ok {
+			continue
+		}
+		if lookup.filter != nil && !lookup.filter[mark] {
+			// The lookup's mark filtering set excludes this mark.
 			continue
 		}
 		anchors, ok := lookup.bases[base]

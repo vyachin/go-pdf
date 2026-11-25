@@ -10,6 +10,16 @@ import (
 // point is (10,10), glyph 2 is a component of glyph 1 at offset (100,0) with
 // scale 0.5. scaled selects SCALED_COMPONENT_OFFSET.
 func testCompositeFont(scaled bool) []byte {
+	flags := uint16(0x0002 | 0x0008) // ARGS_ARE_XY_VALUES, WE_HAVE_A_SCALE
+	if scaled {
+		flags |= 0x0800
+	}
+	return testCompositeFontWithFlags(flags)
+}
+
+// testCompositeFontWithFlags is testCompositeFont with the component flags
+// chosen by the caller, so a test can build a point-matching component.
+func testCompositeFontWithFlags(flags uint16) []byte {
 	triangle := make([]byte, 10)
 	binary.BigEndian.PutUint16(triangle[0:2], 1)  // one contour
 	binary.BigEndian.PutUint16(triangle[2:4], 10) // xMin
@@ -25,10 +35,6 @@ func testCompositeFont(scaled bool) []byte {
 	composite := make([]byte, 10)
 	binary.BigEndian.PutUint16(composite[0:2], 0xFFFF) // composite
 	binary.BigEndian.PutUint16(composite[6:8], 100)
-	flags := uint16(0x0002 | 0x0008) // ARGS_ARE_XY_VALUES, WE_HAVE_A_SCALE
-	if scaled {
-		flags |= 0x0800
-	}
 	composite = append(composite, byte(flags>>8), byte(flags), 0, 1) // component 1
 	composite = append(composite, 100, 0)                            // int8 offset (100,0)
 	composite = append(composite, 0x20, 0x00)                        // F2Dot14 0.5
@@ -98,5 +104,18 @@ func TestScaledComponentOffset(t *testing.T) {
 	unscaled := firstPoint(t, false)
 	if math.Abs(float64(unscaled.X-105)) > 0.01 || math.Abs(float64(unscaled.Y-5)) > 0.01 {
 		t.Fatalf("unscaled point = (%v,%v), want (105,5)", unscaled.X, unscaled.Y)
+	}
+}
+
+// TestPointMatchingIsRejected guards RV4-40: without ARGS_ARE_XY_VALUES the two
+// arguments are point indices, not an offset. Placing them as coordinates
+// silently misplaces the component, so the parser refuses the glyph instead.
+func TestPointMatchingIsRejected(t *testing.T) {
+	f, err := Parse(testCompositeFontWithFlags(0x0008)) // WE_HAVE_A_SCALE only
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.GlyphPath(2); err == nil {
+		t.Fatal("a point-matching composite was placed as an offset")
 	}
 }

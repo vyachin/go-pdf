@@ -107,7 +107,10 @@ func Split(s string, pre bool) []Item {
 			}
 			items = append(items, Item{Kind: Space, Text: " "})
 		case r == '\u00a0':
-			b.WriteRune(' ')
+			// A non-breaking space stays U+00A0 inside the word: it is
+			// unbreakable like a space, but the text layer must copy the
+			// character the author wrote.
+			b.WriteRune(r)
 		case r == '-' || r == '\u2010':
 			// Keep the character as written: U+2010 is a different glyph with a
 			// different advance in some fonts, and the text layer must copy it.

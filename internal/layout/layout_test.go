@@ -3,12 +3,12 @@ package layout
 import (
 	"bytes"
 	"context"
+	"github.com/vyachin/go-pdf/internal/testfont"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -73,35 +73,7 @@ func (ti *testImages) Load(src string) (*ImageData, error) {
 
 func loadTestFont(t *testing.T) *font.Font {
 	t.Helper()
-	candidates := []string{}
-	if p := os.Getenv("PDFTEST_FONT"); p != "" {
-		candidates = append(candidates, p)
-	}
-	// The bundled font keeps results identical on every platform and in CI.
-	candidates = append(candidates, filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
-	if runtime.GOOS == "darwin" {
-		candidates = append(candidates,
-			"/System/Library/Fonts/Supplemental/Arial.ttf",
-			"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
-		)
-	}
-	candidates = append(candidates,
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	)
-	for _, p := range candidates {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		f, err := font.Parse(data)
-		if err != nil {
-			continue
-		}
-		return f
-	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
-	return nil
+	return testfont.Load(t)
 }
 
 type harness struct {

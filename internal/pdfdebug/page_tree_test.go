@@ -8,11 +8,12 @@ import (
 // TestPagesFollowThePageTree guards the page tree: an object whose stream
 // contains "TJ" but is not a page must not add a phantom page.
 func TestPagesFollowThePageTree(t *testing.T) {
-	pdf := []byte("%PDF-1.7\n" +
-		"1 0 obj\n<< /Type /Pages /Kids [2 0 R] /Count 1 >>\nendobj\n" +
-		"2 0 obj\n<< /Type /Page /Parent 1 0 R /Contents 3 0 R >>\nendobj\n" +
-		"3 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n" +
-		"4 0 obj\n<< /Length 2 >>\nstream\nTJ\nendstream\nendobj\n")
+	pdf := completePDF(
+		"<< /Type /Pages /Kids [2 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 1 0 R /Contents 3 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		"<< /Length 2 >>\nstream\nTJ\nendstream",
+	)
 	pages, err := Pages(pdf)
 	if err != nil {
 		t.Fatal(err)
@@ -29,12 +30,13 @@ func TestPagesFollowThePageTree(t *testing.T) {
 // TestContentStreamOrderIsStable guards the order: it comes from the page
 // tree's Kids array, not from map iteration.
 func TestContentStreamOrderIsStable(t *testing.T) {
-	pdf := []byte("%PDF-1.7\n" +
-		"1 0 obj\n<< /Type /Pages /Kids [2 0 R 5 0 R] /Count 2 >>\nendobj\n" +
-		"2 0 obj\n<< /Type /Page /Parent 1 0 R /Contents 3 0 R >>\nendobj\n" +
-		"3 0 obj\n<< /Length 4 >>\nstream\n%p1\nendstream\nendobj\n" +
-		"4 0 obj\n<< /Length 4 >>\nstream\n%p2\nendstream\nendobj\n" +
-		"5 0 obj\n<< /Type /Page /Parent 1 0 R /Contents 4 0 R >>\nendobj\n")
+	pdf := completePDF(
+		"<< /Type /Pages /Kids [2 0 R 5 0 R] /Count 2 >>",
+		"<< /Type /Page /Parent 1 0 R /Contents 3 0 R >>",
+		"<< /Length 4 >>\nstream\n%p1\nendstream",
+		"<< /Length 4 >>\nstream\n%p2\nendstream",
+		"<< /Type /Page /Parent 1 0 R /Contents 4 0 R >>",
+	)
 	want := []string{"%p1", "%p2"}
 	for i := 0; i < 100; i++ {
 		streams := ContentStreams(pdf)

@@ -50,8 +50,16 @@ func (f *flow) newPage() bool {
 	f.page = p
 	f.left = ps.Margin[3]
 	f.top = ps.Margin[0]
-	f.width = ps.Size.Width - ps.Margin[1] - ps.Margin[3]
-	f.bottom = ps.Size.Height - ps.Margin[2]
+	// Every geometry sum saturates: a margin larger than the page must not wrap
+	// the content width into a negative or huge value.
+	f.width = satSub(satSub(ps.Size.Width, ps.Margin[1]), ps.Margin[3])
+	f.bottom = satSub(ps.Size.Height, ps.Margin[2])
+	if f.width < 0 {
+		f.width = 0
+	}
+	if f.bottom < 0 {
+		f.bottom = 0
+	}
 	f.y = f.top
 	f.pending = 0
 	f.empty = true
@@ -62,7 +70,16 @@ func (f *flow) newPage() bool {
 	return true
 }
 
-func (f *flow) contentHeight() int32 { return satSub(f.bottom, f.top) }
+func (f *flow) contentHeight() int32 {
+	h := satSub(f.bottom, f.top)
+	if h < 0 {
+		// A margin larger than the page leaves no content box; a negative
+		// height would make every fitting decision compare against a wrapped
+		// bound.
+		return 0
+	}
+	return h
+}
 
 // paddingBase is the width a percentage padding resolves against: the
 // containing block width, not the box's own width. A box measured before
@@ -138,15 +155,20 @@ func (l *layouter) paginate(root *Box) *Document {
 			break
 		}
 		iterations++
+		if l.ctx.Budget.Err() != nil {
+			// The work guard stopped the layout: a diagnostic about progress
+			// would misdescribe the cause the caller already reports.
+			break
+		}
 		if l.ops == opsBefore && f.y == yBefore && !f.breakPending {
 			// Nothing was drawn and the flow did not advance: the content cannot
 			// be placed, so fail instead of emitting empty pages. A pending
 			// forced break is the one case where a page is expected.
-			l.diags.Errorf("layout/no-progress", diag.Position{}, "", "content cannot be placed on a page and pagination cannot advance")
+			l.diags.Errorf(diag.LayoutNoProgress, diag.Position{}, "", "content cannot be placed on a page and pagination cannot advance")
 			break
 		}
 		if iterations > maxIterations {
-			l.diags.Errorf("layout/loop", diag.Position{}, "", "pagination did not converge")
+			l.diags.Errorf(diag.LayoutLoop, diag.Position{}, "", "pagination did not converge")
 			break
 		}
 		f.newPage()
@@ -287,8 +309,15 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 			}
 		}
 		if st.BreakInside == css.BreakAvoid && !f.empty {
-			if h := l.measure(b, width); int64(f.y)+int64(h) > int64(f.bottom) {
-				f.newPage()
+			// Only a box that fits an empty page can be kept together. A box
+			// taller than the content height will be split anyway, so moving to
+			// a new page would only add an empty page before it; and a refused
+			// transition must stop placement instead of retrying on the page it
+			// did not create.
+			if h := l.measure(b, width); int64(f.y)+int64(h) > int64(f.bottom) && h <= f.contentHeight() {
+				if !f.newPage() {
+					return false
+				}
 			}
 		}
 		if l.isTextBlock(b) {
@@ -313,6 +342,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		l.registerAnchor(b, f.pageNum, f.y)
 		f.y = satAdd(f.y, satAdd(b.borderTop(), b.padTop()))
 		b.contentTopY = f.y
+		b.consumedBase = b.heightConsumed
 		if b.Kind == ListItem && b.cursor.child == 0 && b.cursor.line == 0 {
 			b.listMarkerY = f.y
 			l.paintListMarker(f, b)
@@ -428,7 +458,9 @@ func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 		h := l.measure(c, width)
 		if int64(f.y)+int64(h) > int64(f.bottom) && h <= f.contentHeight() {
 			// newPage clears any pending break: the transition satisfies it.
-			f.newPage()
+			if !f.newPage() {
+				return false
+			}
 		}
 	}
 	return l.placeBlock(f, c, x, width, false)
@@ -486,8 +518,18 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 
 // placeText places lines of a text block and reports whether it is complete.
 func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
+	l.buildLines(b, width)
 	if !b.built {
-		l.buildLines(b, width)
+		return false
+	}
+	// A single unbreakable token wider than the content box is painted past the
+	// edge and clipped by the page. The reader gets one report per box instead
+	// of silently losing the tail of a long word.
+	for _, line := range b.lines {
+		if line.Natural > width {
+			l.warnOverflow(b, "a word is wider than the content box and is clipped")
+			break
+		}
 	}
 	st := b.Style
 	avail := satSub(satSub(f.bottom, b.padBottom()), b.borderBottom())
@@ -601,7 +643,15 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 	if st.Height.Kind != css.MP || st.Height.Value <= 0 {
 		return
 	}
-	target := satAdd(b.contentTopY, st.Height.Value)
+	// The declared height belongs to the box as a whole, not to each fragment:
+	// a continuation reserves only what the earlier fragments did not consume.
+	// Reserving 400 pt on both pages of a split box pushed the next paragraph
+	// down by 400 pt twice.
+	used := satAdd(b.heightConsumed, satSub(f.y, b.contentTopY))
+	if used >= st.Height.Value {
+		return
+	}
+	target := satAdd(f.y, satSub(st.Height.Value, used))
 	if target > satSub(satSub(f.bottom, b.padBottom()), b.borderBottom()) {
 		l.warnOverflow(b, "content is taller than the page and is clipped")
 		return
@@ -622,7 +672,7 @@ func (l *layouter) warnOverflow(b *Box, message string) {
 		return
 	}
 	b.overflowWarned = true
-	l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "%s", message)
+	l.diags.Warnf(diag.LayoutOverflow, diag.Position{}, nodePath(b), "%s", message)
 }
 
 func headingLevel(tag string) int {

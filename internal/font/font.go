@@ -93,7 +93,7 @@ func LoadWithOptions(data []byte, opts ParseOptions) (*Font, error) {
 	if version != 0x4F54544F {
 		return ParseWithOptions(data, opts)
 	}
-	converted, err := convertCFF(data, tables)
+	converted, err := convertCFF(data, tables, opts.Guard)
 	if err != nil {
 		return nil, err
 	}
