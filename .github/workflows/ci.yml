@@ -84,10 +84,11 @@ jobs:
         run: go test -shuffle=on -race ./...
 
   golden:
-    # The render goldens are produced with the poppler of this image: Ubuntu
-    # 24.04 ships poppler 24.02.0, which is the version the goldens and
-    # renderer.txt were recorded with. Moving the pin means regenerating the
-    # goldens, renderer.txt, docs/golden.md and CONTRIBUTING.md in one change.
+    # The render goldens are produced with the poppler of this image:
+    # ubuntu-latest is Ubuntu 26.04 and ships poppler 26.01.0, which is the
+    # version renderer.txt records. The label floats, so a new image means
+    # regenerating the goldens, renderer.txt, docs/golden.md and CONTRIBUTING.md
+    # in one change.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

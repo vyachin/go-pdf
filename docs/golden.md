@@ -75,12 +75,12 @@ with `pdftoppm -png -r 72`. The set is the four corpus documents and every
   rasterizer differs; locally the layer is skipped instead, because a renderer
   difference would otherwise look like a layout regression.
 
-The committed goldens belong to `pdftoppm` 24.02.0 from Ubuntu 24.04, which is
-the image `ci.yml` pins and the version `renderer.txt` records. The pixel images
-must be regenerated on that same image (`go test ./internal/engine -run
-TestRenderSnapshots -update` inside it) whenever the pin or the renderer record
-moves; the workflow, this document, `CONTRIBUTING.md` and `renderer.txt` then
-name the same image and the same poppler in one change.
+The committed goldens belong to `pdftoppm` 26.01.0 from Ubuntu 26.04, which is
+the release `ubuntu-latest` serves today and the version `renderer.txt` records.
+The label floats, so the pixel images must be regenerated on the new image
+(`go test ./internal/engine -run TestRenderSnapshots -update` inside it) whenever
+the label rolls; the workflow, this document, `CONTRIBUTING.md` and
+`renderer.txt` then name the same image and the same poppler in one change.
 
 ## Commands
 
