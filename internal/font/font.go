@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 // Font is a parsed TrueType font.
@@ -25,6 +27,9 @@ type Font struct {
 	subfamily  string
 	gpos       *kerning
 	bbox       [4]int16
+	// guard bounds the work of GPOS parsing and carries cancellation. Nil
+	// means no limit and no cancellation.
+	guard *budget.Guard
 }
 
 func (f *Font) UnitsPerEm() int32 { return f.unitsPerEm }
@@ -40,6 +45,13 @@ func (f *Font) BBox() [4]int16    { return f.bbox }
 // outline stops the conversion instead of allocating without bound.
 var ErrLimit = fmt.Errorf("font: conversion limit exceeded")
 
+// ParseOptions carries the shared work guard into font parsing. A nil Guard
+// means no work limit and no cancellation, which is what the standalone
+// parser tests use.
+type ParseOptions struct {
+	Guard *budget.Guard
+}
+
 // Load reads a font from a file's bytes and returns it ready for layout. A
 // TrueType font is parsed directly; an OpenType font with CFF outlines is
 // converted to TrueType in memory first, so that the rest of the engine — the
@@ -47,7 +59,11 @@ var ErrLimit = fmt.Errorf("font: conversion limit exceeded")
 //
 // WOFF, WOFF2, CFF2, variable fonts and font collections are refused with a
 // diagnostic naming the format: each needs a decoder the engine does not carry.
-func Load(data []byte) (*Font, error) {
+func Load(data []byte) (*Font, error) { return LoadWithOptions(data, ParseOptions{}) }
+
+// LoadWithOptions is Load with a work guard: the cost of parsing a hostile
+// table is charged to the conversion instead of being free.
+func LoadWithOptions(data []byte, opts ParseOptions) (*Font, error) {
 	if len(data) < 12 {
 		return nil, fmt.Errorf("font: file is too short")
 	}
@@ -74,13 +90,13 @@ func Load(data []byte) (*Font, error) {
 		return nil, fmt.Errorf("font: CFF2 outlines are not supported, use a CFF or TrueType font")
 	}
 	if version != 0x4F54544F {
-		return Parse(data)
+		return ParseWithOptions(data, opts)
 	}
 	converted, err := convertCFF(data, tables)
 	if err != nil {
 		return nil, err
 	}
-	return Parse(converted)
+	return ParseWithOptions(converted, opts)
 }
 
 // tableDirectory returns the tables of one sfnt, keyed by tag.
@@ -108,7 +124,11 @@ func tableDirectory(data []byte) (map[string][]byte, error) {
 
 // Parse reads a TrueType font. CFF based OpenType fonts are rejected because
 // their outlines need a separate reader; Load converts them first.
-func Parse(data []byte) (*Font, error) {
+func Parse(data []byte) (*Font, error) { return ParseWithOptions(data, ParseOptions{}) }
+
+// ParseWithOptions is Parse with a work guard, so a hostile GPOS table cannot
+// spend unbounded time inside one small font file.
+func ParseWithOptions(data []byte, opts ParseOptions) (*Font, error) {
 	if len(data) < 12 {
 		return nil, fmt.Errorf("font: file is too short")
 	}
@@ -124,7 +144,13 @@ func Parse(data []byte) (*Font, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &Font{data: data, tables: tables}
+	f := &Font{data: data, tables: tables, guard: opts.Guard}
+	if f.guard != nil {
+		// A cancelled conversion must stop before the first table is read.
+		if err := f.guard.Err(); err != nil {
+			return nil, err
+		}
+	}
 
 	head, ok := f.tables["head"]
 	if !ok || len(head) < 54 {
@@ -210,7 +236,9 @@ func Parse(data []byte) (*Font, error) {
 		}
 	}
 	f.parseName()
-	f.parseGPOS()
+	if err := f.parseGPOS(); err != nil {
+		return nil, err
+	}
 	return f, nil
 }
 
@@ -364,10 +392,13 @@ func (f *Font) parseCmap() error {
 		}
 		platform := binary.BigEndian.Uint16(cmap[rec : rec+2])
 		encoding := binary.BigEndian.Uint16(cmap[rec+2 : rec+4])
-		offset := int(binary.BigEndian.Uint32(cmap[rec+4 : rec+8]))
-		if offset+2 > len(cmap) {
+		raw, ok := readU32(cmap, rec+4)
+		if !ok || !fits(0, raw, 2, len(cmap)) {
+			// An offset that does not fit the table is skipped, not sliced:
+			// on a 32-bit build it is negative as an int.
 			continue
 		}
+		offset := int(raw)
 		format := binary.BigEndian.Uint16(cmap[offset : offset+2])
 		score := -1
 		switch {
@@ -396,10 +427,13 @@ func (f *Font) parseCmap() error {
 }
 
 func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
+	if !fits(off, 0, 2, len(cmap)) {
+		return nil, fmt.Errorf("font: cmap subtable is outside the table")
+	}
 	format := binary.BigEndian.Uint16(cmap[off : off+2])
 	switch format {
 	case 4:
-		if off+14 > len(cmap) {
+		if !fits(off, 0, 14, len(cmap)) {
 			return nil, fmt.Errorf("font: truncated cmap format 4")
 		}
 		segCount := int(binary.BigEndian.Uint16(cmap[off+6:off+8])) / 2
@@ -408,7 +442,7 @@ func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
 		startBase := endBase + segCount*2 + 2
 		deltaBase := startBase + segCount*2
 		rangeBase := deltaBase + segCount*2
-		if rangeBase+segCount*2 > len(cmap) {
+		if !fits(rangeBase, 0, uint64(segCount)*2, len(cmap)) {
 			return nil, fmt.Errorf("font: truncated cmap format 4 segments")
 		}
 		sub.endCodes = make([]uint16, segCount)
@@ -426,17 +460,17 @@ func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
 		}
 		return sub, nil
 	case 12:
-		if off+16 > len(cmap) {
+		if !fits(off, 0, 16, len(cmap)) {
 			return nil, fmt.Errorf("font: truncated cmap format 12")
 		}
-		nGroups := int(binary.BigEndian.Uint32(cmap[off+12 : off+16]))
-		if off+16+nGroups*12 > len(cmap) {
+		nGroups, ok := readU32(cmap, off+12)
+		if !ok || !fits(off, 16, nGroups*12, len(cmap)) {
 			return nil, fmt.Errorf("font: truncated cmap format 12 groups")
 		}
 		sub := &cmapSubtable{format: 12, table: cmap, tableStart: off}
-		sub.groups = make([]cmapGroup, nGroups)
+		sub.groups = make([]cmapGroup, int(nGroups))
 		prevEnd := uint32(0)
-		for i := 0; i < nGroups; i++ {
+		for i := 0; i < int(nGroups); i++ {
 			base := off + 16 + i*12
 			g := cmapGroup{
 				startChar: binary.BigEndian.Uint32(cmap[base : base+4]),
@@ -446,7 +480,9 @@ func parseCmapSubtable(cmap []byte, off int) (*cmapSubtable, error) {
 			if g.endChar < g.startChar || (i > 0 && g.startChar <= prevEnd) {
 				return nil, fmt.Errorf("font: invalid cmap format 12 group %d", i)
 			}
-			if g.startGID+uint32(g.endChar-g.startChar) > 0xFFFF {
+			// The sum is evaluated in 64-bit: startGID near 0xFFFFFFFF would
+			// wrap in uint32 and select low glyph ids.
+			if uint64(g.startGID)+uint64(g.endChar-g.startChar) > 0xFFFF {
 				return nil, fmt.Errorf("font: cmap format 12 group %d maps past the glyph id space", i)
 			}
 			sub.groups[i] = g

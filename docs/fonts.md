@@ -65,6 +65,19 @@ author holds, so check the font's licence before shipping a template.
 Subsetting a converted font uses the existing TrueType path and keeps the glyph
 numbering, so the embedded program carries only the outlines the document uses.
 
+## Parsing bounds
+
+A font file is untrusted input even when it comes from the document. Parsing
+charges the conversion's shared work budget for every GPOS lookup, subtable and
+coverage entry it examines, and stops with `resource/limit` when the budget is
+exhausted. Independent caps bound the counts a font may declare: 4,096 lookups
+per font, 4,096 subtables per lookup and 1,000,000 scanned coverage entries.
+Real fonts are far below these numbers — DejaVu Sans declares two lookups.
+
+Offsets, lengths and counts are evaluated in 64-bit arithmetic before any slice,
+so a value that does not fit an `int` on a 32-bit build is rejected instead of
+wrapping; a `cmap` format 12 group that would map past glyph 65535 is refused.
+
 ## Recommended set for Russian documents
 
 | Role | Font | License |

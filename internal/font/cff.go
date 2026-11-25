@@ -163,11 +163,14 @@ func cffFontDictAt(data []byte, dict cffDict) (cffFontDict, error) {
 	if !ok || len(vals) != 2 {
 		return cffFontDict{}, fmt.Errorf("font: CFF Private DICT is missing")
 	}
-	size, offset := int(vals[0]), int(vals[1])
-	if size < 0 || offset < 0 || offset+size > len(data) {
+	// DICT operands are int32. Their sum must be widened before it is
+	// compared: on a 32-bit build offset+size wraps negative and would pass a
+	// check written in int.
+	size, offset := int64(vals[0]), int64(vals[1])
+	if size < 0 || offset < 0 || offset+size > int64(len(data)) {
 		return cffFontDict{}, fmt.Errorf("font: CFF Private DICT is outside the table")
 	}
-	private, err := parseCFFDict(data[offset : offset+size])
+	private, err := parseCFFDict(data[int(offset):int(offset+size)])
 	if err != nil {
 		return cffFontDict{}, err
 	}
@@ -179,7 +182,11 @@ func cffFontDictAt(data []byte, dict cffDict) (cffFontDict, error) {
 		return cffFontDict{}, fmt.Errorf("font: CFF Subrs offset is invalid")
 	}
 	// Subrs is relative to the start of the Private DICT.
-	entries, _, err := cffIndex(data, offset+int(subrs[0]))
+	subrsOffset := offset + int64(subrs[0])
+	if subrsOffset < 0 || subrsOffset > int64(len(data)) {
+		return cffFontDict{}, fmt.Errorf("font: CFF Subrs offset is outside the table")
+	}
+	entries, _, err := cffIndex(data, int(subrsOffset))
 	if err != nil {
 		return cffFontDict{}, err
 	}
@@ -189,7 +196,7 @@ func cffFontDictAt(data []byte, dict cffDict) (cffFontDict, error) {
 // cffIndex reads one INDEX structure at off and returns its entries and the
 // offset just past it.
 func cffIndex(data []byte, off int) (entries [][]byte, next int, err error) {
-	if off < 0 || off+2 > len(data) {
+	if off < 0 || !fits(off, 0, 2, len(data)) {
 		return nil, 0, fmt.Errorf("font: CFF INDEX at offset %d is truncated", off)
 	}
 	count := int(binary.BigEndian.Uint16(data[off : off+2]))
@@ -197,7 +204,7 @@ func cffIndex(data []byte, off int) (entries [][]byte, next int, err error) {
 	if count == 0 {
 		return nil, off, nil
 	}
-	if off >= len(data) {
+	if uint64(off) >= uint64(len(data)) {
 		return nil, 0, fmt.Errorf("font: CFF INDEX at offset %d is truncated", off)
 	}
 	offSize := int(data[off])
@@ -205,16 +212,18 @@ func cffIndex(data []byte, off int) (entries [][]byte, next int, err error) {
 	if offSize < 1 || offSize > 4 {
 		return nil, 0, fmt.Errorf("font: CFF INDEX offSize %d is invalid", offSize)
 	}
-	if off+offSize*(count+1) > len(data) {
+	if !fits(off, 0, uint64(offSize*(count+1)), len(data)) {
 		return nil, 0, fmt.Errorf("font: CFF INDEX offsets are truncated")
 	}
-	// Offsets are one-based and relative to the byte before the data.
-	dataStart := off + offSize*(count+1) - 1
-	offsets := make([]int, count+1)
+	// Offsets are one-based and relative to the byte before the data. They are
+	// read and added in int64: a four-byte offset can be above MaxInt32, which
+	// would wrap negative on a 32-bit build.
+	dataStart := int64(off + offSize*(count+1) - 1)
+	offsets := make([]int64, count+1)
 	for i := range offsets {
-		v := 0
+		var v int64
 		for j := 0; j < offSize; j++ {
-			v = v<<8 | int(data[off+i*offSize+j])
+			v = v<<8 | int64(data[off+i*offSize+j])
 		}
 		if v < 1 {
 			return nil, 0, fmt.Errorf("font: CFF INDEX offset %d is zero", i)
@@ -224,12 +233,16 @@ func cffIndex(data []byte, off int) (entries [][]byte, next int, err error) {
 	entries = make([][]byte, count)
 	for i := 0; i < count; i++ {
 		start, end := dataStart+offsets[i], dataStart+offsets[i+1]
-		if offsets[i] > offsets[i+1] || start > len(data) || end > len(data) {
+		if offsets[i] > offsets[i+1] || start < 0 || end > int64(len(data)) {
 			return nil, 0, fmt.Errorf("font: CFF INDEX entry %d is outside the table", i)
 		}
-		entries[i] = data[start:end]
+		entries[i] = data[int(start):int(end)]
 	}
-	return entries, dataStart + offsets[count], nil
+	nextOffset := dataStart + offsets[count]
+	if nextOffset < 0 || nextOffset > int64(len(data)) {
+		return nil, 0, fmt.Errorf("font: CFF INDEX end is outside the table")
+	}
+	return entries, int(nextOffset), nil
 }
 
 // parseCFFDict reads one DICT. The operand list is kept per operator; operators
@@ -313,12 +326,12 @@ func skipCFFReal(data []byte, off int) (int, error) {
 
 // parseCFFFDSelect reads the font dict selection of a CID-keyed font.
 func parseCFFFDSelect(data []byte, off, numGlyphs, numFDs int) ([]uint8, error) {
-	if off < 0 || off >= len(data) {
+	if off < 0 || uint64(off) >= uint64(len(data)) {
 		return nil, fmt.Errorf("font: CFF FDSelect is outside the table")
 	}
 	switch format := data[off]; format {
 	case 0:
-		if off+1+numGlyphs > len(data) {
+		if !fits(off, 1, uint64(numGlyphs), len(data)) {
 			return nil, fmt.Errorf("font: CFF FDSelect is truncated")
 		}
 		out := make([]uint8, numGlyphs)
@@ -330,7 +343,7 @@ func parseCFFFDSelect(data []byte, off, numGlyphs, numFDs int) ([]uint8, error) 
 		}
 		return out, nil
 	case 3:
-		if off+3 > len(data) {
+		if !fits(off, 0, 3, len(data)) {
 			return nil, fmt.Errorf("font: CFF FDSelect is truncated")
 		}
 		nRanges := int(binary.BigEndian.Uint16(data[off+1:]))
@@ -338,7 +351,7 @@ func parseCFFFDSelect(data []byte, off, numGlyphs, numFDs int) ([]uint8, error) 
 			return nil, fmt.Errorf("font: CFF FDSelect has no ranges")
 		}
 		pos := off + 3
-		if pos+nRanges*3+2 > len(data) {
+		if !fits(pos, 0, uint64(nRanges)*3+2, len(data)) {
 			return nil, fmt.Errorf("font: CFF FDSelect ranges are truncated")
 		}
 		firsts := make([]int, nRanges)

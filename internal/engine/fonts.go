@@ -114,7 +114,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
 				return nil, err
 			}
-			f, err = font.Load(data)
+			f, err = font.LoadWithOptions(data, font.ParseOptions{Guard: guard})
 			if err != nil {
 				return nil, loadFontError(src, err)
 			}
@@ -141,7 +141,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
 			return nil, err
 		}
-		f, err := font.Load(data)
+		f, err := font.LoadWithOptions(data, font.ParseOptions{Guard: guard})
 		if err != nil {
 			if errors.Is(err, font.ErrLimit) {
 				return nil, fmt.Errorf("%w: fallback font %q: %v", budget.ErrExceeded, opts.FallbackFont, err)
@@ -323,7 +323,7 @@ func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
 	// PDFTEST_FONT is an explicit override: use exactly that face and do not
 	// guess variants next to it, so tests stay reproducible.
 	if env := os.Getenv("PDFTEST_FONT"); env != "" {
-		if f := loadFontFile(env, maxBytes); f != nil {
+		if f := loadFontFile(env, maxBytes, guard); f != nil {
 			return []*registeredFace{{weight: 400, font: f}}
 		}
 	}
@@ -331,13 +331,13 @@ func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
 		if guard.Err() != nil {
 			return nil
 		}
-		regular := loadFontFile(path, maxBytes)
+		regular := loadFontFile(path, maxBytes, guard)
 		if regular == nil {
 			continue
 		}
 		faces := []*registeredFace{{weight: 400, font: regular}}
 		for _, variant := range variantPaths(path) {
-			f := loadFontFile(variant, maxBytes)
+			f := loadFontFile(variant, maxBytes, guard)
 			if f == nil {
 				continue
 			}
@@ -349,12 +349,12 @@ func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
 	return nil
 }
 
-func loadFontFile(path string, maxBytes int) *font.Font {
+func loadFontFile(path string, maxBytes int, guard *budget.Guard) *font.Font {
 	data, err := fsx.ReadFileLimit(path, maxBytes)
 	if err != nil {
 		return nil
 	}
-	f, err := font.Load(data)
+	f, err := font.LoadWithOptions(data, font.ParseOptions{Guard: guard})
 	if err != nil {
 		return nil
 	}

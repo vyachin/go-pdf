@@ -245,6 +245,18 @@ func FuzzParse(f *testing.F) {
 	if mutated := replaceTableBytes(base, "cmap", cmap12Test([3]uint32{'A', 'A', 70000})); mutated != nil {
 		f.Add(mutated)
 	}
+	// Hostile shapes the caps and the 64-bit checks exist for: the GPOS
+	// amplifier, a cmap offset above MaxInt32 and a format 12 group that wraps
+	// past the glyph id space.
+	if mutated := replaceTableBytes(base, "GPOS", gposTable(1, 200)); mutated != nil {
+		f.Add(mutated)
+	}
+	if mutated := replaceTableBytes(base, "cmap", cmapWithOffset(0x80000000)); mutated != nil {
+		f.Add(mutated)
+	}
+	if mutated := replaceTableBytes(base, "cmap", cmap12Test([3]uint32{'A', 'A' + 0x10, 0xFFFFFFF0})); mutated != nil {
+		f.Add(mutated)
+	}
 	// An OpenType font with a CFF table, and the same font truncated, keep the
 	// fuzzer on the conversion path as well as the TrueType parser.
 	otf := testCFFFont([]byte{139, 139, 21, 139, 139, 8, 139, 139, 14})
