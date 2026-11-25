@@ -136,21 +136,7 @@ func (l *layouter) paintMarginBoxes() {
 			} else {
 				y = page.Size.Height - page.Margin[2]/2 + face.Ascent/2
 			}
-			glyphs := make([]Glyph, len(run.Glyphs))
-			for i, g := range run.Glyphs {
-				glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
-			}
-			l.ops++
-			page.Ops = append(page.Ops, Op{
-				Kind: TextOpKind,
-				Text: &TextOp{
-					X:     x,
-					Y:     y,
-					Face:  face,
-					Run:   TextRun{Glyphs: glyphs, Width: run.Width},
-					Color: css.Color{Set: true},
-				},
-			})
+			l.paintShapedRun(page, face, css.Color{Set: true}, run, x, y)
 		}
 	}
 }

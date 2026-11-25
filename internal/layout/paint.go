@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // finishFragment paints the background and borders of the fragment that ends
@@ -134,6 +135,55 @@ func inlineBaseline(line *Line, it LineItem) int32 {
 }
 
 // paintLineAt draws one line of text.
+// paintShapedRun emits one shaped run at x on the given baseline, preserving
+// the shaper's glyph offsets. A glyph with an offset is drawn as its own text
+// object at pen+offset, so the PDF writer needs no vertical text state, while
+// the surrounding glyphs still share one pen: advances, kerning and text
+// extraction do not change. Every painted shaped run — body text, margin boxes
+// and list markers — goes through here, so a positioning fix has one home.
+func (l *layouter) paintShapedRun(page *Page, face *FontFace, color css.Color, run text.Run, x, baseline int32) {
+	emit := func(glyphs []Glyph, gx, gy int32) {
+		if len(glyphs) == 0 {
+			return
+		}
+		var width int32
+		for _, g := range glyphs {
+			width = satAdd(width, g.Advance)
+		}
+		l.ops++
+		page.Ops = append(page.Ops, Op{
+			Kind: TextOpKind,
+			Text: &TextOp{
+				X:     gx,
+				Y:     gy,
+				Face:  face,
+				Run:   TextRun{Glyphs: glyphs, Width: width},
+				Color: color,
+			},
+		})
+	}
+	pen, segStart := x, x
+	var seg []Glyph
+	flush := func() {
+		emit(seg, segStart, baseline)
+		seg = nil
+	}
+	for _, g := range run.Glyphs {
+		if g.XOffset != 0 || g.YOffset != 0 {
+			flush()
+			emit([]Glyph{{GID: g.GID, Advance: g.Advance, Rune: g.Rune}},
+				satAdd(pen, g.XOffset), satSub(baseline, g.YOffset))
+		} else {
+			if len(seg) == 0 {
+				segStart = pen
+			}
+			seg = append(seg, Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune})
+		}
+		pen = satAdd(pen, g.Advance)
+	}
+	flush()
+}
+
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
 	st := b.Style
 	x = satAdd(x, line.Indent)
@@ -183,49 +233,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				justify -= share
 			}
 			if len(it.Run.Glyphs) > 0 {
-				baseline := satAdd(y, inlineBaseline(line, it))
-				emit := func(glyphs []Glyph, gx, gy int32) {
-					if len(glyphs) == 0 {
-						return
-					}
-					var width int32
-					for _, g := range glyphs {
-						width = satAdd(width, g.Advance)
-					}
-					l.ops++
-					page.Ops = append(page.Ops, Op{
-						Kind: TextOpKind,
-						Text: &TextOp{
-							X:     gx,
-							Y:     gy,
-							Face:  it.Face,
-							Run:   TextRun{Glyphs: glyphs, Width: width},
-							Color: it.Color,
-						},
-					})
-				}
-				// A mark carries its own offset; it is drawn as its own text
-				// object so the PDF writer needs no vertical text state.
-				pen, segStart := x, x
-				var seg []Glyph
-				flush := func() {
-					emit(seg, segStart, baseline)
-					seg = nil
-				}
-				for _, g := range it.Run.Glyphs {
-					if g.XOffset != 0 || g.YOffset != 0 {
-						flush()
-						emit([]Glyph{{GID: g.GID, Advance: g.Advance, Rune: g.Rune}},
-							satAdd(pen, g.XOffset), satSub(baseline, g.YOffset))
-					} else {
-						if len(seg) == 0 {
-							segStart = pen
-						}
-						seg = append(seg, Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune})
-					}
-					pen = satAdd(pen, g.Advance)
-				}
-				flush()
+				l.paintShapedRun(page, it.Face, it.Color, it.Run, x, satAdd(y, inlineBaseline(line, it)))
 			}
 			x += w
 		}
@@ -266,19 +274,5 @@ func (l *layouter) paintListMarkerAt(page *Page, b *Box, left int32) {
 	if x < left {
 		x = left
 	}
-	glyphs := make([]Glyph, len(run.Glyphs))
-	for i, g := range run.Glyphs {
-		glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
-	}
-	l.ops++
-	page.Ops = append(page.Ops, Op{
-		Kind: TextOpKind,
-		Text: &TextOp{
-			X:     x,
-			Y:     b.listMarkerY + run.Width*0 + face.Ascent,
-			Face:  face,
-			Run:   TextRun{Glyphs: glyphs, Width: run.Width},
-			Color: st.Color,
-		},
-	})
+	l.paintShapedRun(page, face, st.Color, run, x, satAdd(b.listMarkerY, face.Ascent))
 }
