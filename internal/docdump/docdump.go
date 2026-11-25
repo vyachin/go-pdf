@@ -413,8 +413,8 @@ type prop struct {
 var inheritedProps = map[string]bool{
 	"color": true, "font-family": true, "font-size": true, "font-style": true,
 	"font-weight": true, "line-height": true, "list-style-type": true,
-	"orphans": true, "text-align": true, "text-indent": true,
-	"white-space": true, "widows": true,
+	"orphans": true, "text-align": true, "text-decoration": true,
+	"text-indent": true, "white-space": true, "widows": true,
 }
 
 // attrs returns id, class and every computed property whose value differs from
@@ -546,6 +546,7 @@ func styleList(style *css.Style) []prop {
 		{"padding-right", offsetValue(style.Padding[1])},
 		{"padding-top", offsetValue(style.Padding[0])},
 		{"text-align", textAlignValue(style.TextAlign)},
+		{"text-decoration", decorationValue(style.TextDecoration)},
 		{"text-indent", offsetValue(style.TextIndent)},
 		{"vertical-align", verticalAlignValue(style.VerticalAlign)},
 		{"white-space", whiteSpaceValue(style.WhiteSpace)},
@@ -652,6 +653,21 @@ func listStyleValue(v css.ListStyleType) string {
 		return "decimal"
 	}
 	return "disc"
+}
+
+// decorationValue renders a text-decoration bit set as the keywords the
+// profile accepts, in a stable order.
+func decorationValue(d css.Decoration) string {
+	switch d {
+	case css.DecorateUnderline:
+		return "underline"
+	case css.DecorateLineThrough:
+		return "line-through"
+	case css.DecorateUnderline | css.DecorateLineThrough:
+		return "underline line-through"
+	default:
+		return "none"
+	}
 }
 
 func textAlignValue(v css.TextAlign) string {

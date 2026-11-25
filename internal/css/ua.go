@@ -28,6 +28,9 @@ em, i { font-style: italic; }
 a { color: #0000ee; }
 hr { border: 1px solid #000; height: 0; margin: 2mm 0; }
 img, span, br { display: inline; }
+u, ins { text-decoration: underline; }
+s, del { text-decoration: line-through; }
+blockquote { display: block; margin: 1em 40px; }
 `
 
 var (

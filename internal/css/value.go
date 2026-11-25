@@ -327,6 +327,18 @@ const (
 )
 
 // TextAlign is the computed value of the text-align property.
+// Decoration is a bit set of the text-decoration lines the profile supports.
+type Decoration uint8
+
+const (
+	// DecorateNone paints no line.
+	DecorateNone Decoration = 0
+	// DecorateUnderline paints a line below the baseline.
+	DecorateUnderline Decoration = 1 << iota
+	// DecorateLineThrough paints a line through the text.
+	DecorateLineThrough
+)
+
 type TextAlign int
 
 const (

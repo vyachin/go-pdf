@@ -27,7 +27,7 @@ var PropOrder = []string{
 	"border", "border-collapse",
 	"background-color", "background-image", "background-size", "color",
 	"font-family", "font-size", "font-weight", "font-style", "line-height",
-	"text-align", "text-indent", "white-space", "vertical-align",
+	"text-align", "text-indent", "white-space", "vertical-align", "text-decoration",
 	"break-before", "break-after", "break-inside",
 	"page-break-before", "page-break-after", "page-break-inside",
 	"orphans", "widows",
@@ -251,6 +251,15 @@ var Table = map[string]PropSpec{
 		Parse:     parseKeyword(map[string]TextAlign{"left": AlignLeft, "right": AlignRight, "center": AlignCenter, "justify": AlignJustify}, "text-align"),
 		Set: func(s *Style, v Value, _ int32) error {
 			s.TextAlign = v.Enum.(TextAlign)
+			return nil
+		},
+	},
+	"text-decoration": {
+		Name:      "text-decoration",
+		Inherited: true,
+		Parse:     parseTextDecoration,
+		Set: func(s *Style, v Value, _ int32) error {
+			s.TextDecoration = v.Enum.(Decoration)
 			return nil
 		},
 	},
@@ -748,6 +757,41 @@ func parseBreak(toks []Token) (Value, error) {
 	return Value{}, fmt.Errorf("expected auto, page or avoid, got %q", f[0].Text)
 }
 
+// parseTextDecoration accepts none, underline, line-through, or the two line
+// keywords in either order. Every other value — overline, blink, a colour, a
+// style keyword — is a profile error naming the token.
+func parseTextDecoration(toks []Token) (Value, error) {
+	f := filterWhitespace(toks)
+	if len(f) == 0 || len(f) > 2 {
+		return Value{}, fmt.Errorf("expected none, underline, line-through or both for text-decoration")
+	}
+	var dec Decoration
+	seen := map[string]bool{}
+	for _, t := range f {
+		if t.Kind != IdentToken {
+			return Value{}, fmt.Errorf("unsupported text-decoration value %q", t.Text)
+		}
+		keyword := strings.ToLower(t.Text)
+		if keyword != "none" && seen[keyword] {
+			return Value{}, fmt.Errorf("text-decoration repeats %q", t.Text)
+		}
+		seen[keyword] = true
+		switch keyword {
+		case "none":
+			if len(f) != 1 {
+				return Value{}, fmt.Errorf("text-decoration: none cannot be combined with another keyword")
+			}
+		case "underline":
+			dec |= DecorateUnderline
+		case "line-through":
+			dec |= DecorateLineThrough
+		default:
+			return Value{}, fmt.Errorf("unsupported text-decoration value %q", t.Text)
+		}
+	}
+	return Value{Kind: "enum", Enum: dec}, nil
+}
+
 func parseKeyword[T any](m map[string]T, what string) func([]Token) (Value, error) {
 	return func(toks []Token) (Value, error) {
 		f := filterWhitespace(toks)
@@ -788,6 +832,7 @@ var SupportedElements = map[string]bool{
 	"tr": true, "td": true, "th": true,
 	"img": true, "span": true, "br": true, "hr": true,
 	"strong": true, "b": true, "em": true, "i": true, "a": true,
+	"u": true, "s": true, "del": true, "ins": true, "blockquote": true,
 	"title": true, "meta": true, "style": true, "link": true,
 }
 

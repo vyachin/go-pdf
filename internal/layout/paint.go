@@ -232,11 +232,46 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				w += share
 				justify -= share
 			}
+			baseline := satAdd(y, inlineBaseline(line, it))
 			if len(it.Run.Glyphs) > 0 {
-				l.paintShapedRun(page, it.Face, it.Color, it.Run, x, satAdd(y, inlineBaseline(line, it)))
+				l.paintShapedRun(page, it.Face, it.Color, it.Run, x, baseline)
+			}
+			if it.Style != nil {
+				l.paintDecoration(page, x, w, baseline, it.Face, it.Style.TextDecoration, it.Color)
 			}
 			x += w
 		}
+	}
+}
+
+// paintDecoration draws the decoration of one painted run: a rectangle below the
+// baseline for underline and one across the middle of the x-height for
+// line-through, both in the run colour. Adjacent runs abut — a word and the
+// spaces around it advance by exactly the painted width — so the decoration
+// reads as one continuous line without collecting per-line extents.
+func (l *layouter) paintDecoration(page *Page, x, w, baseline int32, face *FontFace, dec css.Decoration, color css.Color) {
+	if dec == css.DecorateNone || w <= 0 || face == nil || face.Size <= 0 {
+		return
+	}
+	size := face.Size
+	thickness := max(size/20, int32(50))
+	if dec&css.DecorateUnderline != 0 {
+		y := satAdd(baseline, max(size/10, thickness+50))
+		l.ops++
+		page.Ops = append(page.Ops, Op{
+			Kind:  FillOpKind,
+			Rect:  Rect{X: x, Y: y, W: w, H: thickness},
+			Color: color,
+		})
+	}
+	if dec&css.DecorateLineThrough != 0 {
+		y := satSub(satSub(baseline, size/4), thickness/2)
+		l.ops++
+		page.Ops = append(page.Ops, Op{
+			Kind:  FillOpKind,
+			Rect:  Rect{X: x, Y: y, W: w, H: thickness},
+			Color: color,
+		})
 	}
 }
 
