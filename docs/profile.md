@@ -278,18 +278,37 @@ as `html/parse` otherwise; neither escapes as a raw error or a panic.
 
 ## Diagnostics
 
-A diagnostic decided from the document contains the file, the line, the
-character column and the enclosing element path:
+A diagnostic decided from the document carries the file, the line, the
+character column and, when an element owns the problem, the enclosing element
+path:
 
 ```
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-The position rule is the same for every code and every class: a diagnostic whose
-cause is in the document carries a position, and a diagnostic whose cause is the
-caller's configuration or the conversion's budget carries none — `options/*`
-values name the option, `resource/limit` names the budget, and `pdf/write` names
-the writer. A column counts characters, not bytes (see "Input encodings").
+Three classes of location exist, and a code belongs to exactly one of them:
+
+- **Source-attributable** — the document names the cause: an element, a
+  declaration, an attribute, or a referenced asset such as a missing image or
+  font file. The diagnostic carries `File`, `Line` and `Column`, and `Element`
+  when an element owns the problem. A rule in a linked stylesheet uses the
+  stylesheet's own file and position, not the referring document's.
+- **Option errors** — `options/*` values name the option. The file and the
+  position may be empty, because the problem is in the caller's configuration
+  rather than in the document.
+- **Aggregate or output failures** — a conversion-wide budget or a writer or
+  rasterizer failure that has no single source node names the document and
+  leaves the coordinates zero:
+
+  ```
+  invoice.html: error[resource/limit]: work limit exceeded: ...
+  ```
+
+  Zero `Line` or `Column` means unknown, and it is used only when no source node
+  identifies the problem. It never stands for a location the source does
+  provide: a known position is not discarded and reclassified as unknown.
+
+A column counts characters, not bytes (see "Input encodings").
 
 The catalogue below is generated from the registry in `internal/diag/codes.go`;
 a code cannot be emitted or documented without the other side, because a test

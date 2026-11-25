@@ -139,13 +139,19 @@ type Diagnostic struct {
 	// Code instead.
 	Message string
 	// File is the name passed in Options.File, or a placeholder when the
-	// caller set none. Empty means the file is unknown.
+	// caller set none. A document or asset problem names its file, including a
+	// linked stylesheet. Only an option error may leave it empty.
 	File string
-	// Line is the 1-based line of the problem, or zero when unknown.
+	// Line is the 1-based line of the problem, or zero when unknown. A
+	// conversion-wide budget or a writer failure has no single source node, so
+	// it keeps File and leaves Line and Column zero instead of inventing a
+	// position.
 	Line int
-	// Column is the 1-based column of the problem, or zero when unknown.
+	// Column is the 1-based column of the problem, or zero when unknown. It
+	// counts characters, not bytes.
 	Column int
-	// Element is a human-readable path such as "body > table > tr".
+	// Element is a human-readable path such as "body > table > tr", set when an
+	// element owns the problem.
 	Element string
 }
 

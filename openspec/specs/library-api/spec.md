@@ -171,11 +171,12 @@ the defaults.
 
 ### Requirement: Diagnostics identify the converted document
 
-Every diagnostic about the document or one of its assets SHALL set `File` to
-`Options.File`, or the documented placeholder when the caller set none, and SHALL set
-line and column when a source position exists. Only `options/*` diagnostics MAY lack a
-position. A missing image, a missing font and an exhausted resource limit MUST name
-the document.
+Document and asset diagnostics SHALL name their source file, or `Options.File` /
+the placeholder when no more specific file is known. Attributable failures MUST
+retain known line and column, including missing image/font references. Option
+errors MAY omit file and position. Aggregate or output failures without a source
+location MAY use zero coordinates but MUST name the document. Unknown locations
+MUST NOT be fabricated.
 
 #### Scenario: A missing image
 
@@ -191,6 +192,12 @@ the document.
 
 - **WHEN** a linked stylesheet contains an unsupported declaration
 - **THEN** the diagnostic names that stylesheet with its line and column
+
+#### Scenario: An aggregate output failure has no source location
+
+- **WHEN** PDF serialization exhausts a conversion-wide budget without identifying one source node
+- **THEN** the `resource/limit` diagnostic names the document
+- **AND** line and column may be zero to mean unknown without fabricating an element path
 
 ### Requirement: Options are validated before assets are read
 
