@@ -226,6 +226,20 @@ func adversarialCases() []adversarialCase {
 			},
 		},
 		{
+			ID:      "P2-image-placements",
+			Fixture: "p2-image-placements.html",
+			// The same image placed four hundred times is hashed and embedded
+			// once: the digest is per loaded record, not per placement.
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "placements.html", BaseDir: dir, FallbackFont: testFontPath(t)}
+			},
+			Check: func(t *testing.T, res Result) {
+				if n := strings.Count(string(res.PDF), "/Subtype /Image"); n != 1 {
+					t.Fatalf("the repeated image produced %d image objects, want 1", n)
+				}
+			},
+		},
+		{
 			ID:      "P2-table-grid",
 			Fixture: "p2-table-grid.html",
 			Want:    "resource/limit",

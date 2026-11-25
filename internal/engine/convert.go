@@ -403,10 +403,26 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		Budget:       p.guard,
 	})
 	// One pdf.Image per decoded image, shared across pages, so the writer
-	// embeds a repeated source once.
+	// embeds a repeated source once. The digest that identifies the content is
+	// hashed once per loaded image record, however many times it is placed.
 	pdfImages := map[[32]byte]*pdf.Image{}
+	hasher := &imageHasher{ctx: ctx, guard: p.guard, digests: map[*layout.ImageData][32]byte{}}
 	for _, p := range pages.Pages {
-		writer.AddPage(p.Size.Width, p.Size.Height, toPDFOps(p.Ops, pdfImages))
+		pdfOps, err := toPDFOps(p.Ops, pdfImages, hasher)
+		if err != nil {
+			if errors.Is(err, budget.ErrExceeded) {
+				diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
+				diags.Sort()
+				return Result{Diagnostics: diags}, diags.Error()
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return Result{Diagnostics: diags}, ctxErr
+			}
+			diags.Errorf(diag.PDFWrite, aggregatePosition(opts), "", "%v", err)
+			diags.Sort()
+			return Result{Diagnostics: diags}, diags.Error()
+		}
+		writer.AddPage(p.Size.Width, p.Size.Height, pdfOps)
 	}
 	data, err := writer.Bytes()
 	if err != nil {
@@ -628,7 +644,49 @@ func toPDFOutline(entries []layout.OutlineEntry) []pdf.OutlineEntry {
 	return out
 }
 
-func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image) []pdf.Op {
+// imageHasher computes one content digest per loaded image record. The digest
+// identifies the encoded bytes, so two files with identical content share one
+// PDF image object; the hash runs once per record, however many pages place it.
+type imageHasher struct {
+	ctx     context.Context
+	guard   *budget.Guard
+	digests map[*layout.ImageData][32]byte
+	// hashed counts the bytes actually hashed, so a test can prove that a
+	// thousand placements scan the image once.
+	hashed int64
+}
+
+// digest returns the content digest of one loaded image, hashing it the first
+// time. The bytes are hashed in bounded chunks: the work is charged before each
+// chunk is read and the context is checked between chunks, so a budget failure
+// or a cancellation stops before the remaining bytes are scanned.
+func (h *imageHasher) digest(img *layout.ImageData) ([32]byte, error) {
+	if d, ok := h.digests[img]; ok {
+		return d, nil
+	}
+	const chunk = 256 << 10
+	sum := sha256.New()
+	for start := 0; start < len(img.Data); start += chunk {
+		if err := h.ctx.Err(); err != nil {
+			return [32]byte{}, err
+		}
+		end := start + chunk
+		if end > len(img.Data) {
+			end = len(img.Data)
+		}
+		if err := h.guard.Add(uint64(end-start)/1024 + 1); err != nil {
+			return [32]byte{}, err
+		}
+		sum.Write(img.Data[start:end])
+		h.hashed += int64(end - start)
+	}
+	var out [32]byte
+	copy(out[:], sum.Sum(nil))
+	h.digests[img] = out
+	return out, nil
+}
+
+func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image, hasher *imageHasher) ([]pdf.Op, error) {
 	out := make([]pdf.Op, 0, len(ops))
 	for _, op := range ops {
 		switch op.Kind {
@@ -664,8 +722,13 @@ func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image) []pdf.Op {
 			img := op.Image.Image
 			// The encoded bytes identify the image: two files with the same
 			// content, or the same file reached through a second path, produce
-			// one PDF object. Hashing also covers data: URIs, which have no path.
-			key := sha256.Sum256(img.Data)
+			// one PDF object. The digest is computed once per loaded record: a
+			// large image placed on every page is hashed once, not once per
+			// placement, and the work is charged before the bytes are read.
+			key, err := hasher.digest(img)
+			if err != nil {
+				return nil, err
+			}
 			shared, ok := images[key]
 			if !ok {
 				shared = &pdf.Image{
@@ -689,5 +752,5 @@ func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image) []pdf.Op {
 			})
 		}
 	}
-	return out
+	return out, nil
 }
