@@ -248,6 +248,11 @@ func (f *Font) compositeGlyph(data []byte, depth int, e *expander) ([]Contour, e
 			d = f2dot14(data[pos+6 : pos+8])
 			pos += 8
 		}
+		if flags&0x0800 != 0 {
+			// SCALED_COMPONENT_OFFSET: the offset is expressed in the child's
+			// coordinate system, so the component's scale matrix transforms it.
+			dx, dy = a*dx+c*dy, b*dx+d*dy
+		}
 		child, err := f.glyphPath(component, depth+1, e)
 		if err != nil {
 			return nil, err

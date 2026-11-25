@@ -65,6 +65,32 @@ author holds, so check the font's licence before shipping a template.
 Subsetting a converted font uses the existing TrueType path and keeps the glyph
 numbering, so the embedded program carries only the outlines the document uses.
 
+## Marks and separators
+
+Text is normalised to NFC first. A combining mark that has no precomposed form
+stays a separate code point, and the shaper positions it with the font's GPOS
+mark attachment: `MarkBase`, `MarkLig` and `MarkMark` lookups are parsed, and
+the mark's anchor is placed on the base or preceding mark anchor. In a font
+without a usable lookup for the reason the conversion stops with a `text/glyph`
+diagnostic naming the mark; drawing it at the pen would put the accent on the
+next letter. The copyable text layer still extracts the base and the mark as
+the original combining sequence.
+
+Form feed (U+000C), line separator (U+2028) and paragraph separator (U+2029)
+start a new line in both preformatted and normal text. A form feed never
+reaches glyph lookup, and no separator joins two rendered lines.
+
+## Composite and CFF boundaries
+
+A composite glyph component whose flags include `SCALED_COMPONENT_OFFSET`
+(0x0800) has its offset transformed by the component's scale before it is added,
+so a component at (100,0) with scale 0.5 lands at (50,0).
+
+A CFF charstring delta whose magnitude does not fit an `int16` is rejected with
+a diagnostic instead of being truncated: the stored outline must stay consistent
+with the header bounding box. A CFF font whose Top DICT omits the `Private`
+operator is legal and loads with no local subroutines.
+
 ## Parsing bounds
 
 A font file is untrusted input even when it comes from the document. Parsing

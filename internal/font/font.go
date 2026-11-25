@@ -26,6 +26,7 @@ type Font struct {
 	family     string
 	subfamily  string
 	gpos       *kerning
+	marks      *markAttachment
 	bbox       [4]int16
 	// guard bounds the work of GPOS parsing and carries cancellation. Nil
 	// means no limit and no cancellation.

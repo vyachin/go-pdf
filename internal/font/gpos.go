@@ -125,7 +125,7 @@ func (f *Font) parseGPOS() error {
 			continue
 		}
 		lookupType := binary.BigEndian.Uint16(gpos[off : off+2])
-		if lookupType != 2 && lookupType != 9 {
+		if lookupType != 2 && lookupType != 4 && lookupType != 5 && lookupType != 6 && lookupType != 9 {
 			continue
 		}
 		subCount := int(binary.BigEndian.Uint16(gpos[off+4 : off+6]))
@@ -142,17 +142,35 @@ func (f *Font) parseGPOS() error {
 				break
 			}
 			subOff := off + int(binary.BigEndian.Uint16(gpos[subOffPos:subOffPos+2]))
+			subType := int(lookupType)
 			if lookupType == 9 {
 				// Extension positioning wraps the real subtable behind a
 				// 32-bit offset. Several system fonts (SFNS, SFCompact, Kefa)
-				// store every PairPos subtable this way.
-				subOff, ok = extensionSubtable(gpos, subOff)
+				// store every PairPos subtable this way, and DejaVu stores its
+				// mark lookups that way.
+				var ok bool
+				subOff, subType, ok = extensionSubtable(gpos, subOff)
 				if !ok {
 					continue
 				}
 			}
-			if err := lookup.parsePairPos(k, gpos, subOff); err != nil {
-				return err
+			switch subType {
+			case 2:
+				if err := lookup.parsePairPos(k, gpos, subOff); err != nil {
+					return err
+				}
+			case 4, 5, 6:
+				mark, err := k.parseMarkLookup(gpos, subOff, subType)
+				if err != nil {
+					return err
+				}
+				if mark == nil {
+					continue
+				}
+				if f.marks == nil {
+					f.marks = &markAttachment{}
+				}
+				f.marks.lookups = append(f.marks.lookups, mark)
 			}
 		}
 		if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
@@ -166,25 +184,26 @@ func (f *Font) parseGPOS() error {
 }
 
 // extensionSubtable resolves an ExtensionPos (lookup type 9) subtable to the
-// PairPos subtable it wraps. It reports false for any other extension type.
-func extensionSubtable(data []byte, off int) (int, bool) {
+// real subtable it wraps and returns its type. Any positioning type can be
+// wrapped; the caller ignores the ones it does not implement.
+func extensionSubtable(data []byte, off int) (int, int, bool) {
 	if off < 0 || off+8 > len(data) {
-		return 0, false
+		return 0, 0, false
 	}
 	format := binary.BigEndian.Uint16(data[off : off+2])
-	lookupType := binary.BigEndian.Uint16(data[off+2 : off+4])
-	if format != 1 || lookupType != 2 {
-		return 0, false
+	lookupType := int(binary.BigEndian.Uint16(data[off+2 : off+4]))
+	if format != 1 || lookupType == 0 {
+		return 0, 0, false
 	}
 	delta, ok := readU32(data, off+4)
 	if !ok || delta == 0 || delta > uint64(len(data))-uint64(off) {
-		return 0, false
+		return 0, 0, false
 	}
 	target := uint64(off) + delta
 	if target+8 > uint64(len(data)) {
-		return 0, false
+		return 0, 0, false
 	}
-	return int(target), true
+	return int(target), lookupType, true
 }
 
 // parsePairPos parses one subtable into a lookup of its own. It is the entry

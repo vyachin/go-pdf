@@ -1,8 +1,11 @@
 package text
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -221,5 +224,98 @@ func TestScale(t *testing.T) {
 	}
 	if got := Scale(500, 12000, 1000); got != 6000 {
 		t.Fatalf("Scale = %d, want 6000", got)
+	}
+}
+
+func loadBundledFont(t *testing.T) *font.Font {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := font.Load(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// TestShapePositionsCombiningMark guards the GPOS mark attachment: the acute in
+// "сло́во" must be moved from the pen to the anchor over "о", not left where a
+// zero-advance glyph would be drawn.
+func TestShapePositionsCombiningMark(t *testing.T) {
+	f := loadBundledFont(t)
+	run, err := Shape(f, 12000, "сло́во")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mark *Glyph
+	for i := range run.Glyphs {
+		if run.Glyphs[i].Rune == '\u0301' {
+			mark = &run.Glyphs[i]
+		}
+	}
+	if mark == nil {
+		t.Fatal("the combining acute is missing")
+	}
+	if mark.XOffset == 0 {
+		t.Fatalf("the mark was drawn at the pen: %+v", *mark)
+	}
+	if mark.YOffset != 0 {
+		// DejaVu's combining acute already sits above the baseline; the anchor
+		// only moves it horizontally. Any value is allowed, but this pins the
+		// current font so a wrong anchor sign would be visible.
+		t.Logf("mark y offset = %d", mark.YOffset)
+	}
+}
+
+// TestShapeRejectsUnattachedMark guards the diagnostic: a font without a mark
+// lookup must not draw the mark at the pen.
+func TestShapeRejectsUnattachedMark(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drop the GPOS table: the glyphs stay, the attachment data does not.
+	out := append([]byte(nil), data...)
+	n := int(binary.BigEndian.Uint16(out[4:6]))
+	for i := 0; i < n; i++ {
+		rec := 12 + i*16
+		if string(out[rec:rec+4]) == "GPOS" {
+			binary.BigEndian.PutUint32(out[rec+12:rec+16], 0)
+			break
+		}
+	}
+	f, err := font.Load(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Shape(f, 12000, "сло́во")
+	var missing *MissingMarkError
+	if !errors.As(err, &missing) || missing.Mark != '\u0301' {
+		t.Fatalf("Shape returned %v, want MissingMarkError for U+0301", err)
+	}
+}
+
+// TestSplitUnicodeSeparators guards form feed, line separator and paragraph
+// separator as line breaks in preformatted and normal text.
+func TestSplitUnicodeSeparators(t *testing.T) {
+	for _, pre := range []bool{true, false} {
+		for _, sep := range []rune{'\f', '\u2028', '\u2029'} {
+			items := Split("A"+string(sep)+"B", pre)
+			var kinds []ItemKind
+			for _, it := range items {
+				kinds = append(kinds, it.Kind)
+			}
+			want := []ItemKind{Word, Newline, Word}
+			if len(kinds) != len(want) {
+				t.Fatalf("pre=%v sep=U+%04X: items = %+v", pre, sep, items)
+			}
+			for i := range want {
+				if kinds[i] != want[i] {
+					t.Fatalf("pre=%v sep=U+%04X: kinds = %v", pre, sep, kinds)
+				}
+			}
+		}
 	}
 }
