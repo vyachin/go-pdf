@@ -26,6 +26,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pinned and covered by `go.sum`. The previous "no dependencies" rule is
   replaced by that allowlist; `golang.org/x/net` is the first requirement
   outside the standard library.
+- **Text normalization.** `golang.org/x/text/unicode/norm` performs canonical
+  composition instead of a generated table and its undocumented generator, so
+  the result follows the Unicode version of the module. Canonical decomposition
+  now runs first: a precomposed letter followed by a combining mark composes
+  where it could not before (`ḋ` plus a dot below becomes `ḍ` plus a dot above).
+  The normalization tables add about 137 KB to the binary and replace 43 KB of
+  generated source.
+- **JPEG headers.** The writer reads width, height and colour components with
+  `image/jpeg` instead of a private marker parser, so the writer and the engine
+  agree on which files are valid. A JPEG variant the standard library cannot
+  decode — 12-bit or lossless — is rejected with a diagnostic naming the file
+  instead of being embedded untouched.
+- **UTF-16.** PDF strings, `ToUnicode` maps and the debug extraction use
+  `unicode/utf16`. The output for characters inside the BMP is unchanged.
+
+### Fixed
+
+- A character outside the BMP in a `ToUnicode` map extracts as one character.
+  It used to extract as two replacement characters, because the surrogate pair
+  was read back as two separate code points.
 
 ## [1.0.0] - 2026-11-25
 

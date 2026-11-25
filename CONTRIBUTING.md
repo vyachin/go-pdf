@@ -35,6 +35,32 @@ and the standard library only. CI fails when its direct imports contain an
 `internal/` package, because the command's job is to prove the public API is
 enough.
 
+## Standard library first
+
+Where the standard library or a `golang.org/x/...` module provides a facility
+the engine needs, the engine uses it; a private implementation stays only where
+no such module covers the need, and then it is listed here with its reason. The
+`code-quality` requirement in the OpenSpec specs makes this rule durable, so
+review both directions: a new hand-written substitute, and a listed exception
+that a module now covers.
+
+- **Font subsetter** (`internal/font`). `x/image/font/sfnt` parses `cmap`,
+  `hmtx` and `glyf`, but it does not expose the raw tables the subsetter
+  rewrites and it cannot subset. Adopting it would keep the private parser and
+  add a second one, so it stays a test oracle instead.
+- **Debug raster scaler** (`internal/backend/raster`). Nearest-neighbour
+  scaling is deliberate: `testdata/golden/render` is compared pixel by pixel,
+  and any interpolation would make every golden depend on the filter.
+- **CSS grammar** (`internal/css`). No Go-project module implements the CSS
+  tokenizer, parser, selectors or cascade.
+- **PDF syntax** (`internal/pdf`). No Go-project module writes the objects, the
+  `Identity-H` font, the `ToUnicode` map or the number formatting the output is
+  pinned to.
+- **Browser-lowering case mapping** (`internal/browser`). Locale-aware case
+  mapping behind `text-transform` is a best-effort approximation of a property
+  the profile does not support, and every approximation is reported as a
+  warning.
+
 ## Tests
 
 ```bash
