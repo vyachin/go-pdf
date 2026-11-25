@@ -313,6 +313,7 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 		diags:    &diag.List{},
 		budget:   ctx.Budget,
 		maxCells: ctx.MaxTableCells,
+		ordinals: map[*html.Node]int{},
 	}
 	// Styles follow the real chain: html, then body.
 	var htmlStyle *css.Style
@@ -361,6 +362,10 @@ type builder struct {
 	// failure is the first reason building stopped: cancellation or an
 	// exhausted budget.
 	failure error
+	// ordinals maps each list item to its 1-based position among the li
+	// children of its parent. One traversal fills it per list parent, so a
+	// shallow list does not rescan a growing prefix for every item.
+	ordinals map[*html.Node]int
 }
 
 // tick records one unit of building work. It reports false when the walk must
@@ -477,7 +482,7 @@ func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.
 		return []*Box{{Kind: Block, Node: n, Style: style, Children: b.buildBlocks(n, style)}}
 	case "li":
 		box := &Box{Kind: ListItem, Node: n, Style: style, Children: b.buildBlocks(n, style)}
-		box.ListIndex = liIndex(n)
+		box.ListIndex = b.liIndex(n)
 		box.Level = listLevel(n)
 		return []*Box{box}
 	}
@@ -744,7 +749,19 @@ func tableGridColumns(rows []*Row, limit int) (int, bool) {
 	return columns, true
 }
 
-func liIndex(n *html.Node) int {
+// liIndex returns the number of a list item. The position comes from the
+// parent traversal recorded by indexList; a parent that was never indexed is
+// indexed now, so an li outside a list keeps the numbering it had. The scan runs
+// once per parent and is charged to the guard.
+func (b *builder) liIndex(n *html.Node) int {
+	idx, ok := b.ordinals[n]
+	if !ok && n.Parent != nil {
+		b.indexList(n.Parent)
+		idx, ok = b.ordinals[n]
+	}
+	if !ok {
+		return 1
+	}
 	base := 1
 	if n.Parent != nil && n.Parent.Tag == "ol" {
 		if v, ok := n.Parent.Attr("start"); ok {
@@ -753,18 +770,24 @@ func liIndex(n *html.Node) int {
 			}
 		}
 	}
-	idx := 0
-	if n.Parent != nil {
-		for _, c := range n.Parent.Children {
-			if c == n {
-				return base + idx
-			}
-			if c.Type == html.ElementNode && c.Tag == "li" {
-				idx++
-			}
+	return base + idx - 1
+}
+
+// indexList assigns the 1-based ordinal of every li child of one parent in a
+// single pass. Each sibling is visited once and charged to the guard, so the
+// work is linear in the number of children instead of quadratic; a stopped
+// build leaves the map partial and the walk ends through the same guard.
+func (b *builder) indexList(parent *html.Node) {
+	ordinal := 0
+	for _, c := range parent.Children {
+		if !b.tick() {
+			return
+		}
+		if c.Type == html.ElementNode && c.Tag == "li" {
+			ordinal++
+			b.ordinals[c] = ordinal
 		}
 	}
-	return base + idx
 }
 
 func listLevel(n *html.Node) int {
