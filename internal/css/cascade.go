@@ -139,6 +139,10 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 				c.report(e.decl, err)
 				continue
 			}
+			pos := e.decl.Position()
+			for i := range items {
+				items[i].Pos = pos
+			}
 			st.AfterContent = items
 			continue
 		}

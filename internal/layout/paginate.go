@@ -672,7 +672,13 @@ func (l *layouter) warnOverflow(b *Box, message string) {
 		return
 	}
 	b.overflowWarned = true
-	l.diags.Warnf(diag.LayoutOverflow, diag.Position{}, nodePath(b), "%s", message)
+	// The overflow is attributable to the element that overflowed, so the
+	// warning names its source position instead of an empty one.
+	pos := diag.Position{}
+	if l.source != nil && b.Node != nil {
+		pos = l.source.Position(b.Node.Start)
+	}
+	l.diags.Warnf(diag.LayoutOverflow, pos, nodePath(b), "%s", message)
 }
 
 func headingLevel(tag string) int {

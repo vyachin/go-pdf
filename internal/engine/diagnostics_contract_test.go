@@ -186,12 +186,14 @@ func TestOnePipelineServesBothEntryPoints(t *testing.T) {
 		"bad margin":         {File: "p.html", Margin: "huge"},
 		"invalid title":      {File: "p.html", Title: "bad \xff", FallbackFont: testFontPath(t)},
 		"missing stylesheet": {File: "p.html", BaseDir: t.TempDir(), FallbackFont: testFontPath(t)},
+		"missing glyph":      {File: "p.html", FallbackFont: testFontPath(t)},
 	}
 	documents := map[string]string{
 		"bad page size":      `<p>x</p>`,
 		"bad margin":         `<p>x</p>`,
 		"invalid title":      `<p>x</p>`,
 		"missing stylesheet": `<link rel="stylesheet" href="missing.css"><p>x</p>`,
+		"missing glyph":      "<p>\U0010FFFF</p>",
 	}
 	for name, opts := range cases {
 		src := []byte(documents[name])

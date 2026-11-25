@@ -3,6 +3,8 @@ package css
 import (
 	"fmt"
 	"strings"
+
+	"github.com/vyachin/go-pdf/internal/diag"
 )
 
 // MarginBoxNames lists the supported page margin boxes.
@@ -183,6 +185,20 @@ const (
 type ContentItem struct {
 	Kind ContentKind
 	Text string
+	// Pos is the source position of the declaration that generated the item.
+	// It is empty when the item did not come from a stylesheet, and a zero
+	// line means the declaration's source is unknown.
+	Pos diag.Position
+}
+
+// Position returns the source position of a declaration, with a zero position
+// when the declaration did not come from a parsed stylesheet.
+func (d Declaration) Position() diag.Position {
+	if d.Sheet == nil {
+		return diag.Position{}
+	}
+	p := d.Sheet.Position(d.Offset)
+	return diag.Position{File: p.File, Line: p.Line, Col: p.Col}
 }
 
 // ParseContent parses the value of the content property.
