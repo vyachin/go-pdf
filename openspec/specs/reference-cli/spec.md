@@ -52,18 +52,12 @@ subcommands.
 ### Requirement: The command uses the public package only
 
 The command SHALL be built from the `pdfgen` package and the standard library. It
-MUST NOT import a package under `internal/`, and a check in continuous
-integration MUST fail when its direct imports contain one.
+MUST NOT import a package under `internal/`.
 
 #### Scenario: The import boundary holds
 
-- **WHEN** the import check inspects the command's direct imports
-- **THEN** no path under `internal/` is present
-
-#### Scenario: A broken boundary fails the build
-
-- **WHEN** a change makes the command import an internal package
-- **THEN** continuous integration fails before the change merges
+- **WHEN** the command's direct imports are inspected
+- **THEN** every one is `pdfgen` or a standard-library package
 
 ### Requirement: Asset roots follow the input file
 

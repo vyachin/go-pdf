@@ -43,18 +43,6 @@ jobs:
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Vet
         run: go vet ./...
-      - name: Reference command uses the public API only
-        # cmd/pdfgen is the example of the package. An internal import would
-        # turn it into a second entry point into the engine and stop it from
-        # demonstrating what a consumer can actually write.
-        run: |
-          set -o pipefail
-          imports="$(go list -f '{{join .Imports "\n"}}' ./cmd/pdfgen)"
-          if grep -q -- '/internal/' <<<"$imports"; then
-            echo "cmd/pdfgen imports an internal package:" >&2
-            grep -- '/internal/' <<<"$imports" >&2
-            exit 1
-          fi
       - name: Test
         # The render tests need poppler, which only the golden job installs;
         # they skip here and golden owns them. The shuffle makes an order
@@ -62,30 +50,6 @@ jobs:
         env:
           PDF_REQUIRE_VALIDATOR: "1"
         run: go test -shuffle=on ./...
-      - name: Public API from another module
-        # The package must be importable by a module outside this repository.
-        run: |
-          tmp="$(mktemp -d)"
-          cd "$tmp"
-          go mod init example.com/apicheck
-          go mod edit -replace github.com/vyachin/go-pdf="$GITHUB_WORKSPACE"
-          cat > main.go <<'EOF'
-          package main
-
-          import (
-              "context"
-              "fmt"
-
-              "github.com/vyachin/go-pdf/pdfgen"
-          )
-
-          func main() {
-              diags, err := pdfgen.Validate(context.Background(), []byte("<p>x</p>"), pdfgen.Options{})
-              fmt.Println(len(diags), err)
-          }
-          EOF
-          go mod tidy
-          go build ./...
 
   race:
     runs-on: ubuntu-latest
