@@ -6,8 +6,9 @@
 package diag
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -118,21 +119,22 @@ func (l List) HasErrors() bool {
 // finally message. Two runs over the same input therefore produce the same
 // report.
 func (l List) Sort() {
-	sort.SliceStable(l, func(i, j int) bool {
-		a, b := l[i], l[j]
-		if a.Pos.File != b.Pos.File {
-			return a.Pos.File < b.Pos.File
+	// Stable: two diagnostics with the same key keep their discovery order,
+	// which is what the golden layers pin.
+	slices.SortStableFunc(l, func(a, b Diagnostic) int {
+		if c := cmp.Compare(a.Pos.File, b.Pos.File); c != 0 {
+			return c
 		}
-		if a.Pos.Line != b.Pos.Line {
-			return a.Pos.Line < b.Pos.Line
+		if c := cmp.Compare(a.Pos.Line, b.Pos.Line); c != 0 {
+			return c
 		}
-		if a.Pos.Col != b.Pos.Col {
-			return a.Pos.Col < b.Pos.Col
+		if c := cmp.Compare(a.Pos.Col, b.Pos.Col); c != 0 {
+			return c
 		}
-		if a.Code != b.Code {
-			return a.Code < b.Code
+		if c := cmp.Compare(a.Code, b.Code); c != 0 {
+			return c
 		}
-		return a.Message < b.Message
+		return cmp.Compare(a.Message, b.Message)
 	})
 }
 

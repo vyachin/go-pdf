@@ -46,8 +46,13 @@ func TestReadRejectsEscape(t *testing.T) {
 	if _, err := root.Read(filepath.Join(outside, "secret.css")); !errors.Is(err, ErrOutsideRoot) {
 		t.Fatalf("absolute outside path: %v", err)
 	}
-	if _, err := root.Read(filepath.Join(dir, "..", "x.css")); !errors.Is(err, ErrOutsideRoot) && !os.IsNotExist(err) {
-		t.Fatalf("traversal: %v", err)
+	// A missing file above the root is an escape, not a missing file: the
+	// boundary is a property of the path, not of what exists on disk.
+	if _, err := root.Read(filepath.Join(dir, "..", "x.css")); !errors.Is(err, ErrOutsideRoot) {
+		t.Fatalf("traversal to a missing file: %v", err)
+	}
+	if _, err := root.Read(filepath.Join(dir, "x.css")); !os.IsNotExist(err) {
+		t.Fatalf("a missing file inside the root: %v", err)
 	}
 }
 

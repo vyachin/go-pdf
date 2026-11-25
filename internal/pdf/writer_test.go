@@ -9,6 +9,7 @@ import (
 	"go/build"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"math"
 	"os"
@@ -143,6 +144,24 @@ func TestTextAndToUnicode(t *testing.T) {
 	}
 	if !bytes.Contains(data, []byte("/Identity-H")) {
 		t.Fatal("text is not encoded as Identity-H")
+	}
+}
+
+func TestUTF16Hex(t *testing.T) {
+	cases := []struct {
+		r    rune
+		want string
+	}{
+		{'A', "0041"},
+		{'Ж', "0416"},
+		// The pair a non-BMP character keeps in UTF-16.
+		{'\U0001F600', "D83DDE00"},
+		{'\U0010FFFF', "DBFFDFFF"},
+	}
+	for _, tc := range cases {
+		if got := utf16Hex(tc.r); got != tc.want {
+			t.Fatalf("utf16Hex(%U) = %s, want %s", tc.r, got, tc.want)
+		}
 	}
 }
 
@@ -589,6 +608,75 @@ func TestCMYKJPEGIsNotEmbeddedAsRGB(t *testing.T) {
 	_, err = imageObject(&Image{Data: data, Format: "jpeg", PixelW: 1, PixelH: 1}, nil)
 	if err == nil || !strings.Contains(err.Error(), "CMYK") {
 		t.Fatalf("a four-component JPEG must not be embedded as RGB, got %v", err)
+	}
+}
+
+// TestJPEGColorSpaceFromTheStandardLibrary checks that the writer reads the
+// frame header with image/jpeg: one component is DeviceGray, three is
+// DeviceRGB, and the dimensions are the ones the standard library reports.
+func TestJPEGColorSpaceFromTheStandardLibrary(t *testing.T) {
+	cases := []struct {
+		name       string
+		fixture    string
+		colorSpace string
+	}{
+		{"grayscale", "video-005.gray.jpeg", "/DeviceGray"},
+		{"ycbcr", "video-001.jpeg", "/DeviceRGB"},
+		{"rgb", "video-001.rgb.jpeg", "/DeviceRGB"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(build.Default.GOROOT, "src", "image", "testdata", tc.fixture)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Skipf("no %s fixture in this Go distribution: %v", tc.fixture, err)
+			}
+			cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+			if err != nil {
+				t.Fatalf("the fixture does not decode: %v", err)
+			}
+			obj, err := imageObject(&Image{Data: data, Format: "jpeg"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(obj)
+			for _, want := range []string{
+				"/ColorSpace " + tc.colorSpace,
+				fmt.Sprintf("/Width %d", cfg.Width),
+				fmt.Sprintf("/Height %d", cfg.Height),
+			} {
+				if !strings.Contains(text, want) {
+					t.Fatalf("image object does not contain %q:\n%s", want, text)
+				}
+			}
+		})
+	}
+}
+
+// TestUnsupportedJPEGIsRejectedWithoutAnImageObject covers a JPEG the standard
+// library cannot decode: a 12-bit file is not embedded silently.
+func TestUnsupportedJPEGIsRejectedWithoutAnImageObject(t *testing.T) {
+	path := filepath.Join(build.Default.GOROOT, "src", "image", "testdata", "video-005.gray.jpeg")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("no grayscale fixture in this Go distribution: %v", err)
+	}
+	// The SOF0 marker holds the sample precision one byte after its length.
+	i := bytes.Index(data, []byte{0xFF, 0xC0})
+	if i < 0 || i+4 >= len(data) {
+		t.Skip("the fixture has no SOF0 marker")
+	}
+	unsupported := append([]byte(nil), data...)
+	unsupported[i+4] = 12
+	obj, err := imageObject(&Image{Data: unsupported, Format: "jpeg"}, nil)
+	if err == nil {
+		t.Fatal("a 12-bit JPEG must be rejected")
+	}
+	if obj != nil {
+		t.Fatalf("a rejected JPEG must not produce an image object: %q", obj)
+	}
+	if !strings.Contains(err.Error(), "jpeg") {
+		t.Fatalf("the error does not name the format: %v", err)
 	}
 }
 

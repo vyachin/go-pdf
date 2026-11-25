@@ -1,7 +1,8 @@
 package layout
 
 import (
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -73,11 +74,7 @@ func ParsePageStyle(sheets []*css.Stylesheet, fallbackSize css.PageSize, fallbac
 			}
 		}
 	}
-	names := make([]string, 0, len(boxDecl))
-	for name := range boxDecl {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(boxDecl))
 	for _, name := range names {
 		if items, err := css.ParseContent(boxDecl[name].Value); err == nil {
 			ps.Boxes[name] = items
@@ -100,11 +97,7 @@ func (l *layouter) paintMarginBoxes() {
 		l.diags.Warnf("page/margin-box", diag.Position{}, "", "cannot load a font for margin boxes: %v", err)
 		return
 	}
-	names := make([]string, 0, len(l.pageStyle.Boxes))
-	for name := range l.pageStyle.Boxes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(l.pageStyle.Boxes))
 	total := len(l.doc.Pages)
 	for _, page := range l.doc.Pages {
 		contentLeft := page.Margin[3]

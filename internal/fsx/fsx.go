@@ -19,7 +19,10 @@ var ErrTooLarge = errors.New("file is larger than the size limit")
 // Root is a directory that file paths must stay inside. A zero Root reads
 // paths directly and enforces no boundary.
 type Root struct {
-	dir    string
+	dir string
+	// absDir is the configured directory before symlinks are resolved. It is
+	// used only to judge a path that does not exist, which has no resolved form.
+	absDir string
 	handle *os.Root
 }
 
@@ -41,7 +44,7 @@ func Open(dir string) (*Root, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening root %q: %w", dir, err)
 	}
-	return &Root{dir: real, handle: handle}, nil
+	return &Root{dir: real, absDir: abs, handle: handle}, nil
 }
 
 // Close releases the root handle.
@@ -107,6 +110,11 @@ func readLimited(f *os.File, limit int) ([]byte, error) {
 	return data, nil
 }
 
+// escapes reports whether rel leaves the directory it was computed against.
+func escapes(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // open resolves path against the root and opens it, applying the containment
 // rules of Read.
 func (r *Root) open(path string) (*os.File, error) {
@@ -119,10 +127,17 @@ func (r *Root) open(path string) (*os.File, error) {
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
+		// A path that does not exist has no resolved form, so containment is
+		// judged on the clean absolute path. A traversal above the root is then
+		// an escape rather than a missing file, which is the diagnostic the
+		// callers report for it.
+		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
+			return nil, ErrOutsideRoot
+		}
 		return nil, err
 	}
 	rel, err := filepath.Rel(r.dir, real)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if err != nil || escapes(rel) {
 		return nil, ErrOutsideRoot
 	}
 	f, err := r.handle.Open(rel)

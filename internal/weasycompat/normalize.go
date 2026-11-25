@@ -10,7 +10,7 @@
 package weasycompat
 
 import (
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -98,7 +98,7 @@ func countDiff(want, got map[string]int) (missing, extra []string) {
 	for tok := range seen {
 		all = append(all, tok)
 	}
-	sort.Strings(all)
+	slices.Sort(all)
 	for _, tok := range all {
 		switch {
 		case got[tok] < want[tok]:

@@ -1,6 +1,7 @@
 package text
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"testing"
@@ -58,8 +59,19 @@ func TestNormalize(t *testing.T) {
 		"a\u0328": "ą",
 		// Two marks compose in two steps: a + breve -> ă, ă + acute -> ắ.
 		"a\u0306\u0301": "ắ",
+		// Canonical decomposition runs before composition, so a precomposed
+		// letter followed by a mark can compose with the better-fitting mark:
+		// ḋ decomposes to d + dot above, the dot below is ordered first, and
+		// d + dot below composes to ḍ.
+		"\u1E0B\u0323": "\u1E0D\u0307",
 		// Marks that Unicode cannot compose stay as they are.
 		"о\u0301": "о\u0301",
+		// A character outside the BMP: a compatibility ideograph has a
+		// canonical decomposition, so NFC replaces it with the unified one.
+		"\U0002F800": "丽",
+		// A non-BMP letter followed by a mark has no precomposed form; both
+		// code points are kept.
+		"\U0001D400\u0301": "\U0001D400\u0301",
 		// Hangul jamo compose algorithmically.
 		"\u1100\u1161":       "가",
 		"\u1100\u1161\u11A8": "각",
@@ -187,6 +199,11 @@ func TestShapeMissingGlyph(t *testing.T) {
 	}
 	if _, ok := err.(*MissingGlyphError); !ok {
 		t.Fatalf("error type = %T, want *MissingGlyphError", err)
+	}
+	// The whole code point is named, not its low four hex digits.
+	want := fmt.Sprintf("no glyph for '😀' (U+1F600) in font %q", f.Family())
+	if got := err.Error(); got != want {
+		t.Fatalf("message = %q, want %q", got, want)
 	}
 }
 

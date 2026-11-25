@@ -4,7 +4,7 @@ package profile
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/css"
@@ -329,8 +329,7 @@ func Elements() []string { return css.ElementOrder() }
 
 // Properties returns the supported property names in profile order.
 func Properties() []string {
-	out := make([]string, len(css.PropOrder))
-	copy(out, css.PropOrder)
-	sort.Strings(out)
+	out := slices.Clone(css.PropOrder)
+	slices.Sort(out)
 	return out
 }

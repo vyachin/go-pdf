@@ -9,7 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -99,7 +99,7 @@ func (m *Manifest) caseDirs() []string {
 		seen[c.Dir] = true
 		dirs = append(dirs, c.Dir)
 	}
-	sort.Strings(dirs)
+	slices.Sort(dirs)
 	return dirs
 }
 
@@ -127,7 +127,7 @@ func (m *Manifest) scanFiles(dir string) ([]string, error) {
 			return nil, fmt.Errorf("walking %s: %w", caseDir, err)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, nil
 }
 
@@ -275,7 +275,7 @@ func (m *Manifest) VerifyProvenance(dir string) error {
 		}
 	}
 	if len(problems) > 0 {
-		sort.Strings(problems)
+		slices.Sort(problems)
 		return fmt.Errorf("corpus provenance check failed:\n%s", strings.Join(problems, "\n"))
 	}
 	return nil

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -111,7 +111,7 @@ func checkStaleGoldens(dir string, m *Manifest) error {
 		}
 	}
 	if len(stale) > 0 {
-		sort.Strings(stale)
+		slices.Sort(stale)
 		return fmt.Errorf("golden files without a case: %s; delete them or add the case to samples.json", strings.Join(stale, ", "))
 	}
 	return nil

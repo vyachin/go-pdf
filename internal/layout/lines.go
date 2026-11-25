@@ -231,8 +231,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		}
 		item := LineItem{Kind: SpaceItem, Face: face, Run: run, Color: style.Color, Style: style, W: run.Width, H: style.LineHeightMP()}
 		cur.Items = append(cur.Items, item)
-		cur.Height = max32(cur.Height, item.H)
-		cur.Ascent = max32(cur.Ascent, face.Ascent)
+		cur.Height = max(cur.Height, item.H)
+		cur.Ascent = max(cur.Ascent, face.Ascent)
 		x += run.Width
 	}
 
@@ -283,8 +283,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			attachAnchors()
 			item := LineItem{Kind: ImageItem, Image: p.image, W: w, H: h, Style: p.style}
 			cur.Items = append(cur.Items, item)
-			cur.Height = max32(cur.Height, h)
-			cur.Ascent = max32(cur.Ascent, h)
+			cur.Height = max(cur.Height, h)
+			cur.Ascent = max(cur.Ascent, h)
 			x += w
 		case wordPiece:
 			face, err := l.face(p.style)
@@ -318,8 +318,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			ensureIndent()
 			item := LineItem{Kind: TextItem, Face: face, Run: run, Color: p.style.Color, Style: p.style, W: run.Width}
 			cur.Items = append(cur.Items, item)
-			cur.Height = max32(cur.Height, p.style.LineHeightMP())
-			cur.Ascent = max32(cur.Ascent, face.Ascent)
+			cur.Height = max(cur.Height, p.style.LineHeightMP())
+			cur.Ascent = max(cur.Ascent, face.Ascent)
 			x += run.Width
 			// A following word can wrap after a space, a forced break or a
 			// hyphen that already ends this word.
@@ -389,11 +389,4 @@ func imageSize(style *css.Style, img *ImageData, containerWidth int32, ctx Conte
 		w = int32(int64(h) * int64(img.Width) / int64(img.Height))
 	}
 	return w, h
-}
-
-func max32(a, b int32) int32 {
-	if a > b {
-		return a
-	}
-	return b
 }

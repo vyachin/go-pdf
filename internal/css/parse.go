@@ -2,7 +2,7 @@ package css
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -134,7 +134,9 @@ func (s *Stylesheet) Position(offset int) Position {
 	if offset > len(s.src) {
 		offset = len(s.src)
 	}
-	i := sort.Search(len(s.lines), func(i int) bool { return s.lines[i] > offset }) - 1
+	// The largest line start that is not after the offset.
+	i, _ := slices.BinarySearch(s.lines, offset+1)
+	i--
 	if i < 0 {
 		i = 0
 	}

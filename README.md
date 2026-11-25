@@ -9,10 +9,13 @@ template must reproduce the same file today and in a year.
 import "github.com/vyachin/go-pdf/pdfgen"
 ```
 
-Go 1.26 or newer. The package needs the standard library and one module,
-`golang.org/x/net`, whose `html` package builds the document tree. Dependencies
-stay inside that allowlist: the standard library, or a module the Go team
-maintains and pins in `go.sum`.
+Go 1.26 or newer. The package needs the standard library and modules the Go
+team maintains: `golang.org/x/net` builds the document tree and
+`golang.org/x/text` normalizes text. Where the Go project provides a facility
+the engine needs, the engine uses it, and a private implementation remains only
+where no such module covers the need — [CONTRIBUTING.md](CONTRIBUTING.md) lists
+the exceptions and why they stand. Dependencies stay inside that allowlist: the
+standard library, or a module the Go team maintains and pins in `go.sum`.
 
 ## Install
 

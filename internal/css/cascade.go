@@ -1,7 +1,8 @@
 package css
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/vyachin/go-pdf/internal/html"
 )
@@ -142,34 +143,37 @@ func (c *Cascade) cascadeEntries(n *html.Node) []styleEntry {
 			entries = append(entries, styleEntry{decl: d, spec: [3]int{1 << 20, 0, 0}, ord: 1 << 30, origin: originAuthor})
 		}
 	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		a, b := entries[i], entries[j]
+	slices.SortStableFunc(entries, func(a, b styleEntry) int {
 		// Normal declarations first, !important ones last.
 		if a.decl.Important != b.decl.Important {
-			return !a.decl.Important
+			if a.decl.Important {
+				return 1
+			}
+			return -1
 		}
 		if a.origin != b.origin {
 			if !a.decl.Important {
 				// Normal declarations: user agent first, author last.
-				return a.origin < b.origin
+				return cmp.Compare(a.origin, b.origin)
 			}
 			// Important declarations: author first, user agent last, which
 			// makes a user-agent !important rule win, as CSS requires.
-			return a.origin > b.origin
+			return cmp.Compare(b.origin, a.origin)
 		}
 		if a.spec != b.spec {
-			return lessSpec(a.spec, b.spec)
+			return compareSpec(a.spec, b.spec)
 		}
-		return a.ord < b.ord
+		return cmp.Compare(a.ord, b.ord)
 	})
 	return entries
 }
 
-func lessSpec(a, b [3]int) bool {
-	for i := 0; i < 3; i++ {
-		if a[i] != b[i] {
-			return a[i] < b[i]
+// compareSpec orders two specificities component by component.
+func compareSpec(a, b [3]int) int {
+	for i := range a {
+		if c := cmp.Compare(a[i], b[i]); c != 0 {
+			return c
 		}
 	}
-	return false
+	return 0
 }

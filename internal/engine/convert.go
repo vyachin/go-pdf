@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"maps"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/backend/raster"
@@ -200,7 +201,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 			break
 		}
 		next := referencedTargets(doc, pages)
-		if sameTargets(next, targets) {
+		if maps.Equal(next, targets) {
 			targets = next
 			break
 		}
@@ -434,18 +435,6 @@ func referencedTargets(doc *html.Document, pages *layout.Document) map[string]in
 	}
 	walk(doc.Root)
 	return out
-}
-
-func sameTargets(a, b map[string]int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 func documentTitle(doc *html.Document, opts Options) string {
