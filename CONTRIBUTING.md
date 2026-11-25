@@ -181,11 +181,15 @@ than a refresh: the `ubuntu-24.04` runner and its poppler, which determine the
 golden rasters; `pdfcpu`, whose version must stay buildable by the Go minimum in
 `go.mod`; the pinned `golangci-lint` version; and the `go` directive itself.
 
-Action references are kept current by Dependabot, configured in
-`.github/dependabot.yml`: one pull request for minor and patch bumps and a
-separate one for a major, checked weekly. Nothing merges automatically — a
-dependency pull request goes through the same review and the same required
-checks as any other change.
+Action references and Go module requirements are kept current by Dependabot,
+configured in `.github/dependabot.yml`: weekly, with a cooldown before a fresh
+release is proposed. Action minor and patch bumps travel together, while a
+major is alone; module patch updates are grouped, but a module minor or major
+arrives alone, because a module below v1 may change its API. No update touches
+the `go` directive or adds and removes module requirements — a release under a
+new module path is a human change. Nothing merges automatically: a dependency
+pull request goes through the same review and the same required checks as any
+other change.
 
 ## Releasing
 
