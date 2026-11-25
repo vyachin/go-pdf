@@ -363,8 +363,12 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("<!-- unterminated"))
 	f.Add([]byte("<p class=\"a\" id='b'>x &amp; y</p>"))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if _, err := Parse(b, "fuzz.html"); err != nil {
-			t.Fatalf("Parse returned an error: %v", err)
+		// Arbitrary bytes end in a document or in the one documented rejection:
+		// input that stops inside a tag. Anything else is a defect.
+		_, err := Parse(b, "fuzz.html")
+		var truncated *TruncatedError
+		if err != nil && !errors.As(err, &truncated) {
+			t.Fatalf("Parse returned an unexpected error: %v", err)
 		}
 	})
 }
