@@ -79,8 +79,14 @@ go doc github.com/vyachin/go-pdf/pdfgen
 
 ## Guarantees
 
-- **Deterministic.** The same document and the same options produce a
-  byte-identical PDF. `Options.Date` defaults to a fixed constant, not the clock.
+- **Deterministic.** The same engine build, the same HTML bytes, the same
+  options and the same resolved asset bytes — linked stylesheets, images and the
+  selected font bytes — produce a byte-identical PDF. `Options.Date` defaults to
+  a fixed constant, not the clock, and the document identifier is a hash of the
+  content, so two runs agree at any wall-clock time. Every input has to be held
+  still: an asset edited in place is a changed input, and system-font fallback
+  picks different bytes on different machines, so ship the font and keep the
+  resources immutable — see [fonts and resources](docs/fonts.md).
 - **Nothing is written.** `Convert` and `Validate` create, modify and delete no
   files; they read the assets the document references and return the PDF to the
   caller, who decides where it goes.
