@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   unit:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -87,7 +87,7 @@ jobs:
           go build ./...
 
   race:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -107,9 +107,10 @@ jobs:
         run: go test -race ./...
 
   golden:
-    # Pinned: the render goldens are produced with the poppler of this release.
-    # An image bump must be a deliberate commit that regenerates them.
-    runs-on: ubuntu-24.04
+    # The render goldens are produced with the poppler of this image. The
+    # ubuntu-latest label moves, so when it does, regenerate the goldens in the
+    # same change.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -156,7 +157,7 @@ jobs:
           if-no-files-found: ignore
 
   fuzz:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -208,7 +209,7 @@ jobs:
     # as a failure, so a suite that never ran cannot pass.
     needs: [unit, race, golden, fuzz, lint]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every job succeeded
