@@ -226,6 +226,16 @@ func adversarialCases() []adversarialCase {
 			},
 		},
 		{
+			ID:      "P2-long-list",
+			Fixture: "p2-long-list.html",
+			// Indexing a list is linear and charged: a small budget stops it
+			// instead of the quadratic prefix scan the review measured.
+			Want: "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{File: "long-list.html", Limits: Limits{MaxOperations: 500}}
+			},
+		},
+		{
 			ID:      "P2-image-placements",
 			Fixture: "p2-image-placements.html",
 			// The same image placed four hundred times is hashed and embedded
