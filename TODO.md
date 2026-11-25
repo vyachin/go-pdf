@@ -1,6 +1,35 @@
 # TODO from the code review
 
-There are no open tasks. Below are summaries of the review passes; the detailed items, reproductions and edit history were removed from this file and remain in git.
+Open work is tracked as OpenSpec changes under `openspec/changes/`; this file records
+the review passes and the permanent fixtures they left behind. The adversarial corpus
+lives in `testdata/adversarial/` and is registered in
+`internal/engine/adversarial_test.go`. It runs in the unit and race jobs, and its
+manifest test fails when a listed fixture is missing or an HTML fixture is not
+registered.
+
+## Third pass — November 25, 2026
+
+Reviewed the parser, CSS, font, image, layout and pagination limits and rechecked the
+P1/P2 findings of the earlier passes. Every confirmed hostile case now has a permanent
+fixture with a bounded outcome — a diagnostic code, one embedded object or a page
+count — and none asserts elapsed time.
+
+| Finding | Fixture | Expected outcome |
+|---|---|---|
+| P1 nested `@media` | `p1-nested-media.html` | `resource/limit`, also in a subprocess |
+| P1 adjacent selector | `p1-adjacent-selector.html` | converts; the second paragraph is red |
+| P1 many-spelling image | `p1-many-spellings.html` | one image object under `MaxOperations: 5000` |
+| P1 crafted GPOS | `p1-crafted-gpos.html`, `gpos-bomb.ttf` | `resource/limit` under `MaxOperations: 250` |
+| P2 wide image | `p2-wide-image.html`, `wide.png` | converts; no negative image scale |
+| P2 DOM depth | `p2-dom-depth.html` | `resource/limit` at `MaxDOMDepth: 8` |
+| P2 rules × elements | `p2-rules-elements.html` | `resource/limit` at `MaxOperations: 2000` |
+| P2 repeated data URI | `p2-repeated-data-uri.html` | one image object |
+| P2 page breaks | `p2-page-breaks.html` | two pages |
+| P2 table grid | `p2-table-grid.html` | `resource/limit` at `MaxTableCells: 4` |
+
+The reproductions that failed before each fix are recorded in the corresponding archived
+changes under `openspec/changes/archive/2026-11-25-*`; the corpus itself was added by
+`add-adversarial-regression-suite`.
 
 ## Second pass — November 24, 2026
 
