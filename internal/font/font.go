@@ -35,8 +35,79 @@ func (f *Font) Family() string    { return f.family }
 func (f *Font) Subfamily() string { return f.subfamily }
 func (f *Font) BBox() [4]int16    { return f.bbox }
 
+// ErrLimit reports a font whose conversion exceeds one of the documented
+// bounds. The engine turns it into a resource/limit diagnostic, so a dense
+// outline stops the conversion instead of allocating without bound.
+var ErrLimit = fmt.Errorf("font: conversion limit exceeded")
+
+// Load reads a font from a file's bytes and returns it ready for layout. A
+// TrueType font is parsed directly; an OpenType font with CFF outlines is
+// converted to TrueType in memory first, so that the rest of the engine — the
+// subsetter, the CIDs and the PDF writer — sees the one format it embeds.
+//
+// WOFF, WOFF2, CFF2, variable fonts and font collections are refused with a
+// diagnostic naming the format: each needs a decoder the engine does not carry.
+func Load(data []byte) (*Font, error) {
+	if len(data) < 12 {
+		return nil, fmt.Errorf("font: file is too short")
+	}
+	version := binary.BigEndian.Uint32(data[0:4])
+	switch version {
+	case 0x00010000, 0x74727565, 0x4F54544F: // 1.0, 'true', 'OTTO'
+	case 0x774F4646: // 'wOFF'
+		return nil, fmt.Errorf("font: WOFF web fonts are not supported, use the original TrueType or OpenType file")
+	case 0x774F4632: // 'wOF2'
+		return nil, fmt.Errorf("font: WOFF2 web fonts are not supported, use the original TrueType or OpenType file")
+	case 0x74746366: // 'ttcf'
+		return nil, fmt.Errorf("font: font collections are not supported, name a single font file")
+	default:
+		return nil, fmt.Errorf("font: unknown sfnt version %#x", version)
+	}
+	tables, err := tableDirectory(data)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := tables["fvar"]; ok {
+		return nil, fmt.Errorf("font: variable fonts are not supported, use a static instance")
+	}
+	if _, ok := tables["CFF2"]; ok {
+		return nil, fmt.Errorf("font: CFF2 outlines are not supported, use a CFF or TrueType font")
+	}
+	if version != 0x4F54544F {
+		return Parse(data)
+	}
+	converted, err := convertCFF(data, tables)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(converted)
+}
+
+// tableDirectory returns the tables of one sfnt, keyed by tag.
+func tableDirectory(data []byte) (map[string][]byte, error) {
+	if len(data) < 12 {
+		return nil, fmt.Errorf("font: file is too short")
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	if len(data) < 12+numTables*16 {
+		return nil, fmt.Errorf("font: truncated table directory")
+	}
+	tables := make(map[string][]byte, numTables)
+	for i := 0; i < numTables; i++ {
+		rec := data[12+i*16 : 12+i*16+16]
+		tag := string(rec[0:4])
+		offset := int64(binary.BigEndian.Uint32(rec[8:12]))
+		length := int64(binary.BigEndian.Uint32(rec[12:16]))
+		if offset+length > int64(len(data)) {
+			return nil, fmt.Errorf("font: table %q is out of bounds", tag)
+		}
+		tables[tag] = data[offset : offset+length]
+	}
+	return tables, nil
+}
+
 // Parse reads a TrueType font. CFF based OpenType fonts are rejected because
-// their outlines need a separate interpreter.
+// their outlines need a separate reader; Load converts them first.
 func Parse(data []byte) (*Font, error) {
 	if len(data) < 12 {
 		return nil, fmt.Errorf("font: file is too short")
@@ -49,21 +120,11 @@ func Parse(data []byte) (*Font, error) {
 	default:
 		return nil, fmt.Errorf("font: unknown sfnt version %#x", version)
 	}
-	numTables := int(binary.BigEndian.Uint16(data[4:6]))
-	if len(data) < 12+numTables*16 {
-		return nil, fmt.Errorf("font: truncated table directory")
+	tables, err := tableDirectory(data)
+	if err != nil {
+		return nil, err
 	}
-	f := &Font{data: data, tables: map[string][]byte{}}
-	for i := 0; i < numTables; i++ {
-		rec := data[12+i*16 : 12+i*16+16]
-		tag := string(rec[0:4])
-		offset := int(binary.BigEndian.Uint32(rec[8:12]))
-		length := int(binary.BigEndian.Uint32(rec[12:16]))
-		if offset < 0 || length < 0 || offset+length > len(data) {
-			return nil, fmt.Errorf("font: table %q is out of bounds", tag)
-		}
-		f.tables[tag] = data[offset : offset+length]
-	}
+	f := &Font{data: data, tables: tables}
 
 	head, ok := f.tables["head"]
 	if !ok || len(head) < 54 {

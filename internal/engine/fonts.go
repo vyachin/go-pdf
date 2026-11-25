@@ -114,9 +114,9 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
 				return nil, err
 			}
-			f, err = font.Parse(data)
+			f, err = font.Load(data)
 			if err != nil {
-				return nil, fmt.Errorf("loading font %q: %w", src, err)
+				return nil, loadFontError(src, err)
 			}
 			parsed[path] = f
 		}
@@ -141,13 +141,27 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		if err := guard.Add(uint64(len(data))/1024 + 1); err != nil {
 			return nil, err
 		}
-		f, err := font.Parse(data)
+		f, err := font.Load(data)
 		if err != nil {
+			if errors.Is(err, font.ErrLimit) {
+				return nil, fmt.Errorf("%w: fallback font %q: %v", budget.ErrExceeded, opts.FallbackFont, err)
+			}
 			return nil, fmt.Errorf("loading fallback font: %w", err)
 		}
 		r.fallback = f
 	}
 	return r, nil
+}
+
+// loadFontError reports why a font file was refused. A conversion that exceeds
+// a documented bound is a resource/limit diagnostic, the same as an oversized
+// file, and names the font; anything else is an unavailable font, with the
+// parser's own explanation of the format or the damage.
+func loadFontError(src string, err error) error {
+	if errors.Is(err, font.ErrLimit) {
+		return fmt.Errorf("%w: font %q: %v", budget.ErrExceeded, src, err)
+	}
+	return fmt.Errorf("loading font %q: %w", src, err)
 }
 
 // Face implements layout.FontSet.
@@ -340,7 +354,7 @@ func loadFontFile(path string, maxBytes int) *font.Font {
 	if err != nil {
 		return nil
 	}
-	f, err := font.Parse(data)
+	f, err := font.Load(data)
 	if err != nil {
 		return nil
 	}

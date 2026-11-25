@@ -67,13 +67,19 @@ func (f *Font) Subset(used map[uint16]bool) ([]byte, error) {
 		}
 	}
 
+	return assembleFont(tables)
+}
+
+// assembleFont writes the tables as one sfnt and fills in the head table's
+// checkSumAdjustment.
+func assembleFont(tables []outTable) ([]byte, error) {
 	out, headOffset, err := buildSFNT(tables)
 	if err != nil {
 		return nil, err
 	}
 	// checksumAdjustment is computed over the whole file with the field zeroed.
 	sum := checksum(out)
-	adjustment := 0xB1B0AFBA - sum
+	adjustment := uint32(0xB1B0AFBA) - sum
 	// The spec keeps the head directory checksum computed with the adjustment
 	// field zeroed; refreshing it here would change the sum again and leave
 	// the font structurally invalid.

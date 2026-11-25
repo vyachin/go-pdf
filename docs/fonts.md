@@ -15,7 +15,7 @@ For an integrator this means: the service that embeds the engine decides for its
 ## Family resolution order
 
 1. `@font-face` in the document — an exact family match, then the closest by weight and slant.
-2. `Options.FallbackFont` — a path to a TrueType file, used for any family that is not declared.
+2. `Options.FallbackFont` — a path to a TrueType or OpenType/CFF file, used for any family that is not declared.
 3. System fonts from `DefaultFallbackFonts` — the first available family, together with the conventional bold and italic files next to its regular face (`Arial Bold.ttf`, `DejaVuSans-Bold.ttf`, `LiberationSerif-Bold.ttf`). This is a convenience for development, not for production: the set of system fonts is not controlled.
 4. The `font/unavailable` error — if nothing is found.
 
@@ -23,9 +23,47 @@ The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@f
 
 ## File requirements
 
-- **TrueType** only (`.ttf`). CFF/OpenType, WOFF and WOFF2 are rejected during validation: their outlines require a separate interpreter.
+- **TrueType** (`.ttf`) and **OpenType with CFF outlines** (`.otf`) are accepted, from a local file only. WOFF and WOFF2 are rejected with a diagnostic naming the format, because they are compressed containers the engine does not decode; CFF2, variable fonts and font collections are rejected for the same reason.
 - Cyrillic is mandatory: a character without a glyph is the error `text/glyph`, not a silent replacement.
 - `@font-face` accepts only a local `url(...)`; `format()` and remote URLs are rejected.
+
+### OpenType with CFF outlines
+
+An `.otf` whose outlines are PostScript (CFF) is converted to TrueType in memory
+before layout. The glyph numbering and the tables that depend on it — `cmap`,
+`GPOS`, `hmtx`, `head`, `hhea`, `name`, `OS/2` and `post` — are kept, and `glyf`,
+`loca` and `maxp` are synthesized. Shaping, subsetting, `CIDFontType2` /
+`FontFile2` embedding and the copyable text layer then take the same path as a
+TrueType font, so the PDF object structure does not change and an existing
+template converts to the same bytes as before.
+
+The engine reads the `CFF ` table and its Type 2 charstrings itself. It does not
+depend on an external decoder at run time: `golang.org/x/image`, the decoder the
+tests compare against, stays a test-only requirement.
+
+The conversion is an approximation, and these numbers are the promise:
+
+| Quantity | Value | Meaning |
+|---|---|---|
+| Fit tolerance | 16 fixed-point units, i.e. one quarter of a font unit (0.00025 em at 1000 units per em) | every quadratic fitted to a source cubic stays within this distance of it |
+| Stored outline | one font unit (0.001 em) | `glyf` stores whole units, so a stored point is the fitted point rounded; the stored outline stays within one unit of the source curve |
+| Point cap | 8192 points per glyph | a glyph that would need more fails with `resource/limit` naming the glyph |
+| Converted size | four times the input, and never above 64 MiB | a `glyf` denser than that fails with `resource/limit` naming the glyph that crossed the bound |
+
+The conversion is integer-only, with no floating point in the result, so the same
+font bytes produce the same glyph data and the same PDF on every platform.
+
+Two limitations are deliberate. A glyph that uses the deprecated Type 1 `seac`
+accent composition is refused with a diagnostic rather than drawn without its
+accent, and a glyph whose charstring uses an operator outside the Type 2 set is
+refused the same way; the `flex`, `hflex`, `flex1` and `hflex1` operators, the
+curve and line families, subroutines and the arithmetic operators are all
+implemented. The `fsType` flag of the `OS/2` table is not consulted, exactly as it
+is not consulted for TrueType: the engine does not know the licence the document
+author holds, so check the font's licence before shipping a template.
+
+Subsetting a converted font uses the existing TrueType path and keeps the glyph
+numbering, so the embedded program carries only the outlines the document uses.
 
 ## Recommended set for Russian documents
 
@@ -42,7 +80,8 @@ The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@f
 // FontDir is the directory relative to which @font-face paths resolve.
 opts := pdfgen.Options{FontDir: "fonts"}
 
-// Validate checks that the document references only local TrueType fonts.
+// Validate checks that the document references only local TrueType or
+// OpenType/CFF fonts.
 diags, err := pdfgen.Validate(ctx, src, opts)
 
 // Convert renders with the same resolution rules.

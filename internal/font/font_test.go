@@ -245,7 +245,20 @@ func FuzzParse(f *testing.F) {
 	if mutated := replaceTableBytes(base, "cmap", cmap12Test([3]uint32{'A', 'A', 70000})); mutated != nil {
 		f.Add(mutated)
 	}
+	// An OpenType font with a CFF table, and the same font truncated, keep the
+	// fuzzer on the conversion path as well as the TrueType parser.
+	otf := testCFFFont([]byte{139, 139, 21, 139, 139, 8, 139, 139, 14})
+	f.Add(otf)
+	f.Add(otf[:len(otf)-1])
+	// A CID-keyed font selects a font dict per glyph, so its own reader path
+	// needs a seed too.
+	f.Add(testCIDCFFFont())
 	f.Fuzz(func(t *testing.T, b []byte) {
+		if fnt, err := Load(b); err == nil && fnt != nil {
+			if gid, ok := fnt.GlyphIndex('A'); ok {
+				_, _ = fnt.GlyphPath(gid)
+			}
+		}
 		fnt, err := Parse(b)
 		if err != nil || fnt == nil {
 			return

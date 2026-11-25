@@ -98,8 +98,8 @@ Every guarantee above is enforced by a test in the package.
 
 A closed profile rather than a browser: blocks, inline text, lists, tables with
 fixed layout, `@page` with margin boxes and page counters, `@font-face` with
-TrueType fonts, images, and page breaks that respect `orphans`/`widows` and
-repeated table headers. The profile has no flexbox, grid, float, absolute
+TrueType and OpenType/CFF fonts, images, and page breaks that respect
+`orphans`/`widows` and repeated table headers. The profile has no flexbox, grid, float, absolute
 positioning or JavaScript; a browser-oriented template can be lowered to it
 first.
 

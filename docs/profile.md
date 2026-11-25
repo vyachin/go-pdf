@@ -126,7 +126,7 @@ Inside `a::after` only the `content` property is allowed, with strings, `counter
 
 @font-face {
   font-family: "PT Serif";
-  src: url(fonts/pt-serif.ttf);  /* local TrueType only */
+  src: url(fonts/pt-serif.ttf);  /* local TrueType or OpenType/CFF */
 }
 
 /* External stylesheet: a local file only */
@@ -149,7 +149,7 @@ Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-cent
 | `background-position`, `background-repeat`, `background-size: contain/auto/lengths` | the cover model is one scaling rule with a centered crop; a positioning grammar is a larger surface for a case no document needs yet |
 | `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |
 | JavaScript | the engine is static; the document is not executed |
-| CFF/OTF and web fonts by URL | see `docs/fonts.md` |
+| web fonts (WOFF, WOFF2) and fonts by URL | see `docs/fonts.md` |
 | external CSS by URL | the engine does not access the network; `<link>` accepts only a local file |
 | `table-layout: auto` | the cost of the automatic table layout algorithm outweighs its benefit |
 | `size: 210mm 297mm landscape` | the CSS grammar does not allow an orientation combined with lengths |
