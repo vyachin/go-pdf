@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Browser import.** The opt-in compatibility layer and its
+  `Options.ImportBrowser` field are removed from the `pdfgen` package and the
+  reference command. A template that relied on lowering (flex columns, absolute
+  cover images, border-box sizing, `rem`/`vw` units, custom properties, screen
+  media rules, cosmetic-property removal) is now rejected by the closed profile
+  with ordinary diagnostics and no PDF. Callers must remove the field from their
+  option literals and rewrite the template within the documented profile; the
+  browser-oriented certificate remains in the test corpus as a rejection fixture.
+
 ### Added
 
 - **Aggregate asset limits.** `Limits` gains `MaxTotalImageBytes` (64 MiB),

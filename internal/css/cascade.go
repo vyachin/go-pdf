@@ -107,22 +107,6 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 	return st
 }
 
-// Declarations returns the winning declaration of every property that applies
-// to n, including properties outside the profile. It is the raw cascade view
-// used by the browser importer: unlike Compute it does not apply or validate
-// the declarations, and it does not resolve inheritance. Pseudo-element
-// declarations are skipped.
-func (c *Cascade) Declarations(n *html.Node) map[string]Declaration {
-	out := map[string]Declaration{}
-	for _, e := range c.cascadeEntries(n) {
-		if e.pseudo {
-			continue
-		}
-		out[e.decl.Property] = e.decl
-	}
-	return out
-}
-
 // cascadeEntries collects and orders every declaration that participates in
 // the cascade of n.
 func (c *Cascade) cascadeEntries(n *html.Node) []styleEntry {

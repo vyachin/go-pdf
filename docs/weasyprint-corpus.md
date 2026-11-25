@@ -101,12 +101,12 @@ changes:
 
 | Case | Reference pages | Tokens | First blocker | What blocks it |
 |---|---|---|---|---|
-| `invoice` | 1 | 76 | `browser/unsupported-flex` | a flex row; the browser layer lowers only flex columns |
+| `invoice` | 1 | 76 | `html/unsupported-element` | `<aside>` is outside the profile; a flex row would be the next rejection |
 | `letter` | 1 | 95 | `html/unsupported-element` | `<header>`, then a web form |
 | `poster` | 1 | 90 | `html/unsupported-element` | sectioning elements (`<section>`, `<article>`) |
 | `flyer` | 1 | 62 | `html/unsupported-element` | the same document as `poster` |
-| `ticket` | 1 | 34 | `browser/unsupported-flex` | a flex row |
-| `report` | 8 | 820 | `browser/unsupported-flex` | a flex row, then columns, floats and named pages |
+| `ticket` | 1 | 34 | `html/unsupported-element` | `<section>` is outside the profile; a flex row would be the next rejection |
+| `report` | 8 | 820 | `html/unsupported-element` | `<article>` is outside the profile; flex, columns, floats and named pages follow |
 
 A green run therefore means "each case is in the state the manifest claims", not
 "the samples render". Making a sample convert is feature work in a separate

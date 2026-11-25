@@ -12,7 +12,7 @@
       "html": "invoice.html",
       "stylesheet": "",
       "state": "blocked",
-      "blocked_by": "browser/unsupported-flex"
+      "blocked_by": "html/unsupported-element"
     },
     {
       "name": "letter",
@@ -44,7 +44,7 @@
       "html": "ticket.html",
       "stylesheet": "",
       "state": "blocked",
-      "blocked_by": "browser/unsupported-flex"
+      "blocked_by": "html/unsupported-element"
     },
     {
       "name": "report",
@@ -52,7 +52,7 @@
       "html": "report.html",
       "stylesheet": "",
       "state": "blocked",
-      "blocked_by": "browser/unsupported-flex"
+      "blocked_by": "html/unsupported-element"
     }
   ],
   "files": [

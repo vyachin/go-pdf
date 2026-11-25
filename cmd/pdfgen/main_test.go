@@ -207,27 +207,28 @@ func TestAssetsResolveAgainstInputDir(t *testing.T) {
 	}
 }
 
-func TestBrowserTemplateConverts(t *testing.T) {
-	requireFont(t)
+func TestBrowserCertificateIsRejectedByCLI(t *testing.T) {
 	src := filepath.Join("..", "..", "testdata", "browser", "certificate.html")
 	if _, err := os.Stat(src); err != nil {
 		t.Fatalf("browser fixture is missing: %v", err)
 	}
 	out := filepath.Join(t.TempDir(), "certificate.pdf")
+	if err := os.WriteFile(out, []byte("previous"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	code, stdout, stderr := runCLI(t, "-o", out, src)
-	if code != exitOK {
-		t.Fatalf("convert of a browser document = %d, want 0\nstdout: %s\nstderr: %s", code, stdout, stderr)
+	if code != exitFailure {
+		t.Fatalf("convert of the browser certificate = %d, want %d\nstdout: %s\nstderr: %s", code, exitFailure, stdout, stderr)
 	}
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("the PDF was not written: %v", err)
+	if !strings.Contains(stderr, "error[") {
+		t.Fatalf("stderr carries no profile diagnostics:\n%s", stderr)
 	}
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Fatalf("output is not a PDF: %q", data[:min(8, len(data))])
+	if strings.Contains(stderr, "error[browser/") || strings.Contains(stderr, "warning[browser/") {
+		t.Fatalf("stderr carries a removed browser code:\n%s", stderr)
 	}
-	if !strings.Contains(stderr, "browser/flex") || !strings.Contains(stderr, "browser/background") {
-		t.Fatalf("stderr does not report the lowering:\n%s", stderr)
+	if data, err := os.ReadFile(out); err != nil || string(data) != "previous" {
+		t.Fatalf("the existing output was changed: %q, %v", data, err)
 	}
 }
 
