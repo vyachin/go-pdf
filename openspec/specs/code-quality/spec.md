@@ -573,3 +573,30 @@ or guard against its return.
 - **WHEN** the face lookup or the line measurement is fixed
 - **THEN** the benchmark reports fewer allocations or less time
 - **AND** the regression is visible in `go test -bench`
+
+### Requirement: Pushed history is never rewritten
+
+A contributor MUST NOT rewrite history that has already been pushed: `git push
+--force` and `git push --force-with-lease` are forbidden on every branch,
+including a personal feature branch and the branch of an open pull request. A
+correction is a new commit on top of the branch, and an unwanted commit is undone
+with `git revert`, never erased. A released tag MUST NOT be moved, deleted or
+force-pushed, and branch protection MUST reject a force push to `main`.
+
+#### Scenario: A wrong commit on an open pull request
+
+- **WHEN** a commit on a branch that is already pushed is wrong
+- **THEN** the correction is a new commit on top of it
+- **AND** the branch keeps the original commit instead of being rewritten
+
+#### Scenario: Undoing a pushed change
+
+- **WHEN** a pushed commit has to be undone
+- **THEN** it is reverted with a new commit
+- **AND** no force push rewrites the branch
+
+#### Scenario: A released tag
+
+- **WHEN** a tag `vX.Y.Z` has been pushed
+- **THEN** the tag stays on the commit it names
+- **AND** a fix ships as a new version, never as a moved tag

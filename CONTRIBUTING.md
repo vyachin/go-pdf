@@ -206,8 +206,15 @@ The render tests are required only in `golden`, which owns the pinned
 pay for a rasterizer. The `gate` job depends on all five and fails when any of
 them is not successful, including a skipped one.
 
-Branch protection must require the `gate` check; that is a repository setting,
-not a file in this repository.
+Branch protection must require the `gate` check and reject a force push to
+`main`; both are repository settings, not files in this repository.
+
+History is append-only. `git push --force` and `git push --force-with-lease` are
+forbidden on every branch, including your own feature branch and the branch of an
+open pull request: correct a commit with a new commit on top, and undo a pushed
+commit with `git revert`. A released tag is never moved or deleted; a fix ships as
+a new version. If a branch was rewritten by accident, restore the pushed commits
+and land the correction as a new commit.
 
 Remaining inputs stay manual because every bump of them is a decision rather
 than a refresh: the `ubuntu-24.04` runner and its poppler, which determine the
