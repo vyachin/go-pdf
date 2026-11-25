@@ -14,6 +14,7 @@ import (
 	"image/png"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -159,6 +160,23 @@ type fontEntry struct {
 	ids     []int
 }
 
+// subsetTag returns the six-letter tag a subset font is named with. It is
+// derived from the subset bytes, so the same font and the same glyph set always
+// produce the same name.
+func subsetTag(subset []byte) string {
+	sum := sha256.Sum256(subset)
+	tag := make([]byte, 6)
+	for i := range tag {
+		tag[i] = 'A' + sum[i]%26
+	}
+	return string(tag)
+}
+
+// numFloat formats a descriptor number without an exponent or a trailing zero.
+func numFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
 // pairKey combines a glyph id and a source rune into one map key.
 func pairKey(gid uint16, r rune) uint64 { return uint64(gid)<<32 | uint64(uint32(r)) }
 
@@ -219,6 +237,9 @@ func (d *Doc) Bytes() ([]byte, error) {
 		for _, op := range p.ops {
 			if op.Kind != TextOpKind || op.Text == nil {
 				continue
+			}
+			if op.Text.Font == nil {
+				return nil, fmt.Errorf("pdf: a text operation has no font")
 			}
 			fe := fontByPtr[op.Text.Font]
 			if fe == nil {
@@ -293,11 +314,14 @@ func (d *Doc) Bytes() ([]byte, error) {
 			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
 		}
 		fe.subset = subset
+		if len(fe.pairs) > 0xFFFF {
+			return nil, fmt.Errorf("%w: one font needs %d distinct glyph-rune pairs, the limit is 65535", budget.ErrExceeded, len(fe.pairs))
+		}
 		fe.buildCIDs()
 		fontID, cidID := fe.ids[0], fe.ids[1]
 		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
 		cidMapID := fe.ids[5]
-		baseName := sanitizeName(fe.font.Family(), fe.font.Subfamily())
+		baseName := subsetTag(fe.subset) + "+" + sanitizeName(fe.font.Family(), fe.font.Subfamily())
 		widths := fe.widthArray()
 		toUni := fe.toUnicodeCMap()
 
@@ -311,13 +335,14 @@ func (d *Doc) Bytes() ([]byte, error) {
 		scale := 1000 / upem
 		bbox := fe.font.BBox()
 		w.set(descID, []byte(fmt.Sprintf(
-			"<< /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [%d %d %d %d] /ItalicAngle 0 /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
+			"<< /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [%d %d %d %d] /ItalicAngle %s /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
 			baseName,
 			int32(float64(bbox[0])*scale), int32(float64(bbox[1])*scale),
 			int32(float64(bbox[2])*scale), int32(float64(bbox[3])*scale),
+			numFloat(fe.font.ItalicAngle()),
 			int32(float64(fe.font.Ascent())*scale),
 			int32(float64(fe.font.Descent())*scale),
-			int32(float64(fe.font.Ascent())*scale),
+			int32(float64(fe.font.CapHeight())*scale),
 			fileID)))
 		w.set(fileID, streamObject(fe.subset, true))
 		w.set(toUniID, streamObject(toUni, true))

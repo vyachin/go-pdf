@@ -27,6 +27,18 @@ The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@f
 - Cyrillic is mandatory: a character without a glyph is the error `text/glyph`, not a silent replacement.
 - `@font-face` accepts only a local `url(...)`; `format()` and remote URLs are rejected.
 
+### Embedded subset name and descriptor
+
+The embedded subset is named `XXXXXX+Family` in both `/BaseFont` and
+`/FontName`, where `XXXXXX` is six uppercase letters derived deterministically
+from the subset bytes. `pdffonts` therefore reports the font as a subset.
+
+`/CapHeight` is the font's `OS/2` `sCapHeight`, scaled to 1/1000 em; when the
+table does not declare it, the height of 'H' is measured. `/ItalicAngle` comes
+from the `post` table, so an oblique or italic face does not report 0. A font
+without either table keeps a safe value: the ascent for the cap height and 0
+for the angle.
+
 ### OpenType with CFF outlines
 
 An `.otf` whose outlines are PostScript (CFF) is converted to TrueType in memory

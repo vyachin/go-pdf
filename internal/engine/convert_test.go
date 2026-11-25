@@ -255,7 +255,7 @@ func TestFontFaceIsUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/BaseFont /" + strings.ReplaceAll(declared.Family(), " ", "-")
+	want := "+" + strings.ReplaceAll(declared.Family(), " ", "-")
 	if !bytes.Contains(res.PDF, []byte(want)) {
 		t.Fatalf("the declared font %q is not embedded: %q", want, res.PDF[:min(200, len(res.PDF))])
 	}

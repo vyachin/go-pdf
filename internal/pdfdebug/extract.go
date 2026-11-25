@@ -11,54 +11,147 @@ import (
 	"compress/zlib"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf16"
 )
 
-// Pages returns the extracted text of every page, in page order.
+var (
+	reKids        = regexp.MustCompile(`/Kids\s*\[([^\]]*)\]`)
+	reContentsArr = regexp.MustCompile(`/Contents\s*\[([^\]]*)\]`)
+	reContentsRef = regexp.MustCompile(`/Contents\s+(\d+)\s+0\s+R`)
+	reRef         = regexp.MustCompile(`(\d+)\s+0\s+R`)
+)
+
+// Pages returns the extracted text of every page, in page-tree order.
 func Pages(data []byte) ([]string, error) {
 	objects := splitObjects(data)
 	toUniByID := buildToUniByID(objects)
 	fontMaps := contentFontMaps(objects, toUniByID)
-	type entry struct {
-		id   int
-		text string
+	ids := pageContentIDs(objects)
+	if len(ids) == 0 {
+		// A document without a readable page tree: fall back to the content
+		// streams in object order, which is the pre-page-tree behaviour.
+		for id := range objects {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
 	}
-	var pages []entry
-	for id, obj := range objects {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		obj := objects[id]
+		if obj == nil {
+			continue
+		}
 		stream, err := decodedStream(obj.body)
 		if err != nil {
 			continue
 		}
-		if !bytes.Contains(stream, []byte("Tj")) && !bytes.Contains(stream, []byte("TJ")) {
-			continue
-		}
-		pages = append(pages, entry{id: id, text: textFromStream(stream, fontMaps[id])})
-	}
-	// The writer allocates content streams in page order.
-	sortEntries(pages, func(a, b entry) bool { return a.id < b.id })
-	out := make([]string, len(pages))
-	for i, p := range pages {
-		out[i] = p.text
+		out = append(out, textFromStream(stream, fontMaps[id]))
 	}
 	return out, nil
 }
 
-// ContentStreams returns the decoded content streams of the document. It is
-// used by tests that assert on emitted operators rather than on text.
+// ContentStreams returns the decoded content streams of the document in page
+// order. It is used by tests that assert on emitted operators rather than on
+// text.
 func ContentStreams(data []byte) [][]byte {
+	objects := splitObjects(data)
+	ids := pageContentIDs(objects)
+	if len(ids) == 0 {
+		for id := range objects {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+	}
 	var out [][]byte
-	for _, obj := range splitObjects(data) {
+	for _, id := range ids {
+		obj := objects[id]
+		if obj == nil {
+			continue
+		}
 		stream, err := decodedStream(obj.body)
 		if err != nil {
 			continue
 		}
-		if bytes.Contains(stream, []byte("Tj")) || bytes.Contains(stream, []byte("TJ")) || bytes.Contains(stream, []byte(" re ")) {
-			out = append(out, stream)
-		}
+		out = append(out, stream)
 	}
 	return out
+}
+
+// pageContentIDs walks the page tree from its root and returns each page's
+// /Contents object id in page order. A page's /Contents can be a single
+// reference or an array of references.
+func pageContentIDs(objects map[int]*pdfObject) []int {
+	root := -1
+	for id, obj := range objects {
+		if bytes.Contains(obj.body, []byte("/Type /Pages")) && !bytes.Contains(obj.body, []byte("/Parent")) {
+			if root < 0 || id < root {
+				root = id
+			}
+		}
+	}
+	var out []int
+	if root >= 0 {
+		seen := map[int]bool{}
+		var walk func(int)
+		walk = func(id int) {
+			if seen[id] {
+				return
+			}
+			seen[id] = true
+			obj := objects[id]
+			if obj == nil {
+				return
+			}
+			if bytes.Contains(obj.body, []byte("/Type /Page")) && !bytes.Contains(obj.body, []byte("/Type /Pages")) {
+				out = append(out, contentRefs(obj.body)...)
+				return
+			}
+			m := reKids.FindSubmatch(obj.body)
+			if m == nil {
+				return
+			}
+			for _, ref := range reRef.FindAllSubmatch(m[1], -1) {
+				n, _ := strconv.Atoi(string(ref[1]))
+				walk(n)
+			}
+		}
+		walk(root)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	// No usable tree: every page object, in object order.
+	var pages []int
+	for id, obj := range objects {
+		if bytes.Contains(obj.body, []byte("/Type /Page")) && !bytes.Contains(obj.body, []byte("/Type /Pages")) {
+			pages = append(pages, id)
+		}
+	}
+	slices.Sort(pages)
+	for _, id := range pages {
+		out = append(out, contentRefs(objects[id].body)...)
+	}
+	return out
+}
+
+func contentRefs(body []byte) []int {
+	if m := reContentsArr.FindSubmatch(body); m != nil {
+		var ids []int
+		for _, ref := range reRef.FindAllSubmatch(m[1], -1) {
+			n, _ := strconv.Atoi(string(ref[1]))
+			ids = append(ids, n)
+		}
+		return ids
+	}
+	if m := reContentsRef.FindSubmatch(body); m != nil {
+		n, _ := strconv.Atoi(string(m[1]))
+		return []int{n}
+	}
+	return nil
 }
 
 // Text returns the text of the whole document with form feed separators
@@ -69,14 +162,6 @@ func Text(data []byte) (string, error) {
 		return "", err
 	}
 	return strings.Join(pages, "\f\n"), nil
-}
-
-func sortEntries[T any](items []T, less func(a, b T) bool) {
-	for i := 1; i < len(items); i++ {
-		for j := i; j > 0 && less(items[j], items[j-1]); j-- {
-			items[j], items[j-1] = items[j-1], items[j]
-		}
-	}
 }
 
 type pdfObject struct {
