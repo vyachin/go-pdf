@@ -202,13 +202,20 @@ func (d Diagnostics) Lines() []string {
 	return out
 }
 
-// Err returns an *Error holding the error-severity diagnostics, or nil when the
-// list contains only warnings or is empty.
+// Err returns an *Error holding only the error-severity diagnostics, or nil
+// when the list contains only warnings or is empty. The full list, including
+// warnings, stays available through [Result.Diagnostics] and Validate.
 func (d Diagnostics) Err() error {
-	if !d.HasErrors() {
+	errorsOnly := make(Diagnostics, 0, len(d))
+	for _, item := range d {
+		if item.Severity != SeverityWarning {
+			errorsOnly = append(errorsOnly, item)
+		}
+	}
+	if len(errorsOnly) == 0 {
 		return nil
 	}
-	return &Error{Diagnostics: d}
+	return &Error{Diagnostics: errorsOnly}
 }
 
 // Error is the error returned by Convert and Validate when the template cannot
@@ -257,7 +264,7 @@ type Result struct {
 // are reported through the result. Nothing is written to disk.
 func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	res, err := engine.Convert(ctx, src, opts.toEngine())
-	out := Result{PDF: res.PDF, PNG: res.PNG, Diagnostics: fromDiags(res.Diagnostics)}
+	out := Result{PDF: res.PDF, PNG: res.PNG, Diagnostics: fromDiags(res.Diagnostics, diagnosticFile(opts))}
 	if err != nil {
 		// Cancellation wins over a template error: a template that already
 		// produced validation errors must not hide the fact that the caller
@@ -282,7 +289,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 // context error when ctx is done.
 func Validate(ctx context.Context, src []byte, opts Options) (Diagnostics, error) {
 	list, err := engine.Validate(ctx, src, opts.toEngine())
-	out := fromDiags(list)
+	out := fromDiags(list, diagnosticFile(opts))
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return out, ctxErr
@@ -368,7 +375,16 @@ func fromEngineLimits(l engine.Limits) Limits {
 	}
 }
 
-func fromDiags(list diag.List) Diagnostics {
+// diagnosticFile is the name a document diagnostic carries when the engine did
+// not set one. options/* diagnostics stay without a file.
+func diagnosticFile(opts Options) string {
+	if opts.File != "" {
+		return opts.File
+	}
+	return "document.html"
+}
+
+func fromDiags(list diag.List, file string) Diagnostics {
 	if len(list) == 0 {
 		return nil
 	}
@@ -378,11 +394,15 @@ func fromDiags(list diag.List) Diagnostics {
 		if item.Severity == diag.Warning {
 			severity = SeverityWarning
 		}
+		name := item.Pos.File
+		if name == "" && !strings.HasPrefix(item.Code, "options/") {
+			name = file
+		}
 		out[i] = Diagnostic{
 			Severity: severity,
 			Code:     item.Code,
 			Message:  item.Message,
-			File:     item.Pos.File,
+			File:     name,
 			Line:     item.Pos.Line,
 			Column:   item.Pos.Col,
 			Element:  item.Element,

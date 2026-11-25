@@ -229,6 +229,9 @@ type Page struct {
 type Document struct {
 	Pages   []*Page
 	Anchors map[string]Anchor
+	// Targets records the ids a target-counter consumed during the pass, so the
+	// engine can warn only about anchors the document actually references.
+	Targets map[string]bool
 	// Outline lists document headings for PDF bookmarks.
 	Outline []OutlineEntry
 	Diags   diag.List
@@ -281,6 +284,7 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 		return nil, diag.List{{Severity: diag.Error, Code: "html/no-body", Message: "document has no body"}}
 	}
 	b := &builder{
+		doc:      doc,
 		cascade:  ctx.Cascade,
 		images:   ctx.Images,
 		diags:    &diag.List{},
@@ -290,9 +294,9 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 	// Styles follow the real chain: html, then body.
 	var htmlStyle *css.Style
 	if htmlNode := doc.HTML(); htmlNode != nil {
-		htmlStyle = ctx.Cascade.Compute(htmlNode, nil)
+		htmlStyle = b.styleFor(htmlNode, nil)
 	}
-	bodyStyle := ctx.Cascade.Compute(body, htmlStyle)
+	bodyStyle := b.styleFor(body, htmlStyle)
 	root := &Box{Kind: Block, Node: body, Style: bodyStyle}
 	// display:none on a root hides the whole tree, including images, anchors
 	// and headings. Descendant checks do not cover the roots themselves.
@@ -305,7 +309,27 @@ func Build(doc *html.Document, ctx Context) (*Box, diag.List) {
 	return root, *b.diags
 }
 
+// styleFor computes the element's style and applies the HTML hidden attribute,
+// which hides the subtree like display: none.
+// nodePos returns the source position of n, or a zero position when the
+// builder has no document.
+func (b *builder) nodePos(n *html.Node) diag.Position {
+	if n == nil || b.doc == nil {
+		return diag.Position{}
+	}
+	return b.doc.Pos(n)
+}
+
+func (b *builder) styleFor(n *html.Node, parent *css.Style) *css.Style {
+	style := b.cascade.Compute(n, parent)
+	if _, ok := n.Attr("hidden"); ok {
+		style.Display = css.DisplayNone
+	}
+	return style
+}
+
 type builder struct {
+	doc      *html.Document
 	cascade  *css.Cascade
 	images   ImageLoader
 	diags    *diag.List
@@ -373,7 +397,7 @@ func (b *builder) buildBlocks(n *html.Node, parentStyle *css.Style) []*Box {
 			if child.Tag == "script" || child.Tag == "style" {
 				continue
 			}
-			style := b.cascade.Compute(child, parentStyle)
+			style := b.styleFor(child, parentStyle)
 			if style.Display == css.DisplayNone {
 				continue
 			}
@@ -466,7 +490,7 @@ func (b *builder) buildInline(n *html.Node, parentStyle *css.Style) []*Box {
 			if child.Tag == "script" || child.Tag == "style" {
 				continue
 			}
-			style := b.cascade.Compute(child, parentStyle)
+			style := b.styleFor(child, parentStyle)
 			if style.Display == css.DisplayNone {
 				continue
 			}
@@ -487,16 +511,16 @@ func (b *builder) buildImage(n *html.Node, style *css.Style) *Box {
 	src, _ := n.Attr("src")
 	box := &Box{Kind: Image, Node: n, Style: style}
 	if b.images == nil {
-		b.diags.Errorf("img/no-loader", diag.Position{}, n.Path(), "images are not available in this context")
+		b.diags.Errorf("img/no-loader", b.doc.Pos(n), n.Path(), "images are not available in this context")
 		return box
 	}
 	img, err := b.images.Load(src)
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			b.diags.Errorf("resource/limit", diag.Position{}, n.Path(), "%v", err)
+			b.diags.Errorf("resource/limit", b.doc.Pos(n), n.Path(), "%v", err)
 			return box
 		}
-		b.diags.Errorf("img/load", diag.Position{}, n.Path(), "%v", err)
+		b.diags.Errorf("img/load", b.doc.Pos(n), n.Path(), "%v", err)
 		return box
 	}
 	box.Image = img
@@ -537,16 +561,16 @@ func (b *builder) loadBackground(style *css.Style, n *html.Node, dst **ImageData
 		path = n.Path()
 	}
 	if b.images == nil {
-		b.diags.Errorf("img/no-loader", diag.Position{}, path, "images are not available in this context")
+		b.diags.Errorf("img/no-loader", b.nodePos(n), path, "images are not available in this context")
 		return
 	}
 	img, err := b.images.Load(style.BackgroundImage)
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			b.diags.Errorf("resource/limit", diag.Position{}, path, "%v", err)
+			b.diags.Errorf("resource/limit", b.nodePos(n), path, "%v", err)
 			return
 		}
-		b.diags.Errorf("img/load", diag.Position{}, path, "%v", err)
+		b.diags.Errorf("img/load", b.nodePos(n), path, "%v", err)
 		return
 	}
 	*dst = img
@@ -557,7 +581,7 @@ func (b *builder) loadBackground(style *css.Style, n *html.Node, dst **ImageData
 func (b *builder) span(n *html.Node, name string) int {
 	value, ok := spanAttr(n, name)
 	if !ok {
-		b.diags.Errorf("html/invalid-span", diag.Position{}, n.Path(), "%s value is outside 1..%d", name, css.MaxTableSpan)
+		b.diags.Errorf("html/invalid-span", b.nodePos(n), n.Path(), "%s value is outside 1..%d", name, css.MaxTableSpan)
 		return 1
 	}
 	return value
@@ -574,13 +598,13 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 			}
 			switch c.Tag {
 			case "thead", "tbody", "tfoot":
-				groupStyle := b.cascade.Compute(c, parentStyle)
+				groupStyle := b.styleFor(c, parentStyle)
 				if groupStyle.Display == css.DisplayNone {
 					continue
 				}
 				addRows(c, c.Tag == "thead", groupStyle)
 			case "tr":
-				rowStyle := b.cascade.Compute(c, parentStyle)
+				rowStyle := b.styleFor(c, parentStyle)
 				if rowStyle.Display == css.DisplayNone {
 					continue
 				}
@@ -592,7 +616,7 @@ func (b *builder) buildTable(n *html.Node, style *css.Style) *Box {
 					if !b.tick() {
 						return
 					}
-					cellStyle := b.cascade.Compute(cellNode, rowStyle)
+					cellStyle := b.styleFor(cellNode, rowStyle)
 					if cellStyle.Display == css.DisplayNone {
 						continue
 					}
