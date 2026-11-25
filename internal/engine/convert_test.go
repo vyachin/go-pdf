@@ -1290,7 +1290,10 @@ func pickWeight(t *testing.T, target int, italic bool, available ...int) int {
 		byWeight[w] = f
 		r.faces = append(r.faces, &registeredFace{family: "w", weight: w, font: f})
 	}
-	got := r.pick([]string{"w"}, target, italic)
+	got, err := r.pick([]string{"w"}, target, italic)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for w, f := range byWeight {
 		if f == got {
 			return w
@@ -1331,11 +1334,11 @@ func TestFontWeightKeepsItalicPreference(t *testing.T) {
 		&registeredFace{family: "w", weight: 400, italic: false, font: regular},
 		&registeredFace{family: "w", weight: 400, italic: true, font: italic},
 	)
-	if got := r.pick([]string{"w"}, 400, true); got != italic {
-		t.Fatal("an italic request did not prefer the italic face")
+	if got, err := r.pick([]string{"w"}, 400, true); err != nil || got != italic {
+		t.Fatalf("an italic request did not prefer the italic face: %v", err)
 	}
-	if got := r.pick([]string{"w"}, 400, false); got != regular {
-		t.Fatal("an upright request did not prefer the upright face")
+	if got, err := r.pick([]string{"w"}, 400, false); err != nil || got != regular {
+		t.Fatalf("an upright request did not prefer the upright face: %v", err)
 	}
 }
 
@@ -1592,8 +1595,8 @@ func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
 	}
 	// A machine with no system font left to try: the once-guard is consumed.
 	r.systemOnce.Do(func() {})
-	if got := r.pick([]string{"Arial"}, 400, false); got != nil {
-		t.Fatalf("pick returned the unrelated %q face for Arial", got.Family())
+	if got, err := r.pick([]string{"Arial"}, 400, false); err != nil || got != nil {
+		t.Fatalf("pick returned %v, %v for Arial", got, err)
 	}
 	if _, err := r.Face([]string{"Arial"}, 400, false, 12000); err == nil {
 		t.Fatal("Face accepted an undeclared family without a diagnostic")
@@ -1601,12 +1604,12 @@ func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
 
 	// A declared family still resolves, and an explicit fallback still covers
 	// any other family.
-	if got := r.pick([]string{"PT Serif"}, 400, false); got == nil {
-		t.Fatal("the declared family did not resolve")
+	if got, err := r.pick([]string{"PT Serif"}, 400, false); err != nil || got == nil {
+		t.Fatalf("the declared family did not resolve: %v", err)
 	}
 	r.fallback = f
-	if got := r.pick([]string{"Arial"}, 400, false); got != f {
-		t.Fatal("the explicit fallback font was not used for an undeclared family")
+	if got, err := r.pick([]string{"Arial"}, 400, false); err != nil || got != f {
+		t.Fatalf("the explicit fallback font was not used for an undeclared family: %v", err)
 	}
 }
 

@@ -101,6 +101,9 @@ func (l *layouter) paintMarginBoxes() {
 	}
 	face, err := l.ctx.Fonts.Face([]string{"serif"}, 400, false, 10000)
 	if err != nil {
+		if l.fontStop(err) {
+			return
+		}
 		l.diags.Warnf(diag.PageMarginBox, diag.Position{}, "", "cannot load a font for margin boxes: %v", err)
 		return
 	}
@@ -116,6 +119,9 @@ func (l *layouter) paintMarginBoxes() {
 			}
 			run, err := l.shape(face, label)
 			if err != nil {
+				if l.stopsOnGuard(l.ctx.Budget.Err()) {
+					return
+				}
 				// Losing a header or footer silently is not acceptable: report
 				// it the same way body text reports a missing glyph, at the
 				// content declaration that generated the text when known.

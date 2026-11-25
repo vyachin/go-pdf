@@ -35,8 +35,11 @@ type fontRegistry struct {
 	// fallbackFaces is the lazily loaded system family: the first available
 	// DefaultFallbackFonts entry plus its bold and italic siblings.
 	fallbackFaces []*registeredFace
-	mu            sync.Mutex
-	cache         map[string]*layout.FontFace
+	// systemErr is the terminal failure discovery hit, kept so every later
+	// face request reports the same cause.
+	systemErr error
+	mu        sync.Mutex
+	cache     map[string]*layout.FontFace
 	// maxFontBytes and guard let the registry load a system fallback lazily,
 	// only when a document really asks for a family it does not declare.
 	maxFontBytes int
@@ -282,7 +285,10 @@ func (r *fontRegistry) Face(families []string, weight int, italic bool, size int
 	}
 	r.mu.Unlock()
 
-	f := r.pick(families, weight, italic)
+	f, err := r.pick(families, weight, italic)
+	if err != nil {
+		return nil, err
+	}
 	if f == nil {
 		return nil, fmt.Errorf("font family %q is not available", strings.Join(families, ", "))
 	}
@@ -299,7 +305,7 @@ func (r *fontRegistry) Face(families []string, weight int, italic bool, size int
 	return face, nil
 }
 
-func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Font {
+func (r *fontRegistry) pick(families []string, weight int, italic bool) (*font.Font, error) {
 	for _, family := range families {
 		name := strings.ToLower(strings.TrimSpace(family))
 		if name == "serif" || name == "sans-serif" || name == "monospace" {
@@ -315,24 +321,30 @@ func (r *fontRegistry) pick(families []string, weight int, italic bool) *font.Fo
 			continue
 		}
 		if best := bestFace(candidates, weight, italic); best != nil {
-			return best
+			return best, nil
 		}
 	}
 	// An explicit Options.FallbackFont is step two of the documented order and
 	// always wins over a system font.
 	if r.fallback != nil {
-		return r.fallback
+		return r.fallback, nil
 	}
 	// Step three: the first available system family, including the bold and
 	// italic faces that sit next to its regular file. Without the siblings a
 	// certificate is printed with a regular title where the source asks for
 	// 700.
-	if best := bestFace(r.systemFaces(), weight, italic); best != nil {
-		return best
+	system, err := r.systemFaces()
+	if err != nil {
+		// A limit or cancellation during discovery is terminal: it must not be
+		// mistaken for a missing family or change the selected typography.
+		return nil, err
+	}
+	if best := bestFace(system, weight, italic); best != nil {
+		return best, nil
 	}
 	// Never guess: substituting the first declared face would print an
 	// undeclared family in a font the document did not ask for.
-	return nil
+	return nil, nil
 }
 
 // bestFace picks the closest weight and slant from a family.
@@ -356,18 +368,19 @@ func bestFace(candidates []*registeredFace, weight int, italic bool) *font.Font 
 // systemFaces loads the first available system family once, so a document
 // without @font-face still renders while a declared but unrelated family is not
 // silently replaced by another declaration.
-func (r *fontRegistry) systemFaces() []*registeredFace {
+func (r *fontRegistry) systemFaces() ([]*registeredFace, error) {
 	// The load reads files through the asset registry, which takes the same
 	// lock while it parses; it must therefore run outside r.mu, once.
 	r.systemOnce.Do(func() {
-		faces := r.loadSystemFamily()
+		faces, err := r.loadSystemFamily()
 		r.mu.Lock()
 		r.fallbackFaces = faces
+		r.systemErr = err
 		r.mu.Unlock()
 	})
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.fallbackFaces
+	return r.fallbackFaces, r.systemErr
 }
 
 // weightRank orders an available weight against the requested one, following
@@ -414,36 +427,49 @@ var DefaultFallbackFonts = []string{
 	"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
 }
 
-func (r *fontRegistry) loadSystemFamily() []*registeredFace {
-	if r.guard.Err() != nil {
-		return nil
+func (r *fontRegistry) loadSystemFamily() ([]*registeredFace, error) {
+	if err := r.guard.Err(); err != nil {
+		return nil, err
 	}
 	for _, path := range DefaultFallbackFonts {
-		if r.guard.Err() != nil {
-			return nil
+		if err := r.guard.Err(); err != nil {
+			return nil, err
 		}
-		regular := r.loadFontFile(path)
+		regular, err := r.loadFontFile(path)
+		if err != nil {
+			return nil, err
+		}
 		if regular == nil {
+			// The candidate is absent or unusable: the search may continue.
 			continue
 		}
 		faces := []*registeredFace{{weight: 400, font: regular}}
 		for _, variant := range variantPaths(path) {
-			f := r.loadFontFile(variant)
+			if err := r.guard.Err(); err != nil {
+				return nil, err
+			}
+			f, err := r.loadFontFile(variant)
+			if err != nil {
+				// The regular face fit but its sibling crossed a documented
+				// bound: the family is refused rather than silently restyled.
+				return nil, err
+			}
 			if f == nil {
 				continue
 			}
 			weight, italic := variantStyle(variant)
 			faces = append(faces, &registeredFace{weight: weight, italic: italic, font: f})
 		}
-		return faces
+		return faces, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // loadFontFile loads one system font, applying the per-file and aggregate font
-// limits before the file is opened. It reports nil when the font is unavailable
-// or over a limit; the guard carries the reason.
-func (r *fontRegistry) loadFontFile(path string) *font.Font {
+// limits before the file is opened. A nil font with a nil error means the
+// candidate is absent or unusable, so the search may continue. A non-nil error
+// is terminal: a documented bound was refused or the context was cancelled.
+func (r *fontRegistry) loadFontFile(path string) (*font.Font, error) {
 	rec, err := r.reg.Read(assets.Request{
 		Kind:          assets.Font,
 		Reference:     path,
@@ -452,23 +478,46 @@ func (r *fontRegistry) loadFontFile(path string) *font.Font {
 		MaxTotalBytes: int64(r.maxTotalFontBytes),
 	})
 	if err != nil {
-		return nil
+		if isTerminalFontError(err) {
+			return nil, err
+		}
+		return nil, nil
 	}
 	if f, ok := r.parsedFont(rec.Key); ok {
-		return f
+		return f, nil
 	}
 	// A system font is charged exactly like an @font-face file, so the budget
 	// accounts for every font the conversion parses, whatever named it.
 	if err := r.guard.Add(uint64(len(rec.Bytes))/1024 + 1); err != nil {
 		r.reg.Discard(rec)
-		return nil
+		return nil, err
 	}
 	f, err := font.LoadWithOptions(rec.Bytes, font.ParseOptions{Guard: r.guard})
 	if err != nil {
 		r.reg.Discard(rec)
-		return nil
+		if errors.Is(err, font.ErrLimit) {
+			return nil, fmt.Errorf("%w: %v", budget.ErrExceeded, err)
+		}
+		if isTerminalFontError(err) {
+			return nil, err
+		}
+		return nil, nil
 	}
-	return r.keepFont(rec.Key, f)
+	return r.keepFont(rec.Key, f), nil
+}
+
+// isTerminalFontError reports whether a fallback failure must end the
+// conversion instead of letting discovery try the next candidate: a resource
+// limit or a cancelled context. A corrupt or unreadable file is only an
+// unavailable candidate.
+func isTerminalFontError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, budget.ErrExceeded) {
+		return true
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // variantPaths lists the conventional bold and italic file names next to a

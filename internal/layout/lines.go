@@ -80,6 +80,25 @@ func (l *layouter) shape(face *FontFace, s string) (text.Run, error) {
 	return text.ShapeWithOptions(face.Font, face.Size, s, text.ShapeOptions{Guard: l.ctx.Budget})
 }
 
+// fontStop reports whether a font error ends the layout. A documented bound —
+// a per-file, aggregate or parser limit — becomes one resource/limit
+// diagnostic and suppresses the dependent text/font message; a cancelled
+// context is left to the caller. An unavailable face is not a stop: the caller
+// reports it against the text that needed it.
+func (l *layouter) fontStop(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, budget.ErrExceeded) {
+		if !l.limitReported {
+			l.limitReported = true
+			l.diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+		}
+		return true
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // stopsOnGuard reports whether err stops the layout and records why. A budget
 // failure becomes one resource/limit diagnostic; a cancellation is reported by
 // the engine after Run returns.
@@ -277,6 +296,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if l.stopsOnGuard(l.ctx.Budget.Err()) {
 				return
 			}
+			if l.fontStop(err) {
+				return
+			}
 			pos, element := src.at()
 			l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
 			return
@@ -348,6 +370,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			face, err := l.face(p.style)
 			if err != nil {
 				if l.stopsOnGuard(l.ctx.Budget.Err()) {
+					return
+				}
+				if l.fontStop(err) {
 					return
 				}
 				pos, element := p.src.at()
