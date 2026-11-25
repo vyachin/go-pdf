@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Text decoration and quotations"/>
+  <page width="595.276pt" height="841.89pt" margin-top="56.693pt" margin-right="56.693pt" margin-bottom="56.693pt" margin-left="56.693pt"/>
+  <html display="block">
+    <body display="block" font-family="sans-serif" font-size="11pt">
+      <p display="block" margin-bottom="8.504pt">Plain text, <u text-decoration="underline">underlined</u>, <s text-decoration="line-through">struck</s>, <del text-decoration="line-through">deleted</del>, <ins text-decoration="underline">inserted</ins>.</p>
+      <p class="combo" display="block" margin-bottom="8.504pt" text-decoration="underline line-through">Both lines at once.</p>
+      <blockquote display="block" margin-bottom="5.669pt" margin-left="28.346pt" margin-right="28.346pt" margin-top="5.669pt">
+        <p display="block" margin-bottom="8.504pt">A quoted paragraph that keeps its block layout.</p>
+        <p display="block" margin-bottom="8.504pt">And a second one inside the same quotation.</p>
+      </blockquote>
+      <p color="#c00000" display="block" margin-bottom="8.504pt">
+        <u text-decoration="underline">Underlined in colour.</u>
+      </p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

@@ -26,15 +26,19 @@ type Style struct {
 	// font size of the element that inherits it.
 	LineHeightFactor float64
 	TextAlign        TextAlign
-	TextIndent       Length
-	WhiteSpace       WhiteSpace
-	VerticalAlign    VerticalAlign
-	BreakBefore      Break
-	BreakAfter       Break
-	BreakInside      Break
-	Orphans          int
-	Widows           int
-	ListStyleType    ListStyleType
+	// TextDecoration is the set of lines painted under or through the text. It
+	// is inherited because CSS propagates a decoration from the decorated box
+	// to its descendants, which is the painted result the profile promises.
+	TextDecoration Decoration
+	TextIndent     Length
+	WhiteSpace     WhiteSpace
+	VerticalAlign  VerticalAlign
+	BreakBefore    Break
+	BreakAfter     Break
+	BreakInside    Break
+	Orphans        int
+	Widows         int
+	ListStyleType  ListStyleType
 	// AfterContent is the generated content of a::after, if any.
 	AfterContent []ContentItem
 }
@@ -78,6 +82,7 @@ func NewStyle(parent *Style) *Style {
 	s.TextIndent = parent.TextIndent
 	s.LineHeightFactor = parent.LineHeightFactor
 	s.TextAlign = parent.TextAlign
+	s.TextDecoration = parent.TextDecoration
 	s.WhiteSpace = parent.WhiteSpace
 	s.ListStyleType = parent.ListStyleType
 	s.Orphans = parent.Orphans

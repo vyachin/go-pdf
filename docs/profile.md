@@ -9,7 +9,7 @@ validation with a position in the source. The list below is the profile, and
 ```
 html head body main div p h1 h2 h3 h4 h5 h6
 ul ol li table thead tbody tfoot tr td th
-img span br hr strong b em i a title meta style link
+img span br hr strong b em i a u s del ins blockquote title meta style link
 ```
 
 `<script>` is allowed but ignored with the warning `html/ignored-script`: the code is not executed or rendered. With `Options.Strict` this is an error.
@@ -104,11 +104,18 @@ document and in a legacy one alike.
 | `text-indent` | yes | a length |
 | `white-space` | yes | `normal`, `pre` |
 | `vertical-align` | no | `baseline`, `top`, `middle`, `bottom` |
+| `text-decoration` | yes | `none`, `underline`, `line-through`, or both line keywords |
 | `break-before`, `break-after` | no | `auto`, `page`, `always` (an alias of `page`), `avoid` |
 | `break-inside` | no | `auto`, `page`, `avoid` |
 | `page-break-before/after/inside` | no | legacy aliases of `break-*` |
 | `orphans`, `widows` | yes | an integer ≥ 1 |
 | `list-style-type` | yes | `disc`, `decimal` |
+
+`text-decoration` paints a line below the baseline for `underline` and one
+through the middle of the x-height for `line-through`, in the run's colour. The
+decoration propagates to descendant text, as CSS specifies. The engine
+stylesheet underlines `u` and `ins`, strikes through `s` and `del`, and gives
+`blockquote` block layout with a left and right indent.
 
 ## Units
 
@@ -255,13 +262,9 @@ reading it, and writes through a temporary file renamed into place.
 
 ## Known gaps
 
-Two features are documented gaps rather than planned work, so a reader knows
-where they stand:
+One feature is a documented gap rather than planned work, so a reader knows where
+it stands:
 
-- `text-decoration` (`u`, `s`, `del`, `ins`) and `<blockquote>`: the mPDF port
-  found them missing. They are outside the closed profile as it stands and are
-  not covered by an active OpenSpec change; adding one means a requirement, a
-  default rule and a golden, not a local edit.
 - `hyphens: auto`: needs hyphenation dictionaries and a hyphenation pass; no
   active change covers it.
 
