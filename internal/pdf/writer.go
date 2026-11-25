@@ -4,16 +4,19 @@ package pdf
 
 import (
 	"bytes"
+	"cmp"
 	"compress/zlib"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/font"
@@ -165,11 +168,11 @@ func (fe *fontEntry) buildCIDs() {
 	for k := range fe.pairs {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i]>>32 != keys[j]>>32 {
-			return keys[i]>>32 < keys[j]>>32
+	slices.SortFunc(keys, func(a, b uint64) int {
+		if c := cmp.Compare(a>>32, b>>32); c != 0 {
+			return c
 		}
-		return keys[i] < keys[j]
+		return cmp.Compare(a, b)
 	})
 	fe.cidOf = make(map[uint64]uint16, len(keys))
 	fe.cidGID = make([]uint16, 0, len(keys))
@@ -458,14 +461,15 @@ func (fe *fontEntry) toUnicodeCMap() []byte {
 	return []byte(b.String())
 }
 
+// utf16Hex formats r as the big-endian UTF-16 code units of a PDF string. A
+// BMP character is one four-digit group; a character outside the BMP becomes
+// the surrogate pair unicode/utf16 defines.
 func utf16Hex(r rune) string {
-	if r <= 0xFFFF {
-		return fmt.Sprintf("%04X", r)
+	var b strings.Builder
+	for _, u := range utf16.Encode([]rune{r}) {
+		fmt.Fprintf(&b, "%04X", u)
 	}
-	r -= 0x10000
-	hi := 0xD800 + (r >> 10)
-	lo := 0xDC00 + (r & 0x3FF)
-	return fmt.Sprintf("%04X%04X", hi, lo)
+	return b.String()
 }
 
 func (d *Doc) contentStream(p *page, fonts []*fontEntry, fontNames []string, imageNames map[*Image]string) []byte {
@@ -566,9 +570,19 @@ func streamObject(data []byte, compress bool) []byte {
 func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 	switch img.Format {
 	case "jpeg":
-		w, h, components := jpegInfo(img.Data)
-		if w == 0 || h == 0 {
-			w, h = img.PixelW, img.PixelH
+		// The frame header comes from the standard library, so the writer and
+		// the engine agree on which files are valid.
+		cfg, err := jpeg.DecodeConfig(bytes.NewReader(img.Data))
+		if err != nil {
+			return nil, fmt.Errorf("pdf: decoding jpeg: %w", err)
+		}
+		var components int
+		switch cfg.ColorModel {
+		case color.GrayModel:
+			components = 1
+		case color.CMYKModel:
+			components = 4
+		default:
 			components = 3
 		}
 		if components == 4 {
@@ -583,7 +597,7 @@ func imageObject(img *Image, alloc func([]byte) int) ([]byte, error) {
 		}
 		return []byte(fmt.Sprintf(
 			"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
-			w, h, colorSpace, len(img.Data), img.Data)), nil
+			cfg.Width, cfg.Height, colorSpace, len(img.Data), img.Data)), nil
 	case "png":
 		w, h, rgb, alpha, err := pngPixels(img.Data)
 		if err != nil {
@@ -658,40 +672,6 @@ func imageStream(w, h int, colorSpace string, data []byte, extra string) []byte 
 	return []byte(fmt.Sprintf(
 		"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent 8 /Filter /FlateDecode /Length %d%s >>\nstream\n%s\nendstream",
 		w, h, colorSpace, len(data), extra, data))
-}
-
-// jpegInfo reads the frame header of a baseline JPEG.
-func jpegInfo(data []byte) (width, height, components int) {
-	i := 2
-	for i+4 < len(data) {
-		if data[i] != 0xFF {
-			i++
-			continue
-		}
-		marker := data[i+1]
-		i += 2
-		if marker == 0xD8 || marker == 0xD9 {
-			continue
-		}
-		if i+1 >= len(data) {
-			return
-		}
-		length := int(data[i])<<8 | int(data[i+1])
-		if length < 2 {
-			return
-		}
-		if marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
-			if i+7 >= len(data) {
-				return
-			}
-			height = int(data[i+3])<<8 | int(data[i+4])
-			width = int(data[i+5])<<8 | int(data[i+6])
-			components = int(data[i+7])
-			return
-		}
-		i += length
-	}
-	return
 }
 
 func assemble(w *objectWriter, catalogID, infoID int, id string) ([]byte, error) {

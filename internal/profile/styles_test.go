@@ -145,6 +145,26 @@ func TestLinkedStylesApplyToTheDocument(t *testing.T) {
 	}
 }
 
+// TestStylesheetOutsideTheBaseDirectoryIsRejected is the non-symlink case: an
+// existing stylesheet above the base directory is reported with the same code
+// as an escaping symlink, and its rules never reach the cascade.
+func TestStylesheetOutsideTheBaseDirectoryIsRejected(t *testing.T) {
+	parent := t.TempDir()
+	base := filepath.Join(parent, "base")
+	if err := os.Mkdir(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeCSS(t, parent, "outside.css", "p { color: #ff0000 }")
+	doc := parseDoc(t, `<link rel="stylesheet" href="../outside.css"><p>x</p>`)
+	sheets, diags := CollectStylesheets(doc, Options{BaseDir: base})
+	if len(sheets) != 0 {
+		t.Fatal("a stylesheet outside the base directory must not be loaded")
+	}
+	if len(diags) != 1 || diags[0].Code != "css/link-path" {
+		t.Fatalf("diagnostics = %v, want one css/link-path", diags.Lines())
+	}
+}
+
 func TestSymlinkEscapeIsRejected(t *testing.T) {
 	base := t.TempDir()
 	outside := t.TempDir()

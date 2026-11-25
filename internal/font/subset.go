@@ -1,9 +1,10 @@
 package font
 
 import (
+	"cmp"
 	"encoding/binary"
 	"fmt"
-	"sort"
+	"slices"
 )
 
 // Subset builds a new TrueType font that keeps every glyph index but drops the
@@ -86,7 +87,7 @@ type outTable struct {
 }
 
 func buildSFNT(tables []outTable) (out []byte, headOffset int, err error) {
-	sort.Slice(tables, func(i, j int) bool { return tables[i].tag < tables[j].tag })
+	slices.SortFunc(tables, func(a, b outTable) int { return cmp.Compare(a.tag, b.tag) })
 	numTables := len(tables)
 	if numTables == 0 {
 		return nil, 0, fmt.Errorf("font: nothing to write")

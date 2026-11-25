@@ -2,7 +2,7 @@ package html
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -216,7 +216,8 @@ func (d *Document) Position(offset int) diag.Position {
 		offset = len(d.src)
 	}
 	// Largest line start <= offset.
-	i := sort.Search(len(d.lines), func(i int) bool { return d.lines[i] > offset }) - 1
+	i, _ := slices.BinarySearch(d.lines, offset+1)
+	i--
 	if i < 0 {
 		i = 0
 	}

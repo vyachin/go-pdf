@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 )
 
 // Pages returns the extracted text of every page, in page order.
@@ -235,16 +236,19 @@ func parseBFChar(stream []byte, out map[uint16]rune) {
 	}
 }
 
+// decodeUTF16Hex decodes the hex string of a ToUnicode destination. A surrogate
+// pair is one code point, not two: the same text a reader copies out of the
+// PDF.
 func decodeUTF16Hex(s string) []rune {
 	raw, err := hex.DecodeString(s)
 	if err != nil || len(raw)%2 != 0 {
 		return nil
 	}
-	var runes []rune
+	units := make([]uint16, 0, len(raw)/2)
 	for i := 0; i+1 < len(raw); i += 2 {
-		runes = append(runes, rune(uint16(raw[i])<<8|uint16(raw[i+1])))
+		units = append(units, uint16(raw[i])<<8|uint16(raw[i+1]))
 	}
-	return runes
+	return utf16.Decode(units)
 }
 
 // textFromStream reads both plain Tj strings and TJ arrays. Adjustments in a

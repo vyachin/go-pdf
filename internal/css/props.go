@@ -2,8 +2,9 @@ package css
 
 import (
 	"fmt"
+	"maps"
 	"math"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -710,10 +711,5 @@ var SupportedElements = map[string]bool{
 
 // ElementOrder returns supported elements in a stable order.
 func ElementOrder() []string {
-	out := make([]string, 0, len(SupportedElements))
-	for k := range SupportedElements {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(SupportedElements))
 }

@@ -87,7 +87,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				sheet, err := loadStylesheet(doc, n, opts, root)
 				if err != nil {
 					var le *linkError
-					if ok := asLinkError(err, &le); ok {
+					if errors.As(err, &le) {
 						out.Errorf(le.code, doc.Pos(n), n.Path(), "%s", le.msg)
 						return
 					}
@@ -123,10 +123,6 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 	}
 	out.Sort()
 	return sheets, out
-}
-
-func asLinkError(err error, target **linkError) bool {
-	return errors.As(err, target)
 }
 
 // mediaAppliesToPrint reports whether a style or link element applies to
@@ -188,7 +184,9 @@ func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
 }
 
 // resolveStylesheetPath turns an href into a readable local path. Remote and
-// data: URLs are rejected, and a configured base directory is a hard boundary.
+// data: URLs are rejected here; whether the path stays inside the base
+// directory is decided by the caller when it reads through fsx.Root, the same
+// rule the image loader uses.
 func resolveStylesheetPath(href, baseDir string) (string, error) {
 	href = strings.TrimSpace(href)
 	if href == "" {
@@ -209,17 +207,11 @@ func resolveStylesheetPath(href, baseDir string) (string, error) {
 	if baseDir == "" {
 		return path, nil
 	}
-	base, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", &linkError{code: "css/link-path", msg: fmt.Sprintf("cannot resolve base directory: %v", err)}
-	}
-	target, err := filepath.Abs(path)
+	// The absolute form is the stable name a diagnostic and a stylesheet
+	// position report; the boundary is not decided here but by fsx.Root.
+	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", &linkError{code: "css/link-path", msg: fmt.Sprintf("cannot resolve stylesheet path: %v", err)}
 	}
-	rel, err := filepath.Rel(base, target)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", &linkError{code: "css/link-path", msg: fmt.Sprintf("stylesheet path %q escapes the base directory", href)}
-	}
-	return target, nil
+	return abs, nil
 }

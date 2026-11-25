@@ -5,6 +5,7 @@ package raster
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"image"
 	"image/color"
@@ -12,7 +13,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
-	"sort"
+	"slices"
 
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
@@ -219,13 +220,13 @@ func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {
 	scaled := image.NewRGBA(image.Rect(0, 0, dst.Dx(), dst.Dy()))
 	for y := 0; y < dst.Dy(); y++ {
 		yf := y + dst.Min.Y - y0
-		py := b.Min.Y + yf*b.Dy()/maxInt(h, 1)
+		py := b.Min.Y + yf*b.Dy()/max(h, 1)
 		if py >= b.Max.Y {
 			py = b.Max.Y - 1
 		}
 		for x := 0; x < dst.Dx(); x++ {
 			xf := x + dst.Min.X - x0
-			px := b.Min.X + xf*b.Dx()/maxInt(w, 1)
+			px := b.Min.X + xf*b.Dx()/max(w, 1)
 			if px >= b.Max.X {
 				px = b.Max.X - 1
 			}
@@ -251,13 +252,6 @@ func decode(data []byte, format string) image.Image {
 		return img
 	}
 	return nil
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // flattenContour converts a TrueType contour into a polygon.
@@ -321,6 +315,13 @@ type edge struct {
 	dir            int
 }
 
+// crossing is one edge crossing a scanline, with the winding direction the
+// edge contributes there.
+type crossing struct {
+	x   float64
+	dir int
+}
+
 // fillPolygons rasterizes a set of contours as one shape with the non-zero
 // winding rule, which is what TrueType outlines expect.
 func fillPolygons(img *image.RGBA, polys [][]point, col color.RGBA) {
@@ -347,10 +348,7 @@ func fillPolygons(img *image.RGBA, polys [][]point, col color.RGBA) {
 	}
 	const ss = 4
 	w := img.Rect.Dx()
-	crossings := make([]struct {
-		x   float64
-		dir int
-	}, 0, len(edges))
+	crossings := make([]crossing, 0, len(edges))
 	coverage := make([]float32, w)
 	for y := 0; y < img.Rect.Dy(); y++ {
 		for i := range coverage {
@@ -364,15 +362,12 @@ func fillPolygons(img *image.RGBA, polys [][]point, col color.RGBA) {
 					continue
 				}
 				t := (sy - e.y0) / (e.y1 - e.y0)
-				crossings = append(crossings, struct {
-					x   float64
-					dir int
-				}{e.x0 + t*(e.x1-e.x0), e.dir})
+				crossings = append(crossings, crossing{e.x0 + t*(e.x1-e.x0), e.dir})
 			}
 			if len(crossings) < 2 {
 				continue
 			}
-			sort.Slice(crossings, func(i, j int) bool { return crossings[i].x < crossings[j].x })
+			slices.SortFunc(crossings, func(a, b crossing) int { return cmp.Compare(a.x, b.x) })
 			winding := 0
 			spanStart := 0.0
 			for _, c := range crossings {

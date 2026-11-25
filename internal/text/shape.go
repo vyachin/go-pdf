@@ -3,8 +3,9 @@
 package text
 
 import (
+	"fmt"
 	"math"
-	"strings"
+	"strconv"
 
 	"github.com/vyachin/go-pdf/internal/font"
 )
@@ -75,24 +76,12 @@ type MissingGlyphError struct {
 }
 
 func (e *MissingGlyphError) Error() string {
-	return "no glyph for " + quoteRune(e.Rune) + " in font " + strconvQuote(e.Family)
+	return fmt.Sprintf("no glyph for %s in font %s", quoteRune(e.Rune), strconv.Quote(e.Family))
 }
 
 func quoteRune(r rune) string {
-	return "'" + string(r) + "' (U+" + strings.ToUpper(hex4(r)) + ")"
+	return fmt.Sprintf("'%s' (U+%04X)", string(r), r)
 }
-
-func hex4(r rune) string {
-	const digits = "0123456789abcdef"
-	var b [4]byte
-	for i := 3; i >= 0; i-- {
-		b[i] = digits[r&0xF]
-		r >>= 4
-	}
-	return string(b[:])
-}
-
-func strconvQuote(s string) string { return "\"" + s + "\"" }
 
 // Metrics holds vertical font metrics in millipoints.
 type Metrics struct {

@@ -1,110 +1,23 @@
 package text
 
-import "strings"
+import (
+	"strings"
 
-// Hangul composition constants from the Unicode standard, section 3.12.
-const (
-	hangulSBase  = 0xAC00
-	hangulLBase  = 0x1100
-	hangulVBase  = 0x1161
-	hangulTBase  = 0x11A7
-	hangulLCount = 19
-	hangulVCount = 21
-	hangulTCount = 28
-	hangulNCount = hangulVCount * hangulTCount
-	hangulSCount = hangulLCount * hangulNCount
+	"golang.org/x/text/unicode/norm"
 )
 
-// Normalize applies canonical composition (Unicode NFC, composition only): a
-// base character followed by combining marks becomes the precomposed character
-// where Unicode defines one, so the text renders as one glyph and extracts back
-// as one code point. Marks that cannot be composed are kept, and the caller can
-// report them with HasCombiningMark.
+// Normalize applies Unicode canonical composition (NFC). A base character
+// followed by combining marks becomes the precomposed character where Unicode
+// defines one, so the text renders as one glyph and extracts back as one code
+// point. Marks that cannot be composed are kept.
+//
+// Canonical decomposition runs first, so a sequence that only composes after it
+// — a precomposed letter followed by a mark, or a compatibility ideograph —
+// also reaches its canonical form. The standard library's implementation is
+// used rather than a private table, so the result tracks the Unicode version of
+// golang.org/x/text.
 func Normalize(s string) string {
-	if !hasCombiningMark(s) {
-		return s
-	}
-	runes := []rune(s)
-	// Canonical ordering: inside a sequence of marks, a mark with a lower
-	// combining class must come first.
-	for i := 1; i < len(runes); i++ {
-		c := combiningClass(runes[i])
-		if c == 0 {
-			continue
-		}
-		for j := i; j > 0; j-- {
-			prev := combiningClass(runes[j-1])
-			if prev == 0 || prev <= c {
-				break
-			}
-			runes[j-1], runes[j] = runes[j], runes[j-1]
-		}
-	}
-	out := make([]rune, 0, len(runes))
-	starterPos := -1
-	prevClass := uint8(0)
-	for _, r := range runes {
-		c := combiningClass(r)
-		if starterPos >= 0 && (c == 0 && prevClass == 0 || c != 0 && prevClass < c) {
-			if composed, ok := composePair(out[starterPos], r); ok {
-				out[starterPos] = composed
-				continue
-			}
-		}
-		if c == 0 {
-			starterPos = len(out)
-		}
-		prevClass = c
-		out = append(out, r)
-	}
-	return string(out)
-}
-
-// composePair returns the precomposed character for a starter and a following
-// character, or false when Unicode defines no composition for them.
-func composePair(starter, mark rune) (rune, bool) {
-	// Hangul syllables compose algorithmically: L+V -> LV, LV+T -> LVT.
-	if starter >= hangulLBase && starter < hangulLBase+hangulLCount &&
-		mark >= hangulVBase && mark < hangulVBase+hangulVCount {
-		return hangulSBase + ((starter-hangulLBase)*hangulVCount+(mark-hangulVBase))*hangulTCount, true
-	}
-	if starter >= hangulSBase && starter < hangulSBase+hangulSCount &&
-		(starter-hangulSBase)%hangulTCount == 0 &&
-		mark > hangulTBase && mark < hangulTBase+hangulTCount {
-		return starter + (mark - hangulTBase), true
-	}
-	composed, ok := compositionPairs[[2]rune{starter, mark}]
-	return composed, ok
-}
-
-func combiningClass(r rune) uint8 {
-	if r < 0x0300 {
-		return 0
-	}
-	return combiningClasses[r]
-}
-
-func hasCombiningMark(s string) bool {
-	for _, r := range s {
-		if combiningClass(r) != 0 {
-			return true
-		}
-		if r >= hangulLBase && r < hangulLBase+hangulLCount {
-			return true
-		}
-	}
-	return false
-}
-
-// HasCombiningMark reports whether the string still contains a combining mark
-// after normalization, that is a mark Unicode cannot compose with its base.
-func HasCombiningMark(s string) bool {
-	for _, r := range Normalize(s) {
-		if combiningClass(r) != 0 {
-			return true
-		}
-	}
-	return false
+	return norm.NFC.String(s)
 }
 
 // isWordSpace reports whether r separates words.

@@ -9,8 +9,10 @@
 package docdump
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -158,11 +160,7 @@ func (w *writer) page(b *strings.Builder, size css.PageSize, margin [4]int32) {
 }
 
 func (w *writer) marginBoxes(b *strings.Builder, boxes map[string][]css.ContentItem) {
-	names := make([]string, 0, len(boxes))
-	for name := range boxes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(boxes))
 	for _, name := range names {
 		b.WriteString("  <margin-box name=\"" + escAttr(name) + "\" content=\"" + escAttr(contentItems(boxes[name])) + "\"/>\n")
 	}
@@ -448,7 +446,7 @@ func (w *writer) attrs(n *html.Node, style *css.Style) []prop {
 		out = append(out, p)
 	}
 	out = compressSides(out)
-	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	slices.SortFunc(out, func(a, b prop) int { return cmp.Compare(a.name, b.name) })
 	return out
 }
 
