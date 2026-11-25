@@ -106,6 +106,28 @@ go test ./internal/engine -bench .                  # benchmarks
 - Fuzz targets cover the HTML frontend, the CSS tokenizer, TrueType parsing,
   the PDF writer and the public `Convert` boundary (arbitrary bytes never panic).
 
+### Adversarial corpus
+
+`testdata/adversarial/` keeps one fixture per confirmed hostile or pathological case,
+and `internal/engine/adversarial_test.go` registers each one. A case names the fixture,
+the expected diagnostic code (or success plus a bounded check, such as the number of
+embedded images or pages) and a small `MaxOperations` or another limit. The assertion is
+always the work guard's diagnostic or a bounded output, never elapsed time.
+
+To add a fixture:
+
+1. Put the input in `testdata/adversarial/` (HTML, plus a small PNG or font if needed).
+2. Add a case to `adversarialCases()` with an id, the fixture name, either `Want` (the
+   documented code) or a `Check`, and its `Options` — usually a small limit.
+3. Run `go test ./internal/engine -run TestAdversarial`. `TestAdversarialManifest`
+   fails and names the file when a listed fixture is missing or an HTML fixture is not
+   registered, so the corpus cannot silently shrink.
+
+A fixture whose failure mode is a fatal runtime error, such as a stack overflow, runs
+through `TestAdversarialFatalErrorRunsInSubprocess`: the child converts the fixture,
+prints its diagnostics and exits normally, and a non-zero exit fails the parent. The
+corpus is part of the ordinary unit and race jobs; there is no separate CI step.
+
 The suite bundles `testdata/fonts/DejaVuSans.ttf`, so results are identical on
 every machine and in CI. `PDFTEST_FONT=/path/to/font.ttf` overrides it for the
 text and conversion tests; the render snapshots always use the bundled font.
