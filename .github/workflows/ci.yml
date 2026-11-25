@@ -117,10 +117,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Install poppler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y poppler-utils
+      # Temporary for gate verification: poppler is deliberately not installed.
       - name: Install pdfcpu
         # Pinned to the release named in the unit job.
         run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.4
