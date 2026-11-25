@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/asset"
+	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
@@ -29,6 +30,10 @@ type Options struct {
 	Budget *budget.Guard
 	// MaxStylesheetBytes bounds one external stylesheet. Zero means unlimited.
 	MaxStylesheetBytes int
+	// Assets is the conversion's asset registry. A nil registry makes the
+	// profile create and close its own, which is what a standalone validation
+	// does.
+	Assets *assets.Registry
 }
 
 // linkError carries a diagnostic code for a bad stylesheet reference.
@@ -48,15 +53,24 @@ func (e *linkError) Error() string { return e.msg }
 func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
 	var sheets []*css.Stylesheet
 	var out diag.List
-	root, rootErr := fsx.Open(opts.BaseDir)
-	if rootErr != nil {
+	reg := opts.Assets
+	if reg == nil {
+		// A standalone validation owns its registry and closes it here; a
+		// conversion passes the registry it already opened.
+		reg = assets.New(opts.Budget)
+		defer func() { _ = reg.Close() }()
+	}
+	if _, rootErr := reg.Root(opts.BaseDir); rootErr != nil {
 		// A configured root that cannot be opened is a configuration error.
 		// Continuing with a nil root would mean "no boundary" and read an
 		// absolute link outside the directory the caller named.
 		out.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the base directory: %v", rootErr)
 		return nil, out
 	}
-	defer func() { _ = root.Close() }()
+	// The registry owns the handle now; it closes it when the conversion ends.
+	// A repeated stylesheet shares one read and one immutable parse, but every
+	// inclusion keeps its own place in the cascade.
+	parsed := map[string]*css.Stylesheet{}
 	stopped := false
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
@@ -81,7 +95,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				sheets = append(sheets, sheet)
 				return
 			case "link":
-				sheet, err := loadStylesheet(doc, n, opts, root)
+				sheet, key, err := loadStylesheet(doc, n, opts, reg)
 				if err != nil {
 					var le *linkError
 					if errors.As(err, &le) {
@@ -107,6 +121,11 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 					return
 				}
 				if sheet != nil {
+					if cached, ok := parsed[key]; ok {
+						sheet = cached
+					} else {
+						parsed[key] = sheet
+					}
 					sheets = append(sheets, sheet)
 				}
 				return
@@ -191,34 +210,46 @@ func mediaAppliesToPrint(n *html.Node) bool {
 }
 
 // loadStylesheet resolves one link element. A non stylesheet rel, or a media
-// query that does not apply to print, returns nil without an error.
-func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Root) (*css.Stylesheet, error) {
+// query that does not apply to print, returns nil without an error. It also
+// returns the record identity, so a repeated inclusion reuses the immutable
+// parse while keeping its place in the cascade.
+func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.Registry) (*css.Stylesheet, string, error) {
 	rel, _ := n.Attr("rel")
 	if !strings.EqualFold(strings.TrimSpace(rel), "stylesheet") {
-		return nil, nil
+		return nil, "", nil
 	}
 	if !mediaAppliesToPrint(n) {
-		return nil, nil
+		return nil, "", nil
 	}
 	href, _ := n.Attr("href")
-	path, err := resolveStylesheetPath(href, opts.BaseDir)
+	if _, err := resolveStylesheetPath(href, opts.BaseDir); err != nil {
+		// The resolver's failures carry the link codes (remote, data:, empty);
+		// its path is not needed because the registry resolves the reference.
+		return nil, "", err
+	}
+	// The document encoding is part of the identity: one file decoded with two
+	// encodings is two records.
+	decoding := ""
+	if enc := doc.Charset(); enc != nil {
+		decoding = enc.Name()
+	}
+	rec, err := reg.Read(assets.Request{
+		Kind:      assets.Stylesheet,
+		Reference: href,
+		Dir:       opts.BaseDir,
+		MaxBytes:  opts.MaxStylesheetBytes,
+		Decoding:  decoding,
+	})
 	if err != nil {
-		return nil, err
+		return nil, "", stylesheetReadError(err, href)
 	}
-	data, err := readConfined(root, path, opts.MaxStylesheetBytes)
-	if err != nil {
-		return nil, err
-	}
-	// A stylesheet is bounded by MaxStylesheetBytes; the estimate still spends
-	// work so that many small sheets cannot bypass the shared budget.
-	if err := opts.Budget.Add(uint64(len(data)/4) + 1); err != nil {
-		return nil, err
-	}
+	path := rec.Path
 	// A linked sheet is read with the document's encoding: CSS 2.1 gives a
 	// sheet without its own @charset the encoding of the referring document.
-	text, mapper, err := decodeSheet(doc.Charset(), path, data)
+	text, mapper, err := decodeSheet(doc.Charset(), path, rec.Bytes)
 	if err != nil {
-		return nil, err
+		reg.Discard(rec)
+		return nil, "", err
 	}
 	opts2 := css.SheetOptions{File: path, Guard: opts.Budget}
 	if mapper != nil {
@@ -229,7 +260,25 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 			return css.Position{File: path, Line: line, Col: col}
 		}
 	}
-	return css.ParseSheet(opts2, text), nil
+	return css.ParseSheet(opts2, text), rec.Key, nil
+}
+
+// stylesheetReadError maps one registry failure to the link diagnostic the
+// profile reports.
+func stylesheetReadError(err error, href string) error {
+	var assetErr *assets.Error
+	if errors.As(err, &assetErr) {
+		switch {
+		case errors.Is(assetErr.Err, fsx.ErrOutsideRoot):
+			return &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", href)}
+		case errors.Is(assetErr.Err, assets.ErrTooLarge):
+			return fmt.Errorf("%w: stylesheet %q exceeds the limit", budget.ErrExceeded, href)
+		}
+		if assetErr.Path != "" {
+			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err)}
+		}
+	}
+	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err)}
 }
 
 // decodeSheet decodes one linked stylesheet and consumes a @charset rule at its
@@ -321,25 +370,6 @@ func charsetRule(text []byte) (label string, end int, ok bool) {
 // isCSSSpace reports whether b is CSS whitespace.
 func isCSSSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
-}
-
-// readConfined reads a stylesheet through a root confined to the base
-// directory and maps failures to the diagnostics the profile reports for links.
-func readConfined(root *fsx.Root, path string, limit int) ([]byte, error) {
-	if root == nil {
-		return nil, &linkError{code: diag.OptionsAssetRoot, msg: "the asset root is unavailable"}
-	}
-	data, err := root.ReadLimit(path, limit)
-	if err == nil {
-		return data, nil
-	}
-	if errors.Is(err, fsx.ErrTooLarge) {
-		return nil, fmt.Errorf("%w: stylesheet %q exceeds the limit of %d bytes", budget.ErrExceeded, path, limit)
-	}
-	if errors.Is(err, fsx.ErrOutsideRoot) {
-		return nil, &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", path)}
-	}
-	return nil, &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", path, err)}
 }
 
 // resolveStylesheetPath turns an href into a readable local path. Remote and

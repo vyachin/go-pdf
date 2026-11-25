@@ -2,7 +2,6 @@ package profile
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -272,15 +271,13 @@ func validateSheetDiags(t *testing.T, doc *html.Document, sheet *css.Stylesheet)
 	return ValidateSheets(doc, Options{}, []*css.Stylesheet{sheet}, nil)
 }
 
-// TestReadConfinedRejectsNilRoot guards the failed-root path: a nil root must
-// return an error instead of reading without a boundary.
-func TestReadConfinedRejectsNilRoot(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "style.css")
-	if err := os.WriteFile(path, []byte("p { color: #f00 }"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readConfined(nil, path, 1024); err == nil {
-		t.Fatal("a nil root read an existing file without a boundary")
+// TestCollectStylesheetsReportsABadRoot guards the standalone path: a profile
+// called without a conversion registry opens its own root and reports the
+// directory it cannot open instead of reading without a boundary.
+func TestCollectStylesheetsReportsABadRoot(t *testing.T) {
+	doc := parseDoc(t, `<link rel="stylesheet" href="a.css"><p>x</p>`)
+	_, diags := CollectStylesheets(doc, Options{BaseDir: filepath.Join(t.TempDir(), "missing")})
+	if len(diags) != 1 || diags[0].Code != "options/asset-root" {
+		t.Fatalf("diagnostics = %v, want one options/asset-root", diags.Lines())
 	}
 }

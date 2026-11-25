@@ -11,12 +11,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/backend/raster"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
-	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/pdf"
@@ -40,13 +40,28 @@ type prepared struct {
 	// Both entry points share them, because preparation checks them before
 	// layout: serialisation is the only stage Validate does not run.
 	title, author, subject, keywords string
+	// assets is the conversion's asset registry. Preparation opens it, layout
+	// reads through it and the entry point closes it on every exit.
+	assets *assets.Registry
 }
 
 // prepare validates the template and resolves everything that does not need
-// layout, so both entry points report the same problems.
+// layout, so both entry points report the same problems. It owns the asset
+// registry: a preparation that fails closes it before it returns.
 func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.List, error) {
 	limits := opts.Limits.resolved()
 	guard := budget.New(ctx, limits.MaxOperations)
+	reg := assets.New(guard)
+	p, diags, err := prepareDocument(ctx, src, opts, guard, reg)
+	if p == nil {
+		_ = reg.Close()
+	}
+	return p, diags, err
+}
+
+// prepareDocument is prepare with the shared guard and registry already built.
+func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budget.Guard, reg *assets.Registry) (*prepared, diag.List, error) {
+	limits := opts.Limits.resolved()
 	var diags diag.List
 	// Every option is parsed and checked before an asset is opened. The
 	// diagnostics accumulate, so a bad option and a bad document are reported
@@ -135,6 +150,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		Strict:             opts.Strict,
 		Budget:             guard,
 		MaxStylesheetBytes: limits.MaxStylesheetBytes,
+		Assets:             reg,
 	}
 	if optionInvalid {
 		// The options are already wrong, but the document is still validated so
@@ -158,13 +174,13 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		if dir == "" {
 			continue
 		}
-		root, rootErr := fsx.Open(dir)
-		if rootErr != nil {
+		// The registry keeps the opened root for the conversion, so the check
+		// does not open and close the same directory twice.
+		if _, rootErr := reg.Root(dir); rootErr != nil {
 			diags.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the asset directory %q: %v", dir, rootErr)
 			diags.Sort()
 			return nil, diags, nil
 		}
-		_ = root.Close()
 	}
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
 	strictDiags := profile.ValidateSheets(doc, profileOpts, sheets, nil)
@@ -178,7 +194,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		return nil, diags, nil
 	}
 	pageStyle := layout.ParsePageStyle(sheets, pageSize, margin)
-	registry, err := newFontRegistry(ctx, guard, sheets, opts)
+	registry, err := newFontRegistry(ctx, guard, sheets, opts, reg)
 	if err != nil {
 		if failed, ctxErr := budgetFailure(guard, &diags); failed {
 			return nil, diags, ctxErr
@@ -213,6 +229,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		author:    author,
 		subject:   subject,
 		keywords:  keywords,
+		assets:    reg,
 	}, diags, nil
 }
 
@@ -272,6 +289,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 		maxTotalBytes:  limits.MaxTotalImageBytes,
 		maxTotalPixels: limits.MaxTotalImagePixels,
 		guard:          p.guard,
+		reg:            p.assets,
 	}
 	defer func() { _ = images.Close() }()
 
@@ -343,6 +361,11 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	p, diags, err := prepare(ctx, src, opts)
 	if err != nil {
 		return Result{Diagnostics: diags}, err
+	}
+	// The registry opened the conversion's roots; every exit — success, a
+	// layout failure or a cancelled context — releases them here.
+	if p != nil {
+		defer func() { _ = p.assets.Close() }()
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{Diagnostics: diags}, err

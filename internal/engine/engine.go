@@ -174,6 +174,11 @@ func Validate(ctx context.Context, src []byte, opts Options) (diag.List, error) 
 	if err != nil {
 		return diags, err
 	}
+	// Preparation opened the conversion's roots; layout and every early return
+	// release them through this defer.
+	if p != nil {
+		defer func() { _ = p.assets.Close() }()
+	}
 	if err := ctx.Err(); err != nil {
 		return diags, err
 	}
