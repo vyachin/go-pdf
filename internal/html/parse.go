@@ -1,63 +1,28 @@
 package html
 
 import (
-	"fmt"
+	"bytes"
 	"strings"
 
+	xhtml "golang.org/x/net/html"
+
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/diag"
 )
 
-const (
-	modeInitial = iota
-	modeHead
-	modeBody
-)
-
-var voidElements = map[string]bool{
-	"area": true, "base": true, "br": true, "col": true, "embed": true,
-	"hr": true, "img": true, "input": true, "link": true, "meta": true,
-	"param": true, "source": true, "track": true, "wbr": true,
+// TruncatedError reports that the document ends inside an HTML tag. The tree
+// construction drops an incomplete tag at the end of the input, which would
+// convert a shorter document than the author wrote, so the parse fails instead.
+type TruncatedError struct {
+	// Offset is where the incomplete tag begins.
+	Offset int
+	// Position is Offset as a file position, using the file the parse was
+	// given.
+	Position diag.Position
 }
 
-var headContent = map[string]bool{
-	"title": true, "meta": true, "link": true, "style": true, "base": true, "script": true,
-}
-
-var closesParagraph = map[string]bool{
-	"address": true, "article": true, "aside": true, "blockquote": true, "details": true,
-	"div": true, "dl": true, "fieldset": true, "figcaption": true, "figure": true,
-	"footer": true, "form": true, "h1": true, "h2": true, "h3": true, "h4": true,
-	"h5": true, "h6": true, "header": true, "hr": true, "main": true, "nav": true,
-	"ol": true, "p": true, "pre": true, "section": true, "table": true, "ul": true,
-}
-
-var tableAllowed = map[string]bool{
-	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true,
-	"td": true, "th": true, "caption": true, "colgroup": true, "col": true,
-	"style": true, "script": true,
-}
-
-// tableStructure is the set of elements that hold table structure: content
-// directly inside them must be table structure too, or it is foster-parented.
-var tableStructure = map[string]bool{
-	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true,
-	"colgroup": true,
-}
-
-type parser struct {
-	doc   *Document
-	toks  []Token
-	stack []*Node
-	html  *Node
-	head  *Node
-	body  *Node
-	mode  int
-	// maxDepth bounds element nesting; zero means unlimited.
-	maxDepth int
-	budget   *budget.Guard
-	// fosterIndex caches where the next foster-parented node goes for a table,
-	// so inserting N nodes before it does not scan the child list N times.
-	fosterIndex map[*Node]int
+func (e *TruncatedError) Error() string {
+	return "the document ends inside an HTML tag"
 }
 
 // ParseOptions configures one parse.
@@ -79,42 +44,33 @@ func Parse(src []byte, file string) (*Document, error) {
 }
 
 // ParseWithOptions parses src under the given limits and cancellation.
+//
+// It runs two passes over the input: a token pass that records every token's
+// source range under the work budget and the nesting limit, and the standard
+// tree-construction pass. The tree is then converted into this package's node
+// model, taking each element's position from the recorded range of its start
+// tag. An element the tree construction implied has no start tag of its own, so
+// it inherits the range of its nearest positioned ancestor.
 func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	if err := opts.Budget.Err(); err != nil {
 		return nil, err
 	}
 	d := &Document{File: opts.File, src: src, Root: &Node{Type: DocumentNode}}
 	d.lines = lineStarts(src)
-	toks, err := tokenize(src, opts.Budget)
+	sc, err := scan(src, opts)
 	if err != nil {
 		return nil, err
 	}
-	p := &parser{doc: d, toks: toks, maxDepth: opts.MaxDepth, budget: opts.Budget}
-	if err := p.run(); err != nil {
+	if sc.truncated >= 0 {
+		return nil, &TruncatedError{Offset: sc.truncated, Position: d.Position(sc.truncated)}
+	}
+	tree, err := xhtml.Parse(bytes.NewReader(src))
+	if err != nil {
 		return nil, err
 	}
+	b := &builder{doc: d, scan: sc, cursors: map[uint16]int{}}
+	b.children(tree, d.Root)
 	return d, nil
-}
-
-func tokenize(src []byte, g *budget.Guard) ([]Token, error) {
-	z := NewTokenizer(src)
-	var out []Token
-	for {
-		if err := g.Add(1); err != nil {
-			return out, err
-		}
-		t := z.Next()
-		if t.Kind == EOFToken {
-			return out, nil
-		}
-		if t.Kind == ErrorToken {
-			return out, nil
-		}
-		out = append(out, t)
-		if t.Kind == StartTagToken && (t.Name == "script" || t.Name == "style") {
-			z.SetRawTag(t.Name)
-		}
-	}
 }
 
 func lineStarts(src []byte) []int {
@@ -127,337 +83,144 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
-func (p *parser) run() error {
-	for _, t := range p.toks {
-		if err := p.budget.Add(0); err != nil {
-			return err
-		}
-		switch t.Kind {
-		case TextToken:
-			p.text(t)
-		case StartTagToken:
-			p.start(t)
-		case EndTagToken:
-			p.end(t)
-		case CommentToken:
-			p.comment(t)
-		case DoctypeToken:
-			p.doc.Root.AppendChild(&Node{Type: DoctypeNode, Data: t.Data, Start: t.Offset, End: t.End})
-		}
-		// The stack grows by at most one node per token, so checking after the
-		// token bounds nesting before the next node is allocated.
-		if p.maxDepth > 0 && len(p.stack) > p.maxDepth {
-			return fmt.Errorf("%w: element nesting exceeds %d levels", budget.ErrExceeded, p.maxDepth)
-		}
-	}
-	return nil
+// builder converts a standard tree into this package's model.
+type builder struct {
+	doc  *Document
+	scan *scanResult
+	// cursors holds, per interned tag name, the next unconsumed start-tag span.
+	cursors map[uint16]int
+	// spanCur is the next span the text lookup may use, and lower is the
+	// smallest offset an unvisited node can start at. Spans below lower belong
+	// to content the tree construction dropped, such as white space before
+	// <html>, so they are skipped instead of being given to the next node.
+	spanCur int
+	lower   int
 }
 
-func (p *parser) current() *Node {
-	if len(p.stack) == 0 {
-		return p.doc.Root
+func (b *builder) children(n *xhtml.Node, parent *Node) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		b.node(c, parent)
 	}
-	return p.stack[len(p.stack)-1]
 }
 
-func (p *parser) ensureHTML(t Token) {
-	if p.html != nil {
+func (b *builder) node(n *xhtml.Node, parent *Node) {
+	switch n.Type {
+	case xhtml.ElementNode:
+		el := &Node{Type: ElementNode, Tag: n.Data, Attrs: attrsOf(n)}
+		start, end, ok := b.startPosition(n.Data)
+		b.place(el, parent, start, end, ok)
+		if ok && end > b.lower {
+			b.lower = end
+		}
+		parent.AppendChild(el)
+		b.children(n, el)
+	case xhtml.TextNode:
+		b.textNode(n, parent)
+	case xhtml.CommentNode:
+		parent.AppendChild(&Node{Type: CommentNode, Data: n.Data, Start: parent.Start, End: parent.End})
+	case xhtml.DoctypeNode:
+		parent.AppendChild(&Node{Type: DoctypeNode, Data: n.Data, Start: parent.Start, End: parent.End})
+	}
+}
+
+// textNode appends character data, merging it into the previous text node when
+// there is one, so a run of text between two elements is a single node.
+func (b *builder) textNode(n *xhtml.Node, parent *Node) {
+	start, end, ok := b.textPosition()
+	data := n.Data
+	// A style or script element holds its source verbatim: the tree's text is
+	// unescaped and has its line endings normalized, which would shift the byte
+	// offsets the CSS parser maps back to the document.
+	if ok && (parent.Tag == "style" || parent.Tag == "script") {
+		data = string(b.doc.src[start:end])
+	}
+	// White space between table structure takes no part in layout.
+	if tableStructure[parent.Tag] && strings.TrimSpace(data) == "" {
 		return
 	}
-	// Only the real <html> tag carries attributes; an implicit html created
-	// from another start tag must not inherit that tag's attributes.
-	var attrs []Attr
-	if t.Name == "html" {
-		attrs = t.Attrs
-	}
-	p.html = &Node{Type: ElementNode, Tag: "html", Attrs: attrs, Start: t.Offset, End: t.End}
-	p.doc.Root.AppendChild(p.html)
-	p.stack = []*Node{p.html}
-}
-
-func (p *parser) ensureHead(t Token) {
-	p.ensureHTML(t)
-	if p.head != nil {
-		return
-	}
-	p.head = &Node{Type: ElementNode, Tag: "head", Start: t.Offset, End: t.End}
-	p.html.AppendChild(p.head)
-}
-
-func (p *parser) ensureBody(t Token) {
-	p.ensureHTML(t)
-	p.ensureHead(t)
-	if p.body != nil {
-		return
-	}
-	p.body = &Node{Type: ElementNode, Tag: "body", Start: t.Offset, End: t.End}
-	p.html.AppendChild(p.body)
-}
-
-func (p *parser) enterBody(t Token) {
-	p.ensureBody(t)
-	p.stack = []*Node{p.html, p.body}
-	p.mode = modeBody
-}
-
-func (p *parser) text(t Token) {
-	if p.mode == modeHead {
-		if top := p.current(); top.Tag == "title" || top.Tag == "style" || top.Tag == "script" {
-			p.appendText(t)
-			return
-		}
-	}
-	if p.mode != modeBody {
-		if strings.TrimSpace(t.Data) == "" {
-			return
-		}
-		p.enterBody(t)
-	}
-	p.appendText(t)
-}
-
-func (p *parser) appendText(t Token) {
-	if p.inTableStructure() {
-		if strings.TrimSpace(t.Data) == "" {
-			return
-		}
-		p.foster(&Node{Type: TextNode, Data: t.Data, Start: t.Offset, End: t.End})
-		return
-	}
-	parent := p.current()
-	if len(parent.Children) > 0 {
-		if last := parent.Children[len(parent.Children)-1]; last.Type == TextNode && last.End == t.Offset {
-			last.Data += t.Data
-			last.End = t.End
-			return
-		}
-	}
-	parent.AppendChild(&Node{Type: TextNode, Data: t.Data, Start: t.Offset, End: t.End})
-}
-
-func (p *parser) comment(t Token) {
-	node := &Node{Type: CommentNode, Data: t.Data, Start: t.Offset, End: t.End}
-	if len(p.stack) == 0 {
-		p.doc.Root.AppendChild(node)
-		return
-	}
-	p.current().AppendChild(node)
-}
-
-func (p *parser) start(t Token) {
-	switch t.Name {
-	case "html":
-		p.ensureHTML(t)
-		return
-	case "head":
-		p.ensureHTML(t)
-		if p.head == nil {
-			p.head = &Node{Type: ElementNode, Tag: "head", Start: t.Offset, End: t.End}
-			p.html.AppendChild(p.head)
-		}
-		p.stack = []*Node{p.html, p.head}
-		p.mode = modeHead
-		return
-	case "body":
-		p.ensureHTML(t)
-		p.ensureHead(t)
-		if p.body == nil {
-			p.body = &Node{Type: ElementNode, Tag: "body", Start: t.Offset, End: t.End, Attrs: t.Attrs}
-			p.html.AppendChild(p.body)
-		}
-		p.stack = []*Node{p.html, p.body}
-		p.mode = modeBody
-		return
-	}
-
-	if p.mode != modeBody {
-		if headContent[t.Name] {
-			p.ensureHead(t)
-			p.stack = []*Node{p.html, p.head}
-			p.mode = modeHead
-			p.insertElement(t)
-			return
-		}
-		p.enterBody(t)
-	}
-
-	p.implicitClose(t.Name)
-	p.insertElement(t)
-}
-
-func isHeading(tag string) bool {
-	switch tag {
-	case "h1", "h2", "h3", "h4", "h5", "h6":
-		return true
-	}
-	return false
-}
-
-func (p *parser) implicitClose(name string) {
-	if closesParagraph[name] {
-		p.closeOpen("p")
-	}
-	switch name {
-	case "h1", "h2", "h3", "h4", "h5", "h6":
-		// A heading start tag closes the heading that is the current node, so
-		// "<h1>a<h2>b" produces siblings, not a heading inside a heading.
-		if isHeading(p.current().Tag) {
-			p.stack = p.stack[:len(p.stack)-1]
-		}
-	case "li":
-		p.closeOpenIn("li", "ol", "ul")
-	case "dt", "dd":
-		p.closeOpenIn("dt", "dl")
-		p.closeOpenIn("dd", "dl")
-	case "td", "th":
-		p.closeOpenIn("td", "table")
-		p.closeOpenIn("th", "table")
-	case "tr":
-		p.closeOpenIn("td", "table")
-		p.closeOpenIn("th", "table")
-		p.closeOpenIn("tr", "table")
-	case "thead", "tbody", "tfoot":
-		p.closeOpenIn("td", "table")
-		p.closeOpenIn("th", "table")
-		p.closeOpenIn("tr", "table")
-		p.closeOpenIn("thead", "table")
-		p.closeOpenIn("tbody", "table")
-		p.closeOpenIn("tfoot", "table")
-	case "option":
-		p.closeOpenIn("option", "select")
-	}
-}
-
-func (p *parser) insertElement(t Token) {
-	el := &Node{Type: ElementNode, Tag: t.Name, Attrs: t.Attrs, Start: t.Offset, End: t.End}
-	// A table start tag inside table structure closes the outer table and opens
-	// a sibling: nesting it would make layout silently drop the inner rows.
-	if t.Name == "table" && p.inTableContext() {
-		p.closeOpen("table")
-	}
-	// A start tag for table structure clears a foster-parented element that is
-	// still open, as the HTML parser returns to a table context.
-	if tableStructure[t.Name] && p.inTableContext() && !p.inTableStructure() {
-		p.clearToTableStructure()
-	}
-	if p.inTableStructure() && !tableAllowed[t.Name] {
-		p.foster(el)
-	} else {
-		p.current().AppendChild(el)
-	}
-	if voidElements[t.Name] || t.SelfClosing {
-		return
-	}
-	p.stack = append(p.stack, el)
-}
-
-func (p *parser) end(t Token) {
-	switch t.Name {
-	case "html", "body":
-		return
-	case "head":
-		p.closeOpen("head")
-		if p.mode == modeHead {
-			p.mode = modeInitial
-			p.stack = []*Node{p.html}
+	if last := lastChild(parent); last != nil && last.Type == TextNode {
+		last.Data += data
+		if ok {
+			last.End = end
 		}
 		return
-	case "br":
-		p.insertElement(Token{Kind: StartTagToken, Name: "br", Offset: t.Offset, End: t.End})
-		return
 	}
-	p.closeOpen(t.Name)
+	tn := &Node{Type: TextNode, Data: data}
+	b.place(tn, parent, start, end, ok)
+	parent.AppendChild(tn)
 }
 
-// closeOpenIn is closeOpen restricted to the current scope: it stops at the
-// first boundary element instead of closing an element in an enclosing table,
-// list or select.
-func (p *parser) closeOpenIn(tag string, boundaries ...string) bool {
-	for i := len(p.stack) - 1; i >= 0; i-- {
-		current := p.stack[i].Tag
-		for _, boundary := range boundaries {
-			if current == boundary {
-				return false
-			}
+// place sets the node's range, falling back to its parent's when the node has
+// no start tag of its own.
+func (b *builder) place(n *Node, parent *Node, start, end int, ok bool) {
+	if !ok {
+		start, end = parent.Start, parent.End
+	}
+	n.Start, n.End = start, end
+}
+
+// startPosition returns the range of the next start tag with the given name.
+func (b *builder) startPosition(tag string) (int, int, bool) {
+	idx, ok := b.scan.index[normalTagName(tag)]
+	if !ok {
+		return 0, 0, false
+	}
+	list := b.scan.startSpans[idx]
+	cur := b.cursors[idx]
+	if cur >= len(list) {
+		return 0, 0, false
+	}
+	b.cursors[idx] = cur + 1
+	s := b.scan.spans[list[cur]]
+	return int(s.start), int(s.end), true
+}
+
+// textPosition returns the range of the next text token at or after the current
+// document position.
+func (b *builder) textPosition() (int, int, bool) {
+	for b.spanCur < len(b.scan.spans) {
+		s := b.scan.spans[b.spanCur]
+		b.spanCur++
+		if int(s.start) < b.lower {
+			continue
 		}
-		if current == tag {
-			p.stack = p.stack[:i]
-			return true
+		if s.kind != spanText {
+			continue
 		}
+		b.lower = int(s.end)
+		return int(s.start), int(s.end), true
 	}
-	return false
+	return 0, 0, false
 }
 
-// closeOpen pops the stack down to and including the nearest element with the
-// given tag. It reports whether such an element was open.
-func (p *parser) closeOpen(tag string) bool {
-	for i := len(p.stack) - 1; i >= 0; i-- {
-		if p.stack[i].Tag == tag {
-			p.stack = p.stack[:i]
-			return true
+// lastChild returns the last child of n, or nil.
+func lastChild(n *Node) *Node {
+	if len(n.Children) == 0 {
+		return nil
+	}
+	return n.Children[len(n.Children)-1]
+}
+
+// tableStructure is the set of elements that hold table structure rather than
+// content.
+var tableStructure = map[string]bool{
+	"table": true, "thead": true, "tbody": true, "tfoot": true,
+	"tr": true, "colgroup": true,
+}
+
+// attrsOf converts the standard tree's attributes into this package's form. An
+// attribute in a namespace keeps its prefix, so "xlink:href" survives.
+func attrsOf(n *xhtml.Node) []Attr {
+	if len(n.Attr) == 0 {
+		return nil
+	}
+	attrs := make([]Attr, 0, len(n.Attr))
+	for _, a := range n.Attr {
+		key := a.Key
+		if a.Namespace != "" {
+			key = a.Namespace + ":" + a.Key
 		}
+		attrs = append(attrs, Attr{Key: key, Value: a.Val})
 	}
-	return false
-}
-
-// inTableContext reports whether a table is open and the stack has not entered
-// a cell or caption.
-func (p *parser) inTableContext() bool {
-	for i := len(p.stack) - 1; i >= 0; i-- {
-		switch p.stack[i].Tag {
-		case "td", "th", "caption":
-			return false
-		case "table":
-			return true
-		}
-	}
-	return false
-}
-
-// inTableStructure reports whether the insertion point is table structure
-// itself. Inside a foster-parented element the insertion point is that element,
-// so its text and child elements belong to it and must not be fostered again:
-// otherwise a hidden block inside a table leaks its content next to the table.
-func (p *parser) inTableStructure() bool {
-	if len(p.stack) == 0 {
-		return false
-	}
-	return tableStructure[p.stack[len(p.stack)-1].Tag]
-}
-
-// clearToTableStructure pops foster-parented elements until table structure is
-// current again, the "clear the stack back to a table context" step.
-func (p *parser) clearToTableStructure() {
-	for len(p.stack) > 0 && !p.inTableStructure() {
-		p.stack = p.stack[:len(p.stack)-1]
-	}
-}
-
-// foster inserts a node before the nearest table ancestor, as the HTML parser
-// does for content that is not allowed inside a table.
-func (p *parser) foster(n *Node) {
-	for i := len(p.stack) - 1; i >= 0; i-- {
-		if p.stack[i].Tag == "table" {
-			table := p.stack[i]
-			parent := table.Parent
-			if parent == nil {
-				break
-			}
-			idx, cached := p.fosterIndex[table]
-			if !cached || idx < 0 || idx >= len(parent.Children) || parent.Children[idx] != table {
-				idx = parent.ChildIndex(table)
-			}
-			if idx < 0 {
-				parent.AppendChild(n)
-				return
-			}
-			parent.InsertAt(idx, n)
-			if p.fosterIndex == nil {
-				p.fosterIndex = map[*Node]int{}
-			}
-			p.fosterIndex[table] = idx + 1
-			return
-		}
-	}
-	p.current().AppendChild(n)
+	return attrs
 }

@@ -5,11 +5,13 @@
   <html display="block">
     <body display="block">
       <table border-collapse="collapse" class="cover" display="table" width="595.276pt">
-        <tr display="table-row">
-          <td background-image="url(hello-world.jpg)" background-size="cover" class="cover" display="table-cell" height="841.89pt" text-align="center" vertical-align="middle">
-            <h1 color="#1c2b3a" display="block" font-size="84pt" font-weight="700">Hello world</h1>
-          </td>
-        </tr>
+        <tbody display="block">
+          <tr display="table-row">
+            <td background-image="url(hello-world.jpg)" background-size="cover" class="cover" display="table-cell" height="841.89pt" text-align="center" vertical-align="middle">
+              <h1 color="#1c2b3a" display="block" font-size="84pt" font-weight="700">Hello world</h1>
+            </td>
+          </tr>
+        </tbody>
       </table>
     </body>
   </html>
