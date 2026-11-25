@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
 )
@@ -59,6 +60,32 @@ type Node struct {
 	// bytes of the original file; they are the same when nothing was decoded.
 	Start int
 	End   int
+	// guard bounds the work of building a diagnostic path for this node. Nil
+	// means unlimited work and is what a manually built tree has.
+	guard *budget.Guard
+}
+
+// attachBudget gives every node of a tree the parser's work guard, so Path can
+// account for the diagnostic strings it builds.
+func attachBudget(root *Node, g *budget.Guard) {
+	if root == nil {
+		return
+	}
+	stack := []*Node{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		n.guard = g
+		stack = append(stack, n.Children...)
+	}
+}
+
+// charge records path-building work. A nil guard accepts everything.
+func (n *Node) charge(units uint64) bool {
+	if n.guard == nil {
+		return true
+	}
+	return n.guard.Add(units) == nil
 }
 
 // Attr returns the value of an attribute and whether it is present.
@@ -183,12 +210,11 @@ func (n *Node) Path() string {
 		if x.Type != ElementNode {
 			continue
 		}
-		seg := x.Tag
-		if id := x.ID(); id != "" {
-			seg += "#" + id
-		}
-		for _, c := range x.Class() {
-			seg += "." + c
+		seg, ok := x.pathSegment()
+		if !ok {
+			// The work budget or a cancellation stopped the path; the partial
+			// path is still a usable position and the guard carries the reason.
+			break
 		}
 		parts = append(parts, seg)
 	}
@@ -200,6 +226,29 @@ func (n *Node) Path() string {
 		parts[i], parts[j] = parts[j], parts[i]
 	}
 	return strings.Join(parts, " > ")
+}
+
+// pathSegment builds "tag#id.class1.class2" and charges one unit per piece, so a
+// deeply annotated element cannot build an unbounded diagnostic string for
+// free.
+func (x *Node) pathSegment() (string, bool) {
+	if !x.charge(1) {
+		return "", false
+	}
+	seg := x.Tag
+	if id := x.ID(); id != "" {
+		if !x.charge(1) {
+			return "", false
+		}
+		seg += "#" + id
+	}
+	for _, c := range x.Class() {
+		if !x.charge(1) {
+			return "", false
+		}
+		seg += "." + c
+	}
+	return seg, true
 }
 
 // Document is a parsed HTML document together with its source mapping.

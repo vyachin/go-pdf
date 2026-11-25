@@ -83,8 +83,10 @@ type Limits struct {
 	// MaxTableCells bounds the number of cells in one table.
 	MaxTableCells int
 	// MaxOperations bounds the total work of a conversion: parsed tokens,
-	// layout boxes, placed lines and drawing operations. It is the backstop
-	// against a document that is cheap to store but expensive to lay out.
+	// stylesheet rules and compounds matched by the cascade, font parsing,
+	// image decoding, layout boxes, placed lines, copied drawing operations,
+	// diagnostic paths and PDF writing. It is the backstop against a document
+	// that is cheap to store but expensive to process.
 	MaxOperations int
 }
 

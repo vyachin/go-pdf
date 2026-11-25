@@ -194,5 +194,19 @@ invoice.html:12:5: error[css/unsupported-value]: display: unsupported display va
 
 Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `text/glyph`, `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
 
+## Work budget
+
+`Options.Limits.MaxOperations` bounds the total work of one conversion, not only
+the parsed tokens. One operation is charged for every stylesheet rule evaluated
+by the cascade (once per compound in its selector), every GPOS lookup, subtable
+and coverage entry read from a font, every 64 KiB of decoded image pixels, every
+layout box, placed line, copied drawing operation and diagnostic path segment
+built, and every PDF writing operation. Text shaping is bounded by the same
+token and line charges.
+
+The first stage to exhaust the budget stops with `resource/limit`, and a
+cancelled context is returned as `context.Canceled` from that stage instead of
+being reported as a document diagnostic. The default is 20,000,000 operations.
+
 An option error, such as `options/charset` or `options/page-size`, names no
 position: it is about the call, not the document.

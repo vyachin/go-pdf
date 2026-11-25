@@ -542,5 +542,5 @@ func (l *layouter) paintStaticDecorations(page *Page, b *Box, y, height int32, o
 		return
 	}
 	l.ops += len(ops)
-	page.Ops = insertOps(page.Ops, opStart, ops)
+	page.Ops = l.insertOps(page.Ops, opStart, ops)
 }

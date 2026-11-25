@@ -105,6 +105,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **One overflow warning per box.** A clipped box is reported once: the
   duplicated fixed-height pass is gone, and so is the second report when the text
   path and the fixed height clip the same box.
+- **The work budget covers every stage.** `Limits.MaxOperations` now charges
+  stylesheet rules and compounds matched by the cascade, font parsing, image
+  decoding, copied drawing operations and diagnostic path segments in addition
+  to tokens, boxes, lines and writing operations. A selector that uses the
+  adjacent-sibling combinator is matched by splitting it at `+` and running the
+  ancestor-chain dynamic program on each segment, so a deep tree costs
+  `O(compounds × depth)` instead of combinatorial time; the previous recursive
+  path ran 92 seconds on a 2.3 KB document. A conversion that runs out of budget
+  fails with `resource/limit` from the stage that hit it, and a cancelled context
+  is observed inside matching, image decoding and path building rather than after
+  them. Documents within the default limits produce byte-identical output.
 
 ## [1.0.0] - 2026-11-25
 

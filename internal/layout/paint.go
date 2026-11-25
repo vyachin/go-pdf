@@ -26,7 +26,7 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	ops := l.decorationOps(b, top, bottom, first, completed)
 	if len(ops) > 0 {
 		l.ops += len(ops)
-		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
+		page.Ops = l.insertOps(page.Ops, b.fragOpStart, ops)
 		// A background or a border is content the page now carries.
 		f.pageHasBody = true
 	}
@@ -73,8 +73,14 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 	return ops
 }
 
-// insertOps places ops at the given index of dst, keeping paint order.
-func insertOps(dst []Op, at int, ops []Op) []Op {
+// insertOps places ops at the given index of dst, keeping paint order. The
+// copy is charged to the work budget; a stopped layout keeps the page as it was
+// instead of paying for a decoration it will not use.
+func (l *layouter) insertOps(dst []Op, at int, ops []Op) []Op {
+	if err := l.ctx.Budget.Add(uint64(len(dst)) + 1); err != nil {
+		_ = l.stopReason()
+		return dst
+	}
 	if at < 0 || at > len(dst) {
 		at = len(dst)
 	}

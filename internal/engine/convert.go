@@ -153,7 +153,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	return &prepared{
 		doc:       doc,
 		sheets:    sheets,
-		cascade:   css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...),
+		cascade:   css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...).SetGuard(guard),
 		pageSize:  pageSize,
 		margin:    margin,
 		pageStyle: pageStyle,
@@ -186,7 +186,7 @@ func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
 func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.List) (*layout.Document, error) {
 	limits := opts.Limits.resolved()
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
-	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes}
+	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes, guard: p.guard}
 	defer func() { _ = images.Close() }()
 
 	// target-counter needs a second pass: the page numbers written into the
