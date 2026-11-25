@@ -424,16 +424,14 @@ func (b *builder) buildBlocks(n *html.Node, parentStyle *css.Style) []*Box {
 			if style.Display == css.DisplayNone {
 				continue
 			}
-			box := b.buildElement(child, style, parentStyle)
-			if box == nil {
-				continue
+			for _, part := range b.buildElement(child, style, parentStyle) {
+				if inlinePart(part) {
+					inlineRun = append(inlineRun, part)
+					continue
+				}
+				flushInline()
+				out = append(out, part)
 			}
-			if isInlineDisplay(style.Display) {
-				inlineRun = append(inlineRun, box)
-				continue
-			}
-			flushInline()
-			out = append(out, box)
 		}
 	}
 	flushInline()
@@ -465,23 +463,23 @@ func isInlineDisplay(d css.Display) bool {
 	return d == css.DisplayInline || d == css.DisplayInlineBlock
 }
 
-func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.Style) *Box {
+func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.Style) []*Box {
 	switch n.Tag {
 	case "br":
-		return &Box{Kind: Text, Node: n, Style: style, Text: "\n"}
+		return []*Box{{Kind: Text, Node: n, Style: style, Text: "\n"}}
 	case "img":
-		return b.buildImage(n, style)
+		return []*Box{b.buildImage(n, style)}
 	case "table":
-		return b.buildTable(n, style)
+		return []*Box{b.buildTable(n, style)}
 	case "td", "th", "tr", "thead", "tbody", "tfoot":
 		// Outside a table these are treated as blocks, which matches the
 		// forgiving error handling of HTML.
-		return &Box{Kind: Block, Node: n, Style: style, Children: b.buildBlocks(n, style)}
+		return []*Box{{Kind: Block, Node: n, Style: style, Children: b.buildBlocks(n, style)}}
 	case "li":
 		box := &Box{Kind: ListItem, Node: n, Style: style, Children: b.buildBlocks(n, style)}
 		box.ListIndex = liIndex(n)
 		box.Level = listLevel(n)
-		return box
+		return []*Box{box}
 	}
 	kind := Block
 	switch style.Display {
@@ -490,17 +488,59 @@ func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.
 	case css.DisplayListItem:
 		kind = ListItem
 	}
-	box := &Box{Kind: kind, Node: n, Style: style}
 	if kind == Inline {
-		box.Children = b.buildInline(n, style)
-		return box
+		return b.splitInline(n, style, b.buildInlineFlow(n, style))
 	}
-	box.Children = b.buildBlocks(n, style)
-	return box
+	return []*Box{{Kind: Block, Node: n, Style: style, Children: b.buildBlocks(n, style)}}
 }
 
-// buildInline builds inline descendants without anonymous block wrapping.
-func (b *builder) buildInline(n *html.Node, parentStyle *css.Style) []*Box {
+// splitInline turns the flow of an inline element into boxes: every run of
+// inline content becomes one Inline fragment that carries the wrapper's computed
+// style, and each block descendant keeps its own box between the fragments.
+// A box with no block descendant yields exactly one fragment, which is the shape
+// the builder always produced.
+func (b *builder) splitInline(n *html.Node, style *css.Style, flow []*Box) []*Box {
+	var out []*Box
+	var run []*Box
+	flush := func() {
+		if len(run) == 0 {
+			return
+		}
+		out = append(out, &Box{Kind: Inline, Node: n, Style: style, Children: run})
+		run = nil
+	}
+	for _, part := range flow {
+		if inlinePart(part) {
+			run = append(run, part)
+			continue
+		}
+		flush()
+		out = append(out, part)
+	}
+	flush()
+	return out
+}
+
+// inlinePart reports whether a box belongs to an inline run rather than to the
+// block flow. Text is always inline; an element box follows its display value,
+// so a block-level image or table is a flow sibling.
+func inlinePart(box *Box) bool {
+	if box == nil {
+		return false
+	}
+	if box.Kind == Text {
+		return true
+	}
+	if box.Style == nil {
+		return false
+	}
+	return isInlineDisplay(box.Style.Display)
+}
+
+// buildInlineFlow builds the descendants of an inline element in document order.
+// A block descendant keeps its own box here, so the caller can split the wrapper
+// around it; it is never replaced by a line break or by its text children.
+func (b *builder) buildInlineFlow(n *html.Node, parentStyle *css.Style) []*Box {
 	var out []*Box
 	for _, child := range n.Children {
 		if !b.tick() {
@@ -517,14 +557,7 @@ func (b *builder) buildInline(n *html.Node, parentStyle *css.Style) []*Box {
 			if style.Display == css.DisplayNone {
 				continue
 			}
-			if style.Display == css.DisplayBlock || style.Display == css.DisplayTable || style.Display == css.DisplayListItem {
-				// A block inside an inline element starts a new line; keep it
-				// simple and treat its text as an inline break.
-				out = append(out, &Box{Kind: Text, Node: child, Style: style, Text: "\n"})
-				out = append(out, b.buildInline(child, style)...)
-				continue
-			}
-			out = append(out, b.buildElement(child, style, parentStyle))
+			out = append(out, b.buildElement(child, style, parentStyle)...)
 		}
 	}
 	return out
