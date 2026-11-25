@@ -119,7 +119,7 @@ func scan(src []byte, opts ParseOptions) (*scanResult, error) {
 			// source: an entity, a carriage return or a NUL in raw text. A
 			// raw-text token keeps its ampersand, so the tokenizer returns the
 			// source unchanged and no entry is stored.
-			if bytes.IndexAny(src[start:off], "&\r\x00") >= 0 {
+			if bytes.ContainsAny(src[start:off], "&\r\x00") {
 				if decoded := z.Text(); !bytes.Equal(decoded, src[start:off]) {
 					sp.name = res.internText(string(decoded)) + 1
 				}
