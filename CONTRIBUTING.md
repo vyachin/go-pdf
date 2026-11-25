@@ -61,6 +61,12 @@ go test ./internal/engine -bench .             # benchmarks
   deterministic PDF, while a document outside the profile is rejected with
   diagnostics instead of a crash. Details are in
   [docs/mpdf-corpus.md](docs/mpdf-corpus.md).
+- The WeasyPrint corpus (`internal/weasycompat`) holds six full documents from
+  `CourtBouillon/weasyprint-samples` with the PDFs WeasyPrint produced. Each case
+  declares whether the profile rejects it, whether it converts, or whether it
+  matches the reference text, and the suite enforces that declaration; the
+  current distance from the profile is in
+  [docs/weasyprint-corpus.md](docs/weasyprint-corpus.md).
 - Fuzz targets cover the HTML and CSS tokenizers, TrueType parsing, the PDF
   writer and the public `Convert` boundary (arbitrary bytes never panic).
 
@@ -75,7 +81,14 @@ go test ./internal/engine -run TestCorpus -update            # golden texts
 go test ./internal/engine -run TestDocumentSnapshots -update # parsed model
 go test ./internal/engine -run TestRenderSnapshots -update   # page rasters
 go test ./internal/mpdfcompat -update                        # mPDF corpus
+go test ./internal/weasycompat -run TestCorpus -update       # WeasyPrint page text
+go test ./internal/weasycompat -run TestUpdateOracle -update-oracle  # reference text
 ```
+
+The WeasyPrint oracle is generated from the reference PDFs with `pdftotext`; the
+committed JSON is what the test reads, so a plain `go test ./...` needs no
+poppler. Regenerating it with another poppler is a reviewed commit, and
+`-update-hashes` recomputes `samples.json` after the vendored files change.
 
 A snapshot update is a reviewed change, not a refresh: the diff says which
 behaviour moved. The render snapshots are regenerated only with the poppler

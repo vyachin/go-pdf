@@ -1,0 +1,4 @@
+# Vendored third-party material must stay byte-identical: samples.json hashes
+# the bytes on disk, so an end-of-line conversion on add or checkout would make
+# a freshly cloned corpus look edited. Never normalise the corpus.
+testdata/weasyprint/** -text
