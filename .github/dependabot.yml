@@ -1,9 +1,9 @@
 # Dependency updates for the CI inputs a bot can reason about.
 #
-# Only action references are automated. The runner image and its poppler, the
-# pdfcpu version, the golangci-lint version and the go directive are decided by
-# a person: see the "Deliberate pins stay manual" requirement in
-# openspec/specs/code-quality/spec.md.
+# Action references and Go module requirements are automated. The runner image
+# and its poppler, the pdfcpu version, the golangci-lint version and the go
+# directive are decided by a person: see the "Deliberate pins stay manual"
+# requirement in openspec/specs/code-quality/spec.md.
 #
 # Dependabot reads this file from the default branch only.
 version: 2
@@ -33,14 +33,24 @@ updates:
     labels:
       - dependencies
 
-  # Dormant while the module has no requirements, so that the first one is
-  # watched without another configuration change.
+  # Implements "Automated Go module updates" and "A module update is a
+  # deliberate change" in openspec/specs/code-quality/spec.md: patch updates are
+  # grouped, a minor or major arrives alone because a module below v1 may change
+  # its API, and the go directive and the requirement list stay manual.
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
+    # No separate major cooldown: a module major arrives alone and the suite
+    # runs against it, while an action major changes the runtime of every job.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
+    groups:
+      modules-patch:
+        patterns: ["*"]
+        update-types: ["patch"]
     commit-message:
       prefix: chore
     labels:
