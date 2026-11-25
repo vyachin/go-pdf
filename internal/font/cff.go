@@ -161,7 +161,9 @@ func parseCFFTable(data []byte, numGlyphs int) (*cffTable, error) {
 func cffFontDictAt(data []byte, dict cffDict) (cffFontDict, error) {
 	vals, ok := dict.intOperands(cffOpPrivate)
 	if !ok || len(vals) != 2 {
-		return cffFontDict{}, fmt.Errorf("font: CFF Private DICT is missing")
+		// A font without a Private DICT has no local subroutines; the table is
+		// legal and the oracle loads it, so treat it as an empty Private DICT.
+		return cffFontDict{}, nil
 	}
 	// DICT operands are int32. Their sum must be widened before it is
 	// compared: on a 32-bit build offset+size wraps negative and would pass a

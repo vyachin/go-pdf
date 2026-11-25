@@ -178,21 +178,49 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 				justify -= share
 			}
 			if len(it.Run.Glyphs) > 0 {
-				glyphs := make([]Glyph, len(it.Run.Glyphs))
-				for i, g := range it.Run.Glyphs {
-					glyphs[i] = Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune}
+				baseline := y + inlineBaseline(line, it)
+				emit := func(glyphs []Glyph, gx, gy int32) {
+					if len(glyphs) == 0 {
+						return
+					}
+					var width int32
+					for _, g := range glyphs {
+						width = satAdd(width, g.Advance)
+					}
+					l.ops++
+					page.Ops = append(page.Ops, Op{
+						Kind: TextOpKind,
+						Text: &TextOp{
+							X:     gx,
+							Y:     gy,
+							Face:  it.Face,
+							Run:   TextRun{Glyphs: glyphs, Width: width},
+							Color: it.Color,
+						},
+					})
 				}
-				l.ops++
-				page.Ops = append(page.Ops, Op{
-					Kind: TextOpKind,
-					Text: &TextOp{
-						X:     x,
-						Y:     y + inlineBaseline(line, it),
-						Face:  it.Face,
-						Run:   TextRun{Glyphs: glyphs, Width: it.Run.Width},
-						Color: it.Color,
-					},
-				})
+				// A mark carries its own offset; it is drawn as its own text
+				// object so the PDF writer needs no vertical text state.
+				pen, segStart := x, x
+				var seg []Glyph
+				flush := func() {
+					emit(seg, segStart, baseline)
+					seg = nil
+				}
+				for _, g := range it.Run.Glyphs {
+					if g.XOffset != 0 || g.YOffset != 0 {
+						flush()
+						emit([]Glyph{{GID: g.GID, Advance: g.Advance, Rune: g.Rune}},
+							satAdd(pen, g.XOffset), satSub(baseline, g.YOffset))
+					} else {
+						if len(seg) == 0 {
+							segStart = pen
+						}
+						seg = append(seg, Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune})
+					}
+					pen = satAdd(pen, g.Advance)
+				}
+				flush()
 			}
 			x += w
 		}

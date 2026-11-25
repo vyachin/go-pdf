@@ -300,6 +300,10 @@ func encodeSimpleGlyph(contours []cffContour, gid uint16) (data []byte, points i
 		for _, p := range c {
 			dx, dy := int(p.x)-prevX, int(p.y)-prevY
 			prevX, prevY = int(p.x), int(p.y)
+			if dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767 {
+				return nil, 0, [4]int16{}, fmt.Errorf(
+					"font: glyph %d has the delta (%d,%d) outside the int16 range", gid, dx, dy)
+			}
 			var flag byte
 			if p.onCurve {
 				flag |= 0x01

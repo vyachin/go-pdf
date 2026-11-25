@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"golang.org/x/image/font/sfnt"
@@ -927,4 +928,66 @@ func TestConvertedFontRoundTripsThroughSFNT(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCFFDeltaOutsideInt16IsRejected guards the converter: a charstring line
+// from -32768 to 0 has a delta of 32768, which must not wrap to int16.
+func TestCFFDeltaOutsideInt16IsRejected(t *testing.T) {
+	// rmoveto(-32767.99998, 0), rlineto(32767.99998, 0): the points are
+	// -32768 and 0 font units, so their delta is 32768.
+	code := []byte{
+		255, 0x80, 0x00, 0x00, 0x01, 139, 21,
+		255, 0x7F, 0xFF, 0xFF, 0xFF, 139, 5, 14,
+	}
+	if _, err := Load(testCFFFont(code)); err == nil {
+		t.Fatal("a delta outside int16 was accepted")
+	} else if !strings.Contains(err.Error(), "delta") {
+		t.Fatalf("error = %v, want it to name the delta", err)
+	}
+}
+
+// TestCFFWithoutPrivateLoads guards the legal font whose Top DICT has no
+// Private operator: it has no local subroutines and must load.
+func TestCFFWithoutPrivateLoads(t *testing.T) {
+	charstring := new(charstringBuilder).num(0, 0).op(21).num(100, 0).op(5).num(0, 100).op(5).op(14).bytes()
+	f, err := Load(testCFFFontNoPrivate(charstring))
+	if err != nil {
+		t.Fatalf("a CFF font without a Private DICT was rejected: %v", err)
+	}
+	path, err := f.GlyphPath(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(path) == 0 {
+		t.Fatal("glyph 0 has no outline")
+	}
+}
+
+// testCFFFontNoPrivate builds a one-glyph CFF font whose Top DICT omits the
+// Private operator.
+func testCFFFontNoPrivate(charstring []byte) []byte {
+	tables := map[string][]byte{
+		"CFF ": testCFFTableNoPrivate(charstring),
+		"maxp": []byte{0, 0, 0x50, 0x00, 0, 1},
+		"head": testHead(),
+		"hhea": testHhea(),
+		"hmtx": []byte{0x01, 0xf4, 0, 0},
+	}
+	return assembleSFNT(0x4F54544F, tables)
+}
+
+func testCFFTableNoPrivate(charstring []byte) []byte {
+	out := []byte{1, 0, 4, 4}
+	out = append(out, testCFFIndex([][]byte{[]byte("Synthetic")})...)
+	topDict := make([]byte, 6)
+	topDict[0] = 29
+	topDict[5] = 17 // CharStrings
+	topIndexStart := len(out)
+	out = append(out, testCFFIndex([][]byte{topDict})...)
+	topDictStart := topIndexStart + 5
+	out = append(out, 0, 0, 0, 0) // String INDEX and Global Subr INDEX
+	charStringsOffset := len(out)
+	out = append(out, testCFFIndex([][]byte{charstring})...)
+	binary.BigEndian.PutUint32(out[topDictStart+1:topDictStart+5], uint32(charStringsOffset))
+	return out
 }

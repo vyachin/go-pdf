@@ -22,7 +22,7 @@ func Normalize(s string) string {
 
 // isWordSpace reports whether r separates words.
 func isWordSpace(r rune) bool {
-	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f'
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 }
 
 // ItemKind classifies a breakable piece of text.
@@ -68,7 +68,9 @@ func Split(s string, pre bool) []Item {
 					i++
 				}
 				items = append(items, Item{Kind: Newline})
-			case '\n':
+			case '\n', '\f', '\u2028', '\u2029':
+				// Form feed and the Unicode line and paragraph separators are
+				// line breaks, not word spaces.
 				flush()
 				items = append(items, Item{Kind: Newline})
 			case '\t', ' ':
@@ -95,6 +97,9 @@ func Split(s string, pre bool) []Item {
 	}
 	for _, r := range s {
 		switch {
+		case r == '\f' || r == '\u2028' || r == '\u2029':
+			flush()
+			items = append(items, Item{Kind: Newline})
 		case isWordSpace(r):
 			flush()
 			if len(items) > 0 && items[len(items)-1].Kind == Space {
