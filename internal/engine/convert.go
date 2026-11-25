@@ -17,6 +17,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/pdf"
@@ -95,6 +96,21 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 			return nil, diags, nil
 		}
 		return nil, diags, err
+	}
+	// A configured asset root must be usable. Opening it here means a missing
+	// BaseDir or FontDir fails with its own code before any stylesheet or font
+	// is read, instead of surfacing as a link error or reading unbounded.
+	for _, dir := range []string{opts.BaseDir, opts.FontDir} {
+		if dir == "" {
+			continue
+		}
+		root, rootErr := fsx.Open(dir)
+		if rootErr != nil {
+			diags.Errorf("options/asset-root", diag.Position{}, "", "cannot open the asset directory %q: %v", dir, rootErr)
+			diags.Sort()
+			return nil, diags, nil
+		}
+		_ = root.Close()
 	}
 	profileOpts := profile.Options{
 		BaseDir:            opts.BaseDir,

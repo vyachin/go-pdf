@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/pdfgen"
 )
 
 func runCLI(t *testing.T, args ...string) (code int, stdout, stderr string) {
@@ -315,4 +317,92 @@ func TestCharsetFlag(t *testing.T) {
 			t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 		}
 	})
+}
+
+// TestOutputEqualToInputRefused guards the source: neither the default output
+// nor an explicit one may truncate the input.
+func TestOutputEqualToInputRefused(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "template.pdf")
+	if err := os.WriteFile(source, []byte("source bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, source)
+	if code != exitUsage || !strings.Contains(stderr, "refusing") {
+		t.Fatalf("default output: code=%d stderr=%q, want a refusal", code, stderr)
+	}
+	if data, _ := os.ReadFile(source); string(data) != "source bytes" {
+		t.Fatalf("the input was modified: %q", data)
+	}
+
+	doc := writeDocument(t, dir, "invoice.html", `<p>x</p>`)
+	code, _, stderr = runCLI(t, "-o", doc, doc)
+	if code != exitUsage || !strings.Contains(stderr, "refusing") {
+		t.Fatalf("explicit output: code=%d stderr=%q, want a refusal", code, stderr)
+	}
+	if data, _ := os.ReadFile(doc); !strings.Contains(string(data), "<p>") {
+		t.Fatalf("the input was modified: %q", data)
+	}
+}
+
+// TestOversizedInputRejectedBeforeConversion guards the size check: a file
+// beyond the exported default limit fails before it is read.
+func TestOversizedInputRejectedBeforeConversion(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "big.html")
+	limit := pdfgen.DefaultLimits().MaxInputBytes
+	f, err := os.Create(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(int64(limit) + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, in)
+	if code != exitFailure || !strings.Contains(stderr, "the limit is") {
+		t.Fatalf("code=%d stderr=%q, want the limit failure", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "big.pdf")); err == nil {
+		t.Fatal("an output file was written for an oversized input")
+	}
+}
+
+// TestAtomicWriteKeepsThePreviousFile guards temp+rename: a write that cannot
+// create its temporary file leaves the destination byte-identical.
+func TestAtomicWriteKeepsThePreviousFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-based failure does not apply to root")
+	}
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "out.pdf")
+	if err := os.WriteFile(dest, []byte("previous"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	err := writeFileAtomic(dest, []byte("new"))
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err == nil {
+		t.Fatal("the write succeeded in a read-only directory")
+	}
+	if data, readErr := os.ReadFile(dest); readErr != nil || string(data) != "previous" {
+		t.Fatalf("destination = %q, %v; want the previous bytes", data, readErr)
+	}
+}
+
+// TestUsageDocumentsTheNewFailures guards the documented messages.
+func TestUsageDocumentsTheNewFailures(t *testing.T) {
+	var b strings.Builder
+	usage(&b)
+	for _, want := range []string{"must not name the input", "MaxInputBytes", "renamed into place"} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("usage does not mention %q:\n%s", want, b.String())
+		}
+	}
 }
