@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/charset"
+	"github.com/vyachin/go-pdf/internal/diag"
 )
 
 func parseDump(t *testing.T, src string) string {
@@ -357,17 +359,59 @@ func TestTextContent(t *testing.T) {
 	}
 }
 
+// TestDecodedDocumentPosition checks that a decoded document still reports
+// positions in the bytes of the original file.
+func TestDecodedDocumentPosition(t *testing.T) {
+	// "<meta charset=\"windows-1251\"><p>Привет <b>x</b>" with the word in
+	// windows-1251: one source byte per letter, two decoded bytes.
+	src := []byte("<meta charset=\"windows-1251\"><p>\xcf\xf0\xe8\xe2\xe5\xf2 <b>x</b>")
+	doc, err := Parse(src, "doc.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b *Node
+	var walk func(*Node)
+	walk = func(n *Node) {
+		if n.Type == ElementNode && n.Tag == "b" {
+			b = n
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(doc.Root)
+	if b == nil {
+		t.Fatal("no <b> element")
+	}
+	// Decoded: 29 + 3 + 12 + 1 bytes before it. Source: 29 + 3 + 6 + 1.
+	if b.Start != 45 {
+		t.Fatalf("start = %d, want the decoded offset 45", b.Start)
+	}
+	want := diag.Position{File: "doc.html", Line: 1, Col: 40}
+	if got := doc.Pos(b); got != want {
+		t.Fatalf("position = %+v, want %+v (a decoded column would be 46)", got, want)
+	}
+	if len(doc.Source()) != len(src) {
+		t.Fatalf("Source() returned %d bytes, want the original %d", len(doc.Source()), len(src))
+	}
+	if got := doc.Charset(); got == nil || got.Name() != "windows-1251" {
+		t.Fatalf("Charset() = %v", got)
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add([]byte("<p>hi</p>"))
 	f.Add([]byte("<table><tr><td>x</table>"))
 	f.Add([]byte("<!-- unterminated"))
 	f.Add([]byte("<p class=\"a\" id='b'>x &amp; y</p>"))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		// Arbitrary bytes end in a document or in the one documented rejection:
-		// input that stops inside a tag. Anything else is a defect.
+		// Arbitrary bytes end in a document or in one of the two documented
+		// rejections: input that stops inside a tag, and bytes that are not a
+		// decodable document. Anything else is a defect.
 		_, err := Parse(b, "fuzz.html")
 		var truncated *TruncatedError
-		if err != nil && !errors.As(err, &truncated) {
+		var encoding *charset.Error
+		if err != nil && !errors.As(err, &truncated) && !errors.As(err, &encoding) {
 			t.Fatalf("Parse returned an unexpected error: %v", err)
 		}
 	})

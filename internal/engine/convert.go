@@ -12,6 +12,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/backend/raster"
 	"github.com/vyachin/go-pdf/internal/browser"
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
@@ -41,6 +42,14 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	limits := opts.Limits.resolved()
 	guard := budget.New(ctx, limits.MaxOperations)
 	var diags diag.List
+	// A caller-named encoding is an option, so it is checked before the input
+	// is read and before any asset is opened.
+	if opts.Charset != "" {
+		if _, err := charset.Validate(opts.Charset); err != nil {
+			diags.Errorf("options/charset", diag.Position{}, "", "%v", err)
+			return nil, diags, nil
+		}
+	}
 	if len(src) > limits.MaxInputBytes {
 		diags.Errorf("resource/limit", diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
 		return nil, diags, nil
@@ -49,6 +58,7 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		File:     sourceName(opts),
 		MaxDepth: limits.MaxDOMDepth,
 		Budget:   guard,
+		Charset:  opts.Charset,
 	})
 	if err != nil {
 		// The parser reports a depth limit as a budget error of its own; the
@@ -64,6 +74,17 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		var truncated *html.TruncatedError
 		if errors.As(err, &truncated) {
 			diags.Errorf("html/truncated", truncated.Position, "", "%v", err)
+			return nil, diags, nil
+		}
+		// A document that cannot be decoded is reported at the offending byte
+		// of the original file, not as a font or glyph problem further down.
+		var encErr *charset.Error
+		if errors.As(err, &encErr) {
+			pos := diag.Position{}
+			if encErr.Line > 0 {
+				pos = diag.Position{File: sourceName(opts), Line: encErr.Line, Col: encErr.Col}
+			}
+			diags.Errorf("html/encoding", pos, "", "%s", encErr.Msg)
 			return nil, diags, nil
 		}
 		return nil, diags, err

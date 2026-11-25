@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
 )
 
@@ -53,7 +54,9 @@ type Node struct {
 	Data     string
 	Parent   *Node
 	Children []*Node
-	// Start and End are byte offsets into the source, End is exclusive.
+	// Start and End are byte offsets into the decoded text the document was
+	// parsed from, End is exclusive. Document.Position translates them to the
+	// bytes of the original file; they are the same when nothing was decoded.
 	Start int
 	End   int
 }
@@ -204,16 +207,33 @@ type Document struct {
 	Root  *Node
 	File  string
 	lines []int
-	src   []byte
+	// src is the file as it was read, and text is the decoded text the node
+	// offsets refer to. They are the same slice when no decoding was needed.
+	src  []byte
+	text []byte
+	// charset is the encoding the document was decoded from, and mapper
+	// translates a decoded offset back to the source bytes. The mapper is nil
+	// when the two coordinate spaces are the same.
+	charset *charset.Encoding
+	mapper  *charset.Mapper
 }
 
-// Position converts a byte offset into a file position.
+// Charset returns the encoding the document was decoded from.
+func (d *Document) Charset() *charset.Encoding { return d.charset }
+
+// Position converts a byte offset into a file position. The offset is an
+// offset in the decoded text; the returned column is the column of the byte
+// that produced it in the original source.
 func (d *Document) Position(offset int) diag.Position {
+	if d.mapper != nil {
+		line, col := d.mapper.Position(offset)
+		return diag.Position{File: d.File, Line: line, Col: col}
+	}
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(d.src) {
-		offset = len(d.src)
+	if offset > len(d.text) {
+		offset = len(d.text)
 	}
 	// Largest line start <= offset.
 	i, _ := slices.BinarySearch(d.lines, offset+1)

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Счёт № 7"/>
+  <page width="595.276pt" height="841.89pt" margin-top="56.693pt" margin-right="56.693pt" margin-bottom="56.693pt" margin-left="56.693pt"/>
+  <html display="block">
+    <body display="block" font-size="11pt">
+      <h1 display="block" font-size="22pt" font-weight="700" margin-bottom="11.339pt">Счёт № 7</h1>
+      <p class="note" color="#444444" display="block" margin-bottom="8.504pt">Исполнитель: ООО «Ромашка»</p>
+      <table border-collapse="collapse" display="table">
+        <tbody display="block">
+          <tr display="table-row">
+            <th display="table-cell" font-weight="700" padding="2.835pt" text-align="center">Наименование</th>
+            <th display="table-cell" font-weight="700" padding="2.835pt" text-align="center">Сумма</th>
+          </tr>
+          <tr display="table-row">
+            <td display="table-cell" padding="2.835pt">Разработка</td>
+            <td display="table-cell" padding="2.835pt">534 000,00</td>
+          </tr>
+        </tbody>
+      </table>
+      <p display="block" margin-bottom="8.504pt">НДС включён.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

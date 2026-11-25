@@ -7,6 +7,7 @@ import (
 	xhtml "golang.org/x/net/html"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
 )
 
@@ -35,6 +36,12 @@ type ParseOptions struct {
 	// Budget records parser work and reports cancellation. Nil means unlimited
 	// work and no cancellation.
 	Budget *budget.Guard
+	// Charset names the input encoding explicitly. It wins over the document's
+	// own declaration and its byte order mark. Empty means detect: the byte
+	// order mark, then a <meta charset> or http-equiv declaration in the first
+	// 1024 bytes, then UTF-8. An encoding outside the supported set fails with
+	// an encoding error.
+	Charset string
 }
 
 // Parse tokenizes src and builds a document tree. The file argument is used
@@ -55,16 +62,30 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	if err := opts.Budget.Err(); err != nil {
 		return nil, err
 	}
-	d := &Document{File: opts.File, src: src, Root: &Node{Type: DocumentNode}}
-	d.lines = lineStarts(src)
-	sc, err := scan(src, opts)
+	enc, err := charset.Resolve(src, opts.Charset)
+	if err != nil {
+		return nil, err
+	}
+	dec, err := charset.Decode(enc, src)
+	if err != nil {
+		return nil, err
+	}
+	// The scan and the tree construction run over the decoded text, so node
+	// ranges and inline <style> offsets share one coordinate space. A position
+	// is translated back to the source bytes through the mapper.
+	d := &Document{File: opts.File, src: src, text: dec.Text, charset: enc, Root: &Node{Type: DocumentNode}}
+	d.lines = lineStarts(dec.Text)
+	if dec.Widths != nil || dec.Skip != 0 {
+		d.mapper = charset.NewMapper(src, dec.Text, dec.Widths, dec.Skip)
+	}
+	sc, err := scan(dec.Text, opts)
 	if err != nil {
 		return nil, err
 	}
 	if sc.truncated >= 0 {
 		return nil, &TruncatedError{Offset: sc.truncated, Position: d.Position(sc.truncated)}
 	}
-	tree, err := xhtml.Parse(bytes.NewReader(src))
+	tree, err := xhtml.Parse(bytes.NewReader(dec.Text))
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +153,8 @@ func (b *builder) textNode(n *xhtml.Node, parent *Node) {
 	// unescaped and has its line endings normalized, which would shift the byte
 	// offsets the CSS parser maps back to the document.
 	if ok && (parent.Tag == "style" || parent.Tag == "script") {
-		data = string(b.doc.src[start:end])
+		// The offsets are decoded ones, so the slice is of the decoded text.
+		data = string(b.doc.text[start:end])
 	}
 	// White space between table structure takes no part in layout.
 	if tableStructure[parent.Tag] && strings.TrimSpace(data) == "" {

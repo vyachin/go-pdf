@@ -40,6 +40,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
 	out := fs.String("o", "", "output PDF path (default: <input>.pdf)")
+	charsetName := fs.String("charset", "", "input encoding (default: detect it from the document)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			usage(stdout)
@@ -50,6 +51,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if fs.NArg() != 1 {
 		_, _ = fmt.Fprintln(stderr, "pdfgen: exactly one input file is required")
 		fs.Usage()
+		usage(stderr)
+		return exitUsage
+	}
+
+	// An encoding outside the supported set is a usage error, decided before
+	// the input is read so that a wrong flag never produces a file.
+	if *charsetName != "" && !pdfgen.CharsetSupported(*charsetName) {
+		_, _ = fmt.Fprintf(stderr, "pdfgen: unsupported charset %q; supported encodings are utf-8, windows-1251, koi8-r and ibm866\n\n", *charsetName)
 		usage(stderr)
 		return exitUsage
 	}
@@ -78,6 +87,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// Browser-oriented templates are the common real input. Accepting them
 		// is this example's policy; the package defaults to the strict profile.
 		ImportBrowser: true,
+		// An explicit -charset wins over the document's own declaration.
+		Charset: *charsetName,
 	})
 	for _, d := range res.Diagnostics {
 		_, _ = fmt.Fprintln(stderr, d)
@@ -108,10 +119,15 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `pdfgen converts one HTML file into a PDF.
 
 Usage:
-  pdfgen [-o out.pdf] <input.html>
+  pdfgen [-o out.pdf] [-charset name] <input.html>
 
 Without -o the PDF is written next to the input as <input>.pdf. Relative
 images, stylesheets and fonts resolve against the input file's directory.
+
+The input encoding is detected from the document: a byte order mark, then a
+<meta charset> declaration in its first 1024 bytes, then UTF-8. -charset names
+it explicitly and wins over both. The supported encodings are utf-8,
+windows-1251, koi8-r and ibm866.
 
 Exit codes: 0 success, 1 the document cannot be converted, 2 a usage error.
 

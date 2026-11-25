@@ -41,6 +41,10 @@ type Options struct {
 	FallbackFont string
 	// Strict turns profile warnings into errors.
 	Strict bool
+	// Charset names the input encoding explicitly and wins over the document's
+	// declaration and its byte order mark. Empty means detect. A value outside
+	// the supported set fails with options/charset before any asset is read.
+	Charset string
 	// ImportBrowser enables the browser compatibility layer: a document that
 	// uses browser-only CSS (flexbox, absolute positioning, rem, CSS variables,
 	// data: URIs) is lowered to the profile before validation. Every
@@ -54,7 +58,9 @@ type Options struct {
 
 // Limits bounds the resources a conversion may consume.
 type Limits struct {
-	// MaxInputBytes is the largest accepted HTML document.
+	// MaxInputBytes is the largest accepted HTML document. A legacy
+	// single-byte encoding decodes to at most three times its size, so a
+	// document at the limit holds 24 MiB of decoded text before parsing.
 	MaxInputBytes int
 	// MaxStylesheetBytes bounds one external stylesheet.
 	MaxStylesheetBytes int

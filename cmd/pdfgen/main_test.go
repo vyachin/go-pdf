@@ -60,7 +60,7 @@ func TestHelpExitsZero(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	for _, want := range []string{"pdfgen [-o out.pdf] <input.html>", "no\ncompatibility promise"} {
+	for _, want := range []string{"pdfgen [-o out.pdf] [-charset name] <input.html>", "no\ncompatibility promise", "windows-1251"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help output does not contain %q:\n%s", want, stdout)
 		}
@@ -251,4 +251,68 @@ func TestDiagnosticsPrintedOnce(t *testing.T) {
 	if !strings.Contains(stderr, "template is invalid") {
 		t.Fatalf("the summary line is missing:\n%s", stderr)
 	}
+}
+
+// TestCharsetFlag covers the input-encoding flag: a bad value is a usage error
+// decided before the input is read, and a good one decodes a document that
+// declares nothing.
+func TestCharsetFlag(t *testing.T) {
+	// "Привет" in windows-1251, with no declaration.
+	const legacy = `<p>` + "\xcf\xf0\xe8\xe2\xe5\xf2" + `</p>`
+
+	t.Run("an unknown encoding is a usage error", func(t *testing.T) {
+		dir := t.TempDir()
+		in := writeDocument(t, dir, "doc.html", legacy)
+		code, stdout, stderr := runCLI(t, "-charset", "shift_jis", in)
+		if code != exitUsage {
+			t.Fatalf("exit code = %d, want %d", code, exitUsage)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want it empty", stdout)
+		}
+		if !strings.Contains(stderr, "shift_jis") || !strings.Contains(stderr, "Usage:") {
+			t.Fatalf("stderr does not name the value and the usage line:\n%s", stderr)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "doc.pdf")); !os.IsNotExist(err) {
+			t.Fatal("a usage error must not write a PDF")
+		}
+	})
+
+	t.Run("the flag decodes a document that declares nothing", func(t *testing.T) {
+		requireFont(t)
+		dir := t.TempDir()
+		in := writeDocument(t, dir, "doc.html", legacy)
+
+		// Without the flag the document cannot be decoded, which is the whole
+		// reason the flag exists.
+		code, _, stderr := runCLI(t, in)
+		if code != exitFailure {
+			t.Fatalf("exit code without -charset = %d, want %d", code, exitFailure)
+		}
+		if !strings.Contains(stderr, "html/encoding") {
+			t.Fatalf("stderr does not name html/encoding:\n%s", stderr)
+		}
+
+		code, _, stderr = runCLI(t, "-charset", "windows-1251", in)
+		if code != exitOK {
+			t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "doc.pdf"))
+		if err != nil {
+			t.Fatalf("no PDF was written: %v", err)
+		}
+		if !strings.HasPrefix(string(data), "%PDF-") {
+			t.Fatalf("output is not a PDF: %q", data[:min(8, len(data))])
+		}
+	})
+
+	t.Run("detection without the flag", func(t *testing.T) {
+		requireFont(t)
+		dir := t.TempDir()
+		in := writeDocument(t, dir, "doc.html", `<meta charset="windows-1251">`+legacy)
+		code, _, stderr := runCLI(t, in)
+		if code != exitOK {
+			t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+		}
+	})
 }
