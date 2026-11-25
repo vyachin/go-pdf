@@ -91,6 +91,7 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	}
 	b := &builder{doc: d, scan: sc, cursors: map[uint16]int{}}
 	b.children(tree, d.Root)
+	attachBudget(d.Root, opts.Budget)
 	return d, nil
 }
 

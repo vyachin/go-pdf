@@ -595,7 +595,11 @@ func TestUserAgentImportantBeatsAuthorImportant(t *testing.T) {
 // programming matcher for three or more compounds must return exactly what the
 // recursive matcher returns, for every combinator combination.
 func TestLongSelectorMatchesLikeTheNaiveMatcher(t *testing.T) {
-	doc := mustDoc(t, `<div id="a" class="x"><div class="y"><p class="z"><span><div class="y z"><p id="b">t</p></div></span></p></div></div>`)
+	doc := mustDoc(t, `<html><body>
+		<div id="a" class="x">a</div>
+		<div class="y">b<p class="z">c</p><span>d</span><div class="y z"><p id="b">e</p><em class="e">f</em></div></div>
+		<p class="z">g</p>
+	</body></html>`)
 	selectors := []string{
 		"div div div",
 		"div > div > div",
@@ -606,6 +610,31 @@ func TestLongSelectorMatchesLikeTheNaiveMatcher(t *testing.T) {
 		"body div div p span div p",
 		"div > div p > span > div > p",
 		"html body div .y p span .z",
+		// The adjacent combinator in every position, over siblings, ids,
+		// classes, :root and the supported pseudo-element.
+		"div + div",
+		"div + p",
+		"div + div p",
+		"div p + span",
+		"div + div > p",
+		"div > div + div",
+		"#a + .y p",
+		".x + div .z",
+		"body div + div p",
+		"p + span",
+		"p + span div",
+		"p + span > div",
+		"div + div + p",
+		".y + .y .z",
+		"div + div p + span",
+		"div + div > p span",
+		"div > div + div p",
+		":root body div",
+		":root body div + div",
+		":root > body p",
+		"div + p::after",
+		"p::after + span",
+		"div + div .y .z #b",
 	}
 	for _, text := range selectors {
 		sel, err := ParseSelector(text)
@@ -681,6 +710,117 @@ func TestDeepDescendantSelectorFinishes(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("matching a 20-compound descendant selector on a 200-deep tree did not finish in 5s")
+	}
+}
+
+// TestAdjacentSelectorMatchingIsLinear guards the bounded matcher with a step
+// counter instead of a clock: for eight compounds and a 30-deep tree the
+// recursive matcher explores every distribution of the descendant compounds
+// over the ancestors, while the segmented matcher compares each compound with
+// each ancestor once.
+func TestAdjacentSelectorMatchingIsLinear(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<html><body>")
+	const depth = 30
+	for i := 0; i < depth; i++ {
+		b.WriteString("<div>")
+	}
+	b.WriteString("x")
+	for i := 0; i < depth; i++ {
+		b.WriteString("</div>")
+	}
+	b.WriteString("</body></html>")
+	doc := mustDoc(t, b.String())
+
+	sel, err := ParseSelector("div + div div div div div div div")
+	if err != nil {
+		t.Fatalf("ParseSelector: %v", err)
+	}
+	var deepest *html.Node
+	var find func(*html.Node)
+	find = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Tag == "div" && (deepest == nil || depthOf(n) > depthOf(deepest)) {
+			deepest = n
+		}
+		for _, c := range n.Children {
+			find(c)
+		}
+	}
+	find(doc.Root)
+	if deepest == nil {
+		t.Fatal("no div found")
+	}
+	m := &matcher{}
+	_ = sel.match(deepest, m)
+	if bound := 4 * len(sel.Compounds) * depth; m.steps > bound {
+		t.Fatalf("matching took %d compound comparisons, want at most %d", m.steps, bound)
+	}
+}
+
+// BenchmarkSelectorAdjacentWide measures the adjacent hop across many siblings.
+func BenchmarkSelectorAdjacentWide(b *testing.B) {
+	var bld strings.Builder
+	bld.WriteString("<html><body>")
+	for i := 0; i < 1000; i++ {
+		bld.WriteString(`<p class="x">t</p>`)
+	}
+	bld.WriteString("</body></html>")
+	doc, err := html.Parse([]byte(bld.String()), "wide.html")
+	if err != nil {
+		b.Fatal(err)
+	}
+	sel, err := ParseSelector("p + p")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var last *html.Node
+	walkElements(doc.Root, func(n *html.Node) {
+		if n.Tag == "p" {
+			last = n
+		}
+	})
+	if last == nil {
+		b.Fatal("no p found")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sel.Match(last)
+	}
+}
+
+// BenchmarkSelectorAdjacentDeep measures the segmented matcher on a deep tree.
+func BenchmarkSelectorAdjacentDeep(b *testing.B) {
+	var bld strings.Builder
+	bld.WriteString("<html><body>")
+	const depth = 200
+	for i := 0; i < depth; i++ {
+		bld.WriteString("<div>")
+	}
+	bld.WriteString("x")
+	for i := 0; i < depth; i++ {
+		bld.WriteString("</div>")
+	}
+	bld.WriteString("</body></html>")
+	doc, err := html.Parse([]byte(bld.String()), "deep.html")
+	if err != nil {
+		b.Fatal(err)
+	}
+	sel, err := ParseSelector("div div div + div div div")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var deepest *html.Node
+	walkElements(doc.Root, func(n *html.Node) {
+		if n.Tag == "div" && (deepest == nil || depthOf(n) > depthOf(deepest)) {
+			deepest = n
+		}
+	})
+	if deepest == nil {
+		b.Fatal("no div found")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sel.Match(deepest)
 	}
 }
 

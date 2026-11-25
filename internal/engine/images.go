@@ -23,6 +23,8 @@ type imageLoader struct {
 	baseDir   string
 	maxPixels int
 	maxBytes  int
+	// guard bounds decoding work and carries cancellation. Nil means no limit.
+	guard     *budget.Guard
 	root      *fsx.Root
 	rootErr   error
 	rootOpens int // resolved roots, used by tests to prove reuse
@@ -102,6 +104,23 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	}
 }
 
+// charge records the work of one image: one unit for the image itself and one
+// per 64 KiB of pixels it decodes. A cancelled context is reported before the
+// decode starts. A nil guard means unlimited work.
+func (l *imageLoader) charge(pixels int64) error {
+	if l.guard == nil {
+		return nil
+	}
+	if err := l.guard.Err(); err != nil {
+		return err
+	}
+	units := uint64(1)
+	if pixels > 0 {
+		units += uint64(pixels) / 65536
+	}
+	return l.guard.Add(units)
+}
+
 // loadDataURI decodes an image embedded in the document as a data: URI. Only
 // base64-encoded PNG and JPEG are supported, matching the file loader.
 func (l *imageLoader) loadDataURI(src string) (*layout.ImageData, error) {
@@ -150,6 +169,11 @@ func (l *imageLoader) decodePNG(src, name string, data []byte) (*layout.ImageDat
 	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 	}
+	// Charge the work before decoding: the header already tells how many pixels
+	// the decoder will allocate.
+	if err := l.charge(int64(cfg.Width) * int64(cfg.Height)); err != nil {
+		return nil, err
+	}
 	// The writer decodes the pixels when it embeds the image, so a truncated
 	// file passes the header check and fails only at render time. Decoding
 	// here keeps Validate and Convert reporting the same problem.
@@ -179,6 +203,11 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte) (*layout.ImageDa
 	}
 	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
+	}
+	// A JPEG is embedded without decoding, so only the image itself is
+	// charged here.
+	if err := l.charge(0); err != nil {
+		return nil, err
 	}
 	// A JPEG is embedded as DCTDecode without decoding, so the header check
 	// is the whole check Convert performs.

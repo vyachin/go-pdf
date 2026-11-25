@@ -71,26 +71,50 @@ func (s Selector) PseudoElement() string {
 }
 
 // Match reports whether the selector matches an element node.
-func (s Selector) Match(n *html.Node) bool {
+func (s Selector) Match(n *html.Node) bool { return s.match(n, nil) }
+
+// matcher counts compound comparisons, so a test can pin the bounded cost of
+// matching with a step bound instead of a wall-clock threshold. The methods are
+// nil-safe: production matching passes nil and pays only a nil check.
+type matcher struct{ steps int }
+
+func (m *matcher) matches(c Compound, n *html.Node) bool {
+	if m != nil {
+		m.steps++
+	}
+	return c.Match(n)
+}
+
+// match is Match with an optional step counter.
+func (s Selector) match(n *html.Node, m *matcher) bool {
 	if n == nil || n.Type != html.ElementNode || len(s.Compounds) == 0 {
 		return false
 	}
-	// One and two compounds are a single ancestor walk. Longer selectors are
-	// matched by dynamic programming over the ancestor chain: the naive
-	// recursive matcher re-walks the same ancestors for every combination of
-	// positions, so a deep tree and a long descendant selector take
-	// combinatorial time even for a document of a few hundred bytes.
-	if len(s.Compounds) <= 2 || s.hasAdjacent() {
-		return matchFrom(s, len(s.Compounds)-1, n)
+	// One and two compounds are a single bounded walk. Longer selectors are
+	// split at every adjacent combinator: a descendant/child segment is matched
+	// by the ancestor-chain dynamic program, and "+" is a hop to the previous
+	// element. Without the split, the recursive matcher re-walks the ancestor
+	// chain at every step, so a deep tree takes combinatorial time.
+	if len(s.Compounds) <= 2 {
+		return matchFromM(s, len(s.Compounds)-1, n, m)
 	}
-	return s.matchAncestors(n)
+	starts := s.segmentStarts()
+	if len(starts) == 1 {
+		return s.matchSegment(0, len(s.Compounds)-1, n, m, nil)
+	}
+	return s.matchAdjacent(n, m)
 }
 
-func matchFrom(s Selector, idx int, n *html.Node) bool {
+func matchFrom(s Selector, idx int, n *html.Node) bool { return matchFromM(s, idx, n, nil) }
+
+// matchFromM is the reference right-to-left matcher. It is the oracle the
+// differential test compares against, and the bounded matcher reuses its
+// result for one- and two-compound selectors.
+func matchFromM(s Selector, idx int, n *html.Node, m *matcher) bool {
 	if n == nil || n.Type != html.ElementNode {
 		return false
 	}
-	if !s.Compounds[idx].Match(n) {
+	if !m.matches(s.Compounds[idx], n) {
 		return false
 	}
 	if idx == 0 {
@@ -98,12 +122,12 @@ func matchFrom(s Selector, idx int, n *html.Node) bool {
 	}
 	switch s.Combinators[idx-1] {
 	case Child:
-		return matchFrom(s, idx-1, parentElement(n))
+		return matchFromM(s, idx-1, parentElement(n), m)
 	case Adjacent:
-		return matchFrom(s, idx-1, previousElement(n))
+		return matchFromM(s, idx-1, previousElement(n), m)
 	default:
 		for p := parentElement(n); p != nil; p = parentElement(p) {
-			if matchFrom(s, idx-1, p) {
+			if matchFromM(s, idx-1, p, m) {
 				return true
 			}
 		}
@@ -111,55 +135,123 @@ func matchFrom(s Selector, idx int, n *html.Node) bool {
 	}
 }
 
-// matchChainSize is the ancestor depth matchAncestors handles without
-// allocating. The parser bounds DOM depth, so most documents stay on the stack
-// path; deeper chains fall back to slices.
+// segmentStarts returns the first compound index of every segment between
+// adjacent combinators. The combinators inside one segment are only descendant
+// and child, which the dynamic program handles in one pass.
+func (s Selector) segmentStarts() []int {
+	starts := []int{0}
+	for i, c := range s.Combinators {
+		if c == Adjacent {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+// matchChainSize is the ancestor depth matched without allocating. The parser
+// bounds DOM depth, so most documents stay on the stack path; deeper chains
+// fall back to slices.
 const matchChainSize = 64
 
-// matchAncestors matches a selector with three or more compounds in
-// O(compounds × depth): prev[j] reports whether the compounds before the
-// current one match with the previous compound on the j-th ancestor of n,
-// counting n as ancestor 0.
-func (s Selector) matchAncestors(n *html.Node) bool {
+// matchSegment matches compounds[lo..hi], whose combinators are descendant or
+// child, with compounds[hi] at right. It reports whether the segment matches
+// and, when starts is non-nil, appends every node where compounds[lo] matched.
+// The work is O((hi-lo+1) × depth), independent of the number of ways the
+// compounds could be distributed over the ancestors.
+func (s Selector) matchSegment(lo, hi int, right *html.Node, m *matcher, starts *[]*html.Node) bool {
 	var chainBuf [matchChainSize]*html.Node
 	chain := chainBuf[:0]
-	for p := n; p != nil; p = parentElement(p) {
+	for p := right; p != nil; p = parentElement(p) {
 		chain = append(chain, p)
 	}
 	depth := len(chain)
-
-	var prevBuf, curBuf [matchChainSize]bool
-	var suffixBuf [matchChainSize + 1]bool
-	var prev, cur, suffix []bool
+	var prevBuf, nextBuf [matchChainSize]bool
+	var lowBuf [matchChainSize + 1]bool
+	var prev, next, low []bool
 	if depth <= matchChainSize {
-		prev, cur, suffix = prevBuf[:depth], curBuf[:depth], suffixBuf[:depth+1]
+		prev, next, low = prevBuf[:depth], nextBuf[:depth], lowBuf[:depth+1]
 	} else {
-		prev, cur = make([]bool, depth), make([]bool, depth)
-		suffix = make([]bool, depth+1)
+		prev, next = make([]bool, depth), make([]bool, depth)
+		low = make([]bool, depth+1)
 	}
-	for j := 0; j < depth; j++ {
-		prev[j] = s.Compounds[0].Match(chain[j])
-	}
-	for idx := 1; idx < len(s.Compounds); idx++ {
-		child := s.Combinators[idx-1] == Child
-		suffix[depth] = false
-		for j := depth - 1; j >= 0; j-- {
-			suffix[j] = prev[j] || suffix[j+1]
-		}
+	// The rightmost compound of the segment must be right itself, so only the
+	// first ancestor position starts as a candidate.
+	prev[0] = m.matches(s.Compounds[hi], chain[0])
+	for idx := hi - 1; idx >= lo; idx-- {
+		// low[j] reports whether compounds[idx+1] matched at one of the j
+		// elements below chain[j].
+		low[0] = false
 		for j := 0; j < depth; j++ {
-			if !s.Compounds[idx].Match(chain[j]) {
-				cur[j] = false
+			low[j+1] = low[j] || prev[j]
+		}
+		child := s.Combinators[idx] == Child
+		for j := 0; j < depth; j++ {
+			if !m.matches(s.Compounds[idx], chain[j]) {
+				next[j] = false
 				continue
 			}
 			if child {
-				cur[j] = j+1 < depth && prev[j+1]
+				next[j] = j >= 1 && prev[j-1]
 			} else {
-				cur[j] = suffix[j+1]
+				next[j] = low[j]
 			}
 		}
-		prev, cur = cur, prev
+		prev, next = next, prev
 	}
-	return prev[0]
+	matched := false
+	for j := 0; j < depth; j++ {
+		if !prev[j] {
+			continue
+		}
+		matched = true
+		if starts != nil {
+			*starts = append(*starts, chain[j])
+		}
+	}
+	return matched
+}
+
+// segmentKey identifies one subproblem of matchAdjacent.
+type segmentKey struct {
+	segment int
+	right   *html.Node
+}
+
+// matchAdjacent matches a selector that uses "+". Segments are matched from the
+// right; every element the leftmost compound of a segment can occupy is tried
+// as the anchor whose previous sibling must end the segment to its left.
+func (s Selector) matchAdjacent(n *html.Node, m *matcher) bool {
+	starts := s.segmentStarts()
+	memo := make(map[segmentKey]bool, len(starts)*2)
+	var rec func(k int, right *html.Node) bool
+	rec = func(k int, right *html.Node) bool {
+		key := segmentKey{segment: k, right: right}
+		if v, ok := memo[key]; ok {
+			return v
+		}
+		lo := starts[k]
+		hi := len(s.Compounds) - 1
+		if k+1 < len(starts) {
+			hi = starts[k+1] - 1
+		}
+		var anchors []*html.Node
+		res := false
+		if s.matchSegment(lo, hi, right, m, &anchors) {
+			if k == 0 {
+				res = true
+			} else {
+				for _, anchor := range anchors {
+					if prev := previousElement(anchor); prev != nil && rec(k-1, prev) {
+						res = true
+						break
+					}
+				}
+			}
+		}
+		memo[key] = res
+		return res
+	}
+	return rec(len(starts)-1, n)
 }
 
 // previousElement returns the sibling immediately before n, skipping text.
@@ -177,18 +269,6 @@ func previousElement(n *html.Node) *html.Node {
 		}
 	}
 	return nil
-}
-
-// hasAdjacent reports whether the selector uses the "+" combinator. Such a
-// selector cannot use the ancestor-chain fast path, because the previous
-// compound must match a sibling, not an ancestor.
-func (s Selector) hasAdjacent() bool {
-	for _, c := range s.Combinators {
-		if c == Adjacent {
-			return true
-		}
-	}
-	return false
 }
 
 func parentElement(n *html.Node) *html.Node {

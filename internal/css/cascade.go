@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/html"
 )
 
@@ -26,6 +27,17 @@ const (
 // Cascade resolves the computed style of every element.
 type Cascade struct {
 	rules []compiledRule
+	// guard bounds the work of matching every rule against every element and
+	// carries cancellation. Nil means no limit, which is what the browser
+	// importer and the document dump use.
+	guard *budget.Guard
+}
+
+// SetGuard attaches the conversion's work guard to the cascade and returns it
+// so construction can stay fluent. A nil guard leaves the cascade unlimited.
+func (c *Cascade) SetGuard(g *budget.Guard) *Cascade {
+	c.guard = g
+	return c
 }
 
 // NewCascade compiles the given stylesheets as author rules in document order.
@@ -116,6 +128,14 @@ func (c *Cascade) Declarations(n *html.Node) map[string]Declaration {
 func (c *Cascade) cascadeEntries(n *html.Node) []styleEntry {
 	var entries []styleEntry
 	for _, r := range c.rules {
+		// One unit per compound keeps the charge proportional to the matcher's
+		// work. An exhausted budget or a cancelled context stops the scan; the
+		// engine reports the reason from the shared guard.
+		if c.guard != nil {
+			if err := c.guard.Add(uint64(len(r.sel.Compounds))); err != nil {
+				return entries
+			}
+		}
 		if !r.sel.Match(n) {
 			continue
 		}

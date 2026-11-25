@@ -96,9 +96,10 @@ type Limits struct {
 	// its row count. Default 200,000.
 	MaxTableCells int
 	// MaxOperations bounds the total work of a conversion: parsed tokens,
-	// layout boxes, placed lines and drawing operations. It is the backstop
-	// against a document that is cheap to store but expensive to lay out.
-	// Default 20,000,000.
+	// stylesheet rules and compounds matched by the cascade, font parsing,
+	// image decoding, layout boxes, placed lines, copied drawing operations,
+	// diagnostic paths and PDF writing. It is the backstop against a document
+	// that is cheap to store but expensive to process. Default 20,000,000.
 	MaxOperations int
 }
 
