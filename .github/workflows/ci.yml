@@ -23,7 +23,8 @@ jobs:
         with:
           # The module declares go 1.26: CI must prove that minimum works.
           go-version-file: go.mod
-          # The module has no dependencies and therefore no go.sum.
+          # go.sum pins the one test-only dependency; caching that download is
+          # not worth a stale module cache in a build this short.
           cache: false
       - name: Install poppler
         run: |
@@ -126,7 +127,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          # The module has no dependencies and therefore no go.sum.
+          # go.sum pins the one test-only dependency; caching that download is
+          # not worth a stale module cache in a build this short.
           cache: false
       - name: Format
         run: |

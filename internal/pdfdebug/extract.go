@@ -329,3 +329,144 @@ func parseIntToken(b []byte) int {
 	id, _ := strconv.Atoi(string(b[start:i]))
 	return id
 }
+
+// PageCount reports the number of pages in the document, walked from the page
+// tree. Unlike Pages it does not depend on a page drawing text, so a page that
+// carries only an image, or nothing at all, still counts.
+func PageCount(data []byte) (int, error) {
+	refs, err := pageRefs(data)
+	if err != nil {
+		return 0, err
+	}
+	return len(refs), nil
+}
+
+// PageTexts returns the text of every page in page-tree order, one entry per
+// page. A page whose content stream draws no text yields an empty string;
+// Pages, which predates this function, drops such a page instead.
+func PageTexts(data []byte) ([]string, error) {
+	refs, err := pageRefs(data)
+	if err != nil {
+		return nil, err
+	}
+	objects := splitObjects(data)
+	fontMaps := contentFontMaps(objects, buildToUniByID(objects))
+	texts := make([]string, len(refs))
+	for i, pageID := range refs {
+		page, ok := objects[pageID]
+		if !ok {
+			continue
+		}
+		contentID := contentRef(page.body)
+		content, ok := objects[contentID]
+		if !ok {
+			continue
+		}
+		stream, err := decodedStream(content.body)
+		if err != nil {
+			continue
+		}
+		texts[i] = textFromStream(stream, fontMaps[contentID])
+	}
+	return texts, nil
+}
+
+// pageRefs returns the object id of every page, in page-tree order. It walks
+// /Kids from the root /Pages node so that a nested tree keeps its order.
+func pageRefs(data []byte) ([]int, error) {
+	objects := splitObjects(data)
+	root := -1
+	for id, obj := range objects {
+		if isObjectType(obj.body, "Pages") && !bytes.Contains(obj.body, []byte("/Parent")) {
+			root = id
+			break
+		}
+	}
+	if root < 0 {
+		return nil, fmt.Errorf("no page tree in the document")
+	}
+	var refs []int
+	seen := map[int]bool{}
+	var walk func(id int)
+	walk = func(id int) {
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		obj, ok := objects[id]
+		if !ok {
+			return
+		}
+		switch {
+		case isObjectType(obj.body, "Pages"):
+			for _, kid := range kidsOf(obj.body) {
+				walk(kid)
+			}
+		case isObjectType(obj.body, "Page"):
+			refs = append(refs, id)
+		}
+	}
+	walk(root)
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("the page tree holds no page")
+	}
+	return refs, nil
+}
+
+// contentRef returns the object id of a page's /Contents stream, or -1 when the
+// page declares none.
+func contentRef(page []byte) int {
+	idx := bytes.Index(page, []byte("/Contents"))
+	if idx < 0 {
+		return -1
+	}
+	return parseIntToken(page[idx+len("/Contents"):])
+}
+
+// isObjectType reports whether a dictionary names /Type /<name>. The byte after
+// the name must not be a letter, so "Page" does not match "Pages".
+func isObjectType(body []byte, name string) bool {
+	marker := []byte("/Type /" + name)
+	idx := bytes.Index(body, marker)
+	if idx < 0 {
+		return false
+	}
+	rest := body[idx+len(marker):]
+	return len(rest) == 0 || !isASCIILetter(rest[0])
+}
+
+// isASCIILetter reports whether b is an ASCII letter, so a type name is not
+// taken for a longer one that starts with it.
+func isASCIILetter(b byte) bool {
+	return b >= 'A' && b <= 'Z' || b >= 'a' && b <= 'z'
+}
+
+// kidsOf returns the page objects of a /Kids array, in written order.
+func kidsOf(pagesNode []byte) []int {
+	idx := bytes.Index(pagesNode, []byte("/Kids"))
+	if idx < 0 {
+		return nil
+	}
+	rest := pagesNode[idx:]
+	open := bytes.IndexByte(rest, '[')
+	shut := bytes.IndexByte(rest, ']')
+	if open < 0 || shut < open {
+		return nil
+	}
+	fields := bytes.Fields(rest[open+1 : shut])
+	var kids []int
+	for i := 0; i+2 < len(fields); {
+		if string(fields[i+1]) != "0" || string(fields[i+2]) != "R" {
+			i++
+			continue
+		}
+		id, err := strconv.Atoi(string(fields[i]))
+		if err != nil {
+			i++
+			continue
+		}
+		kids = append(kids, id)
+		i += 3
+	}
+	return kids
+}

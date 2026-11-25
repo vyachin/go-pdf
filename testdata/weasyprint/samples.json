@@ -1,0 +1,256 @@
+{
+  "source": {
+    "repository": "https://github.com/CourtBouillon/weasyprint-samples",
+    "commit": "6dc675b05a5cba59576dfaa8881ea6ccdccb13cc",
+    "retrieved": "2026-11-25",
+    "reference_pdf_script": "printall.sh"
+  },
+  "cases": [
+    {
+      "name": "invoice",
+      "dir": "invoice",
+      "html": "invoice.html",
+      "stylesheet": "",
+      "state": "blocked",
+      "blocked_by": "browser/unsupported-flex"
+    },
+    {
+      "name": "letter",
+      "dir": "letter",
+      "html": "letter.html",
+      "stylesheet": "",
+      "state": "blocked",
+      "blocked_by": "html/unsupported-element"
+    },
+    {
+      "name": "poster",
+      "dir": "poster",
+      "html": "poster.html",
+      "stylesheet": "poster.css",
+      "state": "blocked",
+      "blocked_by": "html/unsupported-element"
+    },
+    {
+      "name": "flyer",
+      "dir": "poster",
+      "html": "poster.html",
+      "stylesheet": "flyer.css",
+      "state": "blocked",
+      "blocked_by": "html/unsupported-element"
+    },
+    {
+      "name": "ticket",
+      "dir": "ticket",
+      "html": "ticket.html",
+      "stylesheet": "",
+      "state": "blocked",
+      "blocked_by": "browser/unsupported-flex"
+    },
+    {
+      "name": "report",
+      "dir": "report",
+      "html": "report.html",
+      "stylesheet": "",
+      "state": "blocked",
+      "blocked_by": "browser/unsupported-flex"
+    }
+  ],
+  "files": [
+    {
+      "path": "invoice/SourceSans3-Bold.ttf",
+      "sha256": "7109021766e915ecd9721e28d11dfc732d57affda49e4ca15bb6d1529add7fdd"
+    },
+    {
+      "path": "invoice/SourceSans3-Regular.ttf",
+      "sha256": "393fb5b878ceed04aebc34b097e853ae5138c51d0c34b496ce8e2b47e0d0b94a"
+    },
+    {
+      "path": "invoice/invoice.css",
+      "sha256": "156424e672f26cdd52da0674d0dd3ef85728f9a63e3f224528d87627eda87505"
+    },
+    {
+      "path": "invoice/invoice.html",
+      "sha256": "b6f34ba6edb868acf6f6d8a37e6345970a0ad70eb57d96cd5ec07f7138d28cd7"
+    },
+    {
+      "path": "invoice/invoice.pdf",
+      "sha256": "44f9b0615428b45b3e4b6c658723c2b3ea3709008daf0a4fde9173d6ef90b9c1"
+    },
+    {
+      "path": "invoice/pacifico.ttf",
+      "sha256": "4c366cfcd76af6833009883586d8bb6d6ac45a92d149afeeb4c44637f7ad6665"
+    },
+    {
+      "path": "letter/fonts/ComingSoon-Regular.ttf",
+      "sha256": "0f245746a653a6b3c6296fe578b3b98e620b6e203c16c664a03d31fda8fcb797"
+    },
+    {
+      "path": "letter/fonts/Pacifico-Regular.ttf",
+      "sha256": "d088008aa13be680163475cf5b25acea187d1c332ea54ecd623fac99dc218c4c"
+    },
+    {
+      "path": "letter/img/image-couleurs.png",
+      "sha256": "d969b22d1514c8cd30a03f130e03ec6d9d528ef1e7ab981e8016cc150e8de9d5"
+    },
+    {
+      "path": "letter/img/logo-couleurs.png",
+      "sha256": "d9dc2a334a978bee53fb4ac18e12bd1ab1b8943267937ba9ac0039c9f4be4907"
+    },
+    {
+      "path": "letter/letter.html",
+      "sha256": "aa4b81fd2f5e6971fa44f6bc426e49560acd898452dac9b112b58c9ee64b24e8"
+    },
+    {
+      "path": "letter/letter.pdf",
+      "sha256": "57d2dc04442d706b4fd57a76e07bcd1df4a3730cc0c4baa93220dfe7acf1a1c1"
+    },
+    {
+      "path": "letter/style.css",
+      "sha256": "e60d2b511dbd3be8145ff1e04d64d6ebfd62073c7bdd003ee93181d6956d934e"
+    },
+    {
+      "path": "poster/archivoblack-regular.ttf",
+      "sha256": "56899254fb153119b9874478ef64c4986a83c5244a8627d79107e033beac34a7"
+    },
+    {
+      "path": "poster/background.jpg",
+      "sha256": "dc5661ac7602967ae4c8cfbe50c6c310bd2c21196bed8142bcb9d4d0be50165c"
+    },
+    {
+      "path": "poster/common.css",
+      "sha256": "a92d971df037931d187611a01646b6a003ec6564b6d35abd216f9afd2ba55ca2"
+    },
+    {
+      "path": "poster/flyer.css",
+      "sha256": "c9e9a24729904a213817c8b8bb6dc73c7db102fddf45c03f3455f1599e307b86"
+    },
+    {
+      "path": "poster/flyer.pdf",
+      "sha256": "280ac67ce4fde8048ee3740a86a359ccfc9da142e6b8d88d6f711ad85d5a458b"
+    },
+    {
+      "path": "poster/gaming-affiche-logo.png",
+      "sha256": "b91bb4ff0dd4a09c8a8f3e6b7dbeb6ddcf65d90618840769d4221aaadd3963c8"
+    },
+    {
+      "path": "poster/logo-fiac.png",
+      "sha256": "3ec2ecfa73b261b6b717abb1485b9f71ccdbceb1b1060739a1d94450d8d7da86"
+    },
+    {
+      "path": "poster/logo-fleurexpo.png",
+      "sha256": "669106648043aa6aec77e79fd2251069dc3334aa625b6141d75d0e55a8cb9700"
+    },
+    {
+      "path": "poster/logo-mc.png",
+      "sha256": "67f6f959f98e76ad9b6b6b743be981df5907da940b1d8f5fad0cb95d980a9af3"
+    },
+    {
+      "path": "poster/logo-rhino.png",
+      "sha256": "430a79711a125cc6accd470c3e213d0bc4411e7ea8e8f09ffd5d858218392551"
+    },
+    {
+      "path": "poster/logo-stella.png",
+      "sha256": "d6985a837c22a71ce1a3d7634ff4a9962e624e0577bfd58a9e90b06119705966"
+    },
+    {
+      "path": "poster/poster.css",
+      "sha256": "9a01232398c7533e8c38278a1dd5d663cc72bb14754a50a8dcf26f60772f20dd"
+    },
+    {
+      "path": "poster/poster.html",
+      "sha256": "0c07da84c269c1cc3f505ceff94b538f549d9fe6b976e0f694c0413684e54c1a"
+    },
+    {
+      "path": "poster/poster.pdf",
+      "sha256": "e194d4780f34705a4c82a73ee6334efc8f129829fc806e29a49c37603eca2f7b"
+    },
+    {
+      "path": "report/FiraSans-Bold.ttf",
+      "sha256": "74b477a3e2b7c745e6dac8c01764c8fd82e53763b47ef1eccd24dce36d2ff71f"
+    },
+    {
+      "path": "report/FiraSans-Italic.ttf",
+      "sha256": "e48b22ba7f2eab682501ba01b3ddfdbf65dadfafa74d9b2efe1879eb949b5c69"
+    },
+    {
+      "path": "report/FiraSans-Light.ttf",
+      "sha256": "dee1bfa0f91724574792dcb4ddde4695e44e87071abfa27cc29cae2cba2c0523"
+    },
+    {
+      "path": "report/FiraSans-LightItalic.ttf",
+      "sha256": "d748e3faaefa3fc2e6ab038cd3c95a3b4078f809ac9f65f4cd6735e4dfcdb0ec"
+    },
+    {
+      "path": "report/FiraSans-Regular.ttf",
+      "sha256": "3dabf3d48bf4599f95cffd92f99ea426a014d5311f52a5eb5ec3af265e97cd97"
+    },
+    {
+      "path": "report/heading.svg",
+      "sha256": "1d0ca85cbb3c5959edf9bc79c99e912526914653670b506199b6af24786d7822"
+    },
+    {
+      "path": "report/internal-links.svg",
+      "sha256": "dd072e2215d266ff8d0923e187aa23e3dd9a283e82d65193728c40ac092b3690"
+    },
+    {
+      "path": "report/multi-columns.svg",
+      "sha256": "f7abb5a426a0152dd6e3359e6afe0a78bffecf509a8a5f4a2dd021f620eb38cf"
+    },
+    {
+      "path": "report/report-cover.jpg",
+      "sha256": "5bb61a359f3986a4734fc458bba8056759ced049a5892b0b4e9ff0e830c67d76"
+    },
+    {
+      "path": "report/report.css",
+      "sha256": "cb751d17867f00030a77bea792f52dacd12db6cff13b8fbebd38ed195e718dcd"
+    },
+    {
+      "path": "report/report.html",
+      "sha256": "3332f79487196ac46bd56142f463148d93900687b6794f554073d9412afa7cf6"
+    },
+    {
+      "path": "report/report.pdf",
+      "sha256": "2c9359dfd8402ee9b78b4f08a6c9d2ce4bb309d8dc41b2c8b4c040433929dfe2"
+    },
+    {
+      "path": "report/style.svg",
+      "sha256": "732e060c592950e18bb98a977e667b39bd51fa7c934bfd062c237fdb0335eecd"
+    },
+    {
+      "path": "report/table-content.svg",
+      "sha256": "3241ea8e5391e90dca24ce59c536b2668324c45e651a68701e92512e289b5242"
+    },
+    {
+      "path": "report/thumbnail.png",
+      "sha256": "dc2b144bb4f5c5183d06dd45ed84ecb6886d31882ff2363c5d446e7e704bef35"
+    },
+    {
+      "path": "ticket/barlowcondensed-bold.otf",
+      "sha256": "97b4e0050f3674a503b8cd5f42fc3d7a5c72e42ab8ff26e2fcce9dafed07d3e7"
+    },
+    {
+      "path": "ticket/barlowcondensed-light.otf",
+      "sha256": "c2e5768203af4e75e7b4a191ba4a77c5add630f1ae232eb8b4cd28ed4158a09b"
+    },
+    {
+      "path": "ticket/barlowcondensed-regular.otf",
+      "sha256": "9e04bd73e416b00db8eee644c588ce61024caca72d191e9bccaccee0085b68f7"
+    },
+    {
+      "path": "ticket/librebarcode128-regular.ttf",
+      "sha256": "bece6b8695cf29f04ce1c706f0f508a65545f3b6240a03cef302b70f846630a7"
+    },
+    {
+      "path": "ticket/ticket.css",
+      "sha256": "dc9264d60976be9f80e23429a8d22063c2b13eedcf33b3aef537639ed3fe058e"
+    },
+    {
+      "path": "ticket/ticket.html",
+      "sha256": "f67331adcfbefe3a9bed5880171e689bb00d568ee9b1043b81cf382babdb0f13"
+    },
+    {
+      "path": "ticket/ticket.pdf",
+      "sha256": "2ac5ff5fc998ee397b92787ac7fe884a02228ea743c4402e907370695a76a0ba"
+    }
+  ]
+}

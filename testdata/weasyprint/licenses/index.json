@@ -1,0 +1,76 @@
+{
+  "note": "Every font file bundled in the corpus is listed exactly once. Each licence is the upstream licence text with the copyright notice read from the name table of the bundled font version; the corpus ships the fonts of the pinned samples, not the latest release of each family.",
+  "fonts": [
+    {
+      "family": "Source Sans 3",
+      "license": "OFL-Source-Sans-3.txt",
+      "rights": "© 2023 Adobe (http://www.adobe.com/), with Reserved Font Name ‘Source’",
+      "files": [
+        "invoice/SourceSans3-Bold.ttf",
+        "invoice/SourceSans3-Regular.ttf"
+      ]
+    },
+    {
+      "family": "Pacifico",
+      "license": "OFL-Pacifico-2011.txt",
+      "rights": "Copyright (c) 2011 by Vernon Adams. All rights reserved.",
+      "files": [
+        "invoice/pacifico.ttf"
+      ]
+    },
+    {
+      "family": "Pacifico",
+      "license": "OFL-Pacifico-2018.txt",
+      "rights": "Copyright 2018 The Pacifico Project Authors (https://github.com/googlefonts/Pacifico)",
+      "files": [
+        "letter/fonts/Pacifico-Regular.ttf"
+      ]
+    },
+    {
+      "family": "Fira Sans",
+      "license": "OFL-Fira-Sans.txt",
+      "rights": "Digitized data copyright 2012-2016, The Mozilla Foundation and Telefonica S.A.",
+      "files": [
+        "report/FiraSans-Bold.ttf",
+        "report/FiraSans-Italic.ttf",
+        "report/FiraSans-Light.ttf",
+        "report/FiraSans-LightItalic.ttf",
+        "report/FiraSans-Regular.ttf"
+      ]
+    },
+    {
+      "family": "Archivo Black",
+      "license": "OFL-Archivo-Black.txt",
+      "rights": "Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack)",
+      "files": [
+        "poster/archivoblack-regular.ttf"
+      ]
+    },
+    {
+      "family": "Barlow Condensed",
+      "license": "OFL-Barlow-Condensed.txt",
+      "rights": "Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)",
+      "files": [
+        "ticket/barlowcondensed-bold.otf",
+        "ticket/barlowcondensed-light.otf",
+        "ticket/barlowcondensed-regular.otf"
+      ]
+    },
+    {
+      "family": "Libre Barcode 128",
+      "license": "OFL-Libre-Barcode-128.txt",
+      "rights": "Copyright 2017-2020 The Libre Barcode Project Authors (https://github.com/graphicore/librebarcode)",
+      "files": [
+        "ticket/librebarcode128-regular.ttf"
+      ]
+    },
+    {
+      "family": "Coming Soon",
+      "license": "Apache-2.0-Coming-Soon.txt",
+      "rights": "Copyright (c) 2010 by Open Window. All rights reserved.",
+      "files": [
+        "letter/fonts/ComingSoon-Regular.ttf"
+      ]
+    }
+  ]
+}

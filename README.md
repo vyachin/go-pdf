@@ -9,7 +9,8 @@ template must reproduce the same file today and in a year.
 import "github.com/vyachin/go-pdf/pdfgen"
 ```
 
-Go 1.26 or newer. The module has no dependencies.
+Go 1.26 or newer. `pdfgen` has no dependencies of its own; the test harness
+imports `golang.org/x/text` for Unicode normalisation.
 
 ## Install
 
