@@ -76,6 +76,14 @@ type Box struct {
 	// anchored records that the id and heading of the box were registered,
 	// so a repeated table header does not duplicate outline entries.
 	anchored bool
+	// overflowWarned records that layout/overflow was reported for this box,
+	// so one clipped box produces one diagnostic.
+	overflowWarned bool
+	// gridBuilt records that buildGrid assigned the cell columns of this
+	// table, so measurement does not rebuild the grid placement did.
+	gridBuilt bool
+	// gridWidth is the content width the cached columns were computed for.
+	gridWidth int32
 
 	// col is the grid column of a table cell, assigned by the table layout.
 	col int

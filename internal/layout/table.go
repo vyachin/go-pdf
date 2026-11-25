@@ -2,7 +2,6 @@ package layout
 
 import (
 	"github.com/vyachin/go-pdf/internal/css"
-	"github.com/vyachin/go-pdf/internal/diag"
 )
 
 // normSpan clamps a stored span, so layout never depends on the parser having
@@ -76,8 +75,10 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 }
 
 // buildGrid assigns every cell the column it occupies, skipping columns taken
-// by cells that continue from earlier rows.
-func (l *layouter) buildGrid(t *Box) {
+// by cells that continue from earlier rows. It reports false when the work
+// budget or a cancellation stopped it, so the caller does not cache a partial
+// grid.
+func (l *layouter) buildGrid(t *Box) bool {
 	occupied := make([]map[int]bool, len(t.Rows))
 	for i := range occupied {
 		occupied[i] = map[int]bool{}
@@ -88,7 +89,7 @@ func (l *layouter) buildGrid(t *Box) {
 			// Placing a cell is work: a table with many rowspans fills many grid
 			// slots, and the shared budget must see it.
 			if l.tick() != nil {
-				return
+				return false
 			}
 			for occupied[r][col] {
 				col++
@@ -104,12 +105,32 @@ func (l *layouter) buildGrid(t *Box) {
 			col += span
 		}
 	}
+	return true
+}
+
+// tableLayout builds the occupancy grid and the column widths of a table. The
+// grid is built and charged once per table: measurement and placement must see
+// the same cells, or a break-inside: avoid decision is taken from a table
+// height the placement does not match.
+func (l *layouter) tableLayout(t *Box, width int32) bool {
+	if t.columns != nil && t.gridWidth == width {
+		return true
+	}
+	if !t.gridBuilt {
+		if !l.buildGrid(t) {
+			return false
+		}
+		t.gridBuilt = true
+	}
+	t.columns = l.computeColumns(t, width)
+	t.gridWidth = width
+	return true
 }
 
 // measureTable returns the content height of a table.
 func (l *layouter) measureTable(t *Box, width int32) int32 {
-	if t.columns == nil {
-		t.columns = l.computeColumns(t, width)
+	if !l.tableLayout(t, width) {
+		return 0
 	}
 	var h int32
 	for i, row := range t.Rows {
@@ -150,11 +171,15 @@ func (l *layouter) rowHeight(row *Row, t *Box, index int) int32 {
 	return h
 }
 
-// placeTable places rows until the page is full.
+// placeTable places rows until the page is full. It never creates a page
+// itself: a forced break, like a row that does not fit, returns control to the
+// page loop, so every enclosing fragment is finished on the old page and the
+// new page is painted from its own origin.
 func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	if !t.built {
-		l.buildGrid(t)
-		t.columns = l.computeColumns(t, width)
+		if !l.tableLayout(t, width) {
+			return false
+		}
 		t.rowHeights = make([]int32, len(t.Rows))
 		for i, row := range t.Rows {
 			t.rowHeights[i] = l.rowHeight(row, t, i)
@@ -182,15 +207,17 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			t.cursor.row++
 			continue
 		}
-		// break-before applies to a row like to a block: start a new page and
-		// repeat the header rows there.
-		if row.Style != nil && row.Style.BreakBefore == css.BreakPage && len(f.page.Ops) > 0 {
-			if !f.newPage() {
+		// A row break shares the pending decision with blocks. When the page
+		// already carries body content the transition is owed; returning hands
+		// it to the page loop. When it does not, the boundary is already fresh.
+		if row.Style != nil && row.Style.BreakBefore == css.BreakPage {
+			f.breakPending = true
+		}
+		if f.breakPending {
+			if f.pageHasBody {
 				return false
 			}
-			if l.paintRepeatedHeaders(f, t) {
-				t.headerPage = f.pageNum
-			}
+			f.breakPending = false
 		}
 		h := t.rowHeights[t.cursor.row]
 		if int64(f.y)+int64(h) > int64(f.bottom) {
@@ -205,24 +232,24 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 				}
 			}
 			if len(f.page.Ops) == 0 || h > space {
-				l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(t), "a table row is taller than the page and is clipped")
+				l.warnOverflow(t, "a table row is taller than the page and is clipped")
 			} else {
 				return false
 			}
 		}
 		l.paintRow(f, t, t.cursor.row)
 		f.y = satAdd(f.y, h)
+		// A body row is page content; the repeated headers above are not.
+		f.pageHasBody = true
 		t.cursor.row++
-		// break-after applies once the row is painted and leaves the remaining
-		// rows for the next page; a trailing break after the last row would
-		// only create an empty page.
-		if row.Style != nil && row.Style.BreakAfter == css.BreakPage && t.cursor.row < len(t.Rows) {
-			if !f.newPage() {
+		if row.Style != nil && row.Style.BreakAfter == css.BreakPage {
+			f.breakPending = true
+			if t.cursor.row < len(t.Rows) {
+				// The page loop finishes this fragment; the remaining rows
+				// continue after it and repeat the header.
 				return false
 			}
-			if l.paintRepeatedHeaders(f, t) {
-				t.headerPage = f.pageNum
-			}
+			// A trailing row break is taken only by the content that follows.
 		}
 	}
 	return true
@@ -393,10 +420,12 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	if inner < 0 {
 		inner = 0
 	}
-	// The nested table is measured for this width; a table measured earlier on
-	// a different width must not reuse its columns.
-	l.buildGrid(t)
-	t.columns = l.computeColumns(t, inner)
+	// paintCell measured the nested table at this width, so the cached grid and
+	// columns are reused instead of charging the build twice. A different
+	// width recomputes the columns from the same grid.
+	if !l.tableLayout(t, inner) {
+		return 0
+	}
 	t.rowHeights = make([]int32, len(t.Rows))
 	var rows int32
 	for i, row := range t.Rows {

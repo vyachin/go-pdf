@@ -20,8 +20,16 @@ type flow struct {
 	y       int32
 	pending int32
 	empty   bool
-	// breakPending is a break-after:page that waits for the next visible box,
-	// so a trailing forced break does not create an empty last page.
+	// pageHasBody records that the current page has content that is not a
+	// repeated table header. A forced break is taken only from such a page; on
+	// a page whose only content is a repeated header the boundary is already
+	// fresh. f.empty keeps its separate meaning: "nothing was entered here",
+	// which the margin and break-inside decisions use.
+	pageHasBody bool
+	// breakPending is a forced break that waits for the next box that paints
+	// content. break-before and break-after share the flag, so adjacent forced
+	// breaks collapse into one transition, and an empty box neither cancels it
+	// nor creates a page on its own.
 	breakPending bool
 }
 
@@ -47,6 +55,10 @@ func (f *flow) newPage() bool {
 	f.y = f.top
 	f.pending = 0
 	f.empty = true
+	f.pageHasBody = false
+	// Any page transition satisfies a pending forced break: the boundary it
+	// asked for has been crossed.
+	f.breakPending = false
 	return true
 }
 
@@ -112,9 +124,10 @@ func (l *layouter) paginate(root *Box) *Document {
 			break
 		}
 		iterations++
-		if l.ops == opsBefore && f.y == yBefore {
+		if l.ops == opsBefore && f.y == yBefore && !f.breakPending {
 			// Nothing was drawn and the flow did not advance: the content cannot
-			// be placed, so fail instead of emitting empty pages.
+			// be placed, so fail instead of emitting empty pages. A pending
+			// forced break is the one case where a page is expected.
 			l.diags.Errorf("layout/no-progress", diag.Position{}, "", "content cannot be placed on a page and pagination cannot advance")
 			break
 		}
@@ -194,12 +207,6 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	}
 	st := b.Style
 	if !b.started {
-		if f.breakPending && !isRoot {
-			f.breakPending = false
-			if boxHasContent(b) && !f.newPage() {
-				return false
-			}
-		}
 		b.started = true
 		b.startPage = f.pageNum
 		b.usedGeometry(x, width)
@@ -207,10 +214,20 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	cw := b.contentWidth()
 
 	if !b.entered {
-		// A forced break only makes sense when the page already has content;
-		// otherwise it would create an empty leading page.
-		if st.BreakBefore == css.BreakPage && len(f.page.Ops) > 0 {
-			f.newPage()
+		// The single forced-break decision: a break, whether it was requested
+		// by a break-before on this box or deferred by a break-after on the
+		// previous one, is consumed here by the first box that paints
+		// something. A box that paints nothing leaves it pending, so an empty
+		// or height-only <div> cannot cancel a break and cannot create a page
+		// by itself.
+		if !isRoot && f.breakPending && boxHasContent(b) {
+			if f.pageHasBody {
+				if !f.newPage() {
+					return false
+				}
+			} else {
+				f.breakPending = false
+			}
 		}
 		if !isRoot {
 			mt := st.Margin[0].Resolve(width)
@@ -267,7 +284,6 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	case b.Kind == Table:
 		if l.placeTable(f, b, cw) {
 			l.applyFixedHeight(f, b)
-			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
 			return true
@@ -277,7 +293,6 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	case b.Kind == Image:
 		if l.placeImageBlock(f, b, cw) {
 			l.applyFixedHeight(f, b)
-			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
 			return true
@@ -286,7 +301,6 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		return false
 	case l.isTextBlock(b):
 		if l.placeText(f, b, cw) {
-			l.applyFixedHeight(f, b)
 			l.applyFixedHeight(f, b)
 			l.finishFragment(f, b, true)
 			l.afterBlock(f, b)
@@ -311,32 +325,55 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 	}
 }
 
-// boxHasContent reports whether a box can paint anything visible. It keeps a
-// pending forced break from creating a page for an empty block.
+// boxHasContent reports whether a box can paint anything visible or reserve
+// vertical space. It is the predicate that consumes a pending forced break, so
+// it covers a height, a background, a border, a list marker, an image and
+// descendants that paint: a container of empty boxes paints nothing.
 func boxHasContent(b *Box) bool {
 	switch b.Kind {
 	case Image:
 		return b.Image != nil
 	case Table:
 		return len(b.Rows) > 0
-	}
-	if len(b.Children) > 0 {
+	case Text:
+		return strings.TrimSpace(b.Text) != ""
+	case ListItem:
+		// The marker is painted even when the item has no text.
 		return true
 	}
-	return b.Kind == Text && strings.TrimSpace(b.Text) != ""
+	if st := b.Style; st != nil {
+		if st.Height.Kind == css.MP && st.Height.Value > 0 {
+			return true
+		}
+		if st.Background.Set || b.Background != nil {
+			return true
+		}
+		for _, side := range st.Border {
+			if visibleWidth(side) > 0 {
+				return true
+			}
+		}
+	}
+	for _, c := range b.Children {
+		if boxHasContent(c) {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
-	if !f.empty {
-		if c.Style.BreakBefore == css.BreakPage {
-			if len(f.page.Ops) > 0 {
-				f.newPage()
-			}
-		} else if c.Style.BreakInside == css.BreakAvoid {
-			h := l.measure(c, width)
-			if int64(f.y)+int64(h) > int64(f.bottom) && h <= f.contentHeight() {
-				f.newPage()
-			}
+	// break-before joins the pending decision in placeBlock; it must not start
+	// a page here, or a break-after on the previous box would start a second
+	// one at the same boundary.
+	if c.Style.BreakBefore == css.BreakPage {
+		f.breakPending = true
+	}
+	if c.Style.BreakBefore != css.BreakPage && !f.empty && c.Style.BreakInside == css.BreakAvoid {
+		h := l.measure(c, width)
+		if int64(f.y)+int64(h) > int64(f.bottom) && h <= f.contentHeight() {
+			// newPage clears any pending break: the transition satisfies it.
+			f.newPage()
 		}
 	}
 	return l.placeBlock(f, c, x, width, false)
@@ -363,7 +400,7 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 	avail := f.bottom - b.padBottom() - b.borderBottom()
 	if f.y+h > avail {
 		if len(f.page.Ops) == 0 {
-			l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "an image is taller than the page and is clipped")
+			l.warnOverflow(b, "an image is taller than the page and is clipped")
 		} else {
 			// The page loop owns page creation: creating one here as well
 			// produced an empty page for every moved image.
@@ -382,6 +419,7 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 		Image: &ImageOp{Image: b.Image},
 	})
 	f.y += h
+	f.pageHasBody = true
 	return true
 }
 
@@ -405,7 +443,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 			f.newPage()
 			return false
 		}
-		l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "content is taller than the page and is clipped")
+		l.warnOverflow(b, "content is taller than the page and is clipped")
 		fits = 1
 	}
 	if fits < total {
@@ -431,6 +469,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 			}
 		}
 		f.y = satAdd(f.y, line.Height)
+		f.pageHasBody = true
 		b.cursor.line++
 	}
 	return b.cursor.line >= len(b.lines)
@@ -499,12 +538,26 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 	}
 	target := satAdd(b.contentTopY, st.Height.Value)
 	if target > f.bottom-b.padBottom()-b.borderBottom() {
-		l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "content is taller than the page and is clipped")
+		l.warnOverflow(b, "content is taller than the page and is clipped")
 		return
 	}
 	if f.y < target {
 		f.y = target
+		// The reserved height is content of this page even when the box paints
+		// nothing else, so a later forced break still has a page to leave.
+		f.pageHasBody = true
 	}
+}
+
+// warnOverflow reports a layout/overflow warning once per box. A box can be
+// clipped on several pages and can reach more than one call site; the reader
+// needs one report per box, not one per attempt.
+func (l *layouter) warnOverflow(b *Box, message string) {
+	if b.overflowWarned {
+		return
+	}
+	b.overflowWarned = true
+	l.diags.Warnf("layout/overflow", diag.Position{}, nodePath(b), "%s", message)
 }
 
 func headingLevel(tag string) int {

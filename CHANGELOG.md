@@ -82,6 +82,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A character outside the BMP in a `ToUnicode` map extracts as one character.
   It used to extract as two replacement characters, because the surrogate pair
   was read back as two separate code points.
+- **Forced breaks.** A `break-after: page` followed by a `break-before: page`
+  now makes one page transition instead of two, so those documents lose the
+  blank page between the two paragraphs and `counter(pages)` counts the pages a
+  reader sees. A pending break is taken only from a page that already has body
+  content: an empty `<div>` after a break neither cancels it nor creates a page,
+  a box that paints only a height or a background satisfies it, and a trailing
+  `break-before` on an empty box no longer appends a blank page. Break-before on
+  the first content still keeps one page.
+- **Table row breaks.** A forced break on a `<tr>` now returns to the page loop
+  instead of creating a page inside table placement, so the table background and
+  the enclosing fragments are painted on their own page, with its coordinates
+  and before the cells. Adjacent row breaks make one transition even when the
+  table repeats a header, and a page is never left holding only repeated
+  headers.
+- **Table measurement.** `break-inside: avoid` measures a table from its built
+  grid, so a two-column table moves to the next page whole instead of splitting
+  between two rows.
+- **Indented lines.** `text-indent` counts toward a line's natural width together
+  with a leading inline image, so a right-aligned line with both ends at the
+  content edge instead of overflowing by the image width.
+- **One overflow warning per box.** A clipped box is reported once: the
+  duplicated fixed-height pass is gone, and so is the second report when the text
+  path and the fixed height clip the same box.
 
 ## [1.0.0] - 2026-11-25
 
