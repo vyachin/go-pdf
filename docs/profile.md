@@ -95,6 +95,14 @@ The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does 
 
 A background image is painted behind the box's content, scaled to cover the box and clipped to it. The same `data:` URI forms as for `<img src>` are accepted; remote URLs are not. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
 
+## Pagination
+
+`break-before: page` and `break-after: page` are honoured once at a boundary. When both meet between two boxes — a `break-after` on one and a `break-before` on the next — the engine makes one page transition, for block boxes and table rows alike. A pending break is taken only when the page already carries body content: at the top of a page, or after a box that paints nothing, the boundary is already fresh, so the break is dropped instead of adding an empty page. A box that paints only a background, a border or a declared height is content and satisfies the break; a trailing forced break never appends an empty page. Repeated table headers are not body content, so a break decided on a continuation page is not taken twice. A break on a `<tr>` is handled by the page loop: the table background and the enclosing fragments are finished on the page they belong to before the next page is painted.
+
+`break-inside: avoid` measures a table from its built grid, so the height it compares is the height the table occupies.
+
+`text-indent` shifts the first line of a block and counts toward that line's natural width, together with every inline image on it — including an image before the first word — so alignment and the wrap decision use the real width.
+
 ## Selectors
 
 Element name, class, ID, the universal `*`, combinations, descendant (space), direct child (`>`) and adjacent sibling (`+`), and comma-separated lists.

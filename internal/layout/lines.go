@@ -208,8 +208,11 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	}
 
 	firstLine := true
+	// ensureIndent shifts the first line by text-indent before its first item,
+	// whatever that item is. Applying it when the first word arrived used to
+	// reset x and drop the width of a leading inline image.
 	ensureIndent := func() {
-		if firstLine && len(lines) == 0 && indent != 0 {
+		if firstLine && len(lines) == 0 && len(cur.Items) == 0 && indent != 0 {
 			cur.Indent = indent
 			x = indent
 		}
@@ -220,6 +223,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	// spaces without touching the line width afterwards.
 	spacePending := false
 	addSpace := func(style *css.Style) {
+		ensureIndent()
 		face, err := l.face(style)
 		if err != nil {
 			l.diags.Errorf("text/font", diag.Position{}, "", "%v", err)
@@ -263,6 +267,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if p.image == nil {
 				continue
 			}
+			ensureIndent()
 			w, h := imageSize(p.style, p.image, width, l.ctx)
 			// The pending separator belongs to the previous line only when the
 			// image stays there; on a wrap it must not trail the old line.
@@ -297,6 +302,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				l.diags.Errorf("text/glyph", diag.Position{}, "", "%v", err)
 				continue
 			}
+			ensureIndent()
 			// The word is measured together with the pending separator. On a
 			// wrap that separator disappears, so the old line must not keep it.
 			spaceW := int32(0)
@@ -315,7 +321,6 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				spacePending = false
 			}
 			attachAnchors()
-			ensureIndent()
 			item := LineItem{Kind: TextItem, Face: face, Run: run, Color: p.style.Color, Style: p.style, W: run.Width}
 			cur.Items = append(cur.Items, item)
 			cur.Height = max(cur.Height, p.style.LineHeightMP())
@@ -324,7 +329,6 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			// A following word can wrap after a space, a forced break or a
 			// hyphen that already ends this word.
 			canWrap = p.wrapAfter
-			_ = firstLine
 		}
 	}
 	// A trailing anchor belongs to the line it follows.

@@ -89,7 +89,10 @@ func TestPageTextsCountsAPageThatDrawsOnlyAnImage(t *testing.T) {
 }
 
 func TestPageTextsCountsAnEmptyPage(t *testing.T) {
-	pdf := convertHTML(t, `<div style="break-after: page"></div><p>after</p>`)
+	// A forced break no longer leaves a page with nothing on it, so the
+	// text-free page is made by a background-only block: it draws no text, but
+	// it is a real page that PageTexts has to count.
+	pdf := convertHTML(t, `<div style="height: 20pt; background-color: #eeeeee"></div><p style="break-before: page">after</p>`)
 
 	texts, err := pdfdebug.PageTexts(pdf)
 	if err != nil {

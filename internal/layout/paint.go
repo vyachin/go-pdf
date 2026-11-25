@@ -27,6 +27,8 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	if len(ops) > 0 {
 		l.ops += len(ops)
 		page.Ops = insertOps(page.Ops, b.fragOpStart, ops)
+		// A background or a border is content the page now carries.
+		f.pageHasBody = true
 	}
 }
 
@@ -195,6 +197,8 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 // flow.
 func (l *layouter) paintListMarker(f *flow, b *Box) {
 	l.paintListMarkerAt(f.page, b, f.left)
+	// The marker is content of the page even when the item has no text.
+	f.pageHasBody = true
 }
 
 // paintListMarkerAt draws a list marker into a page, clamped to left so it does
