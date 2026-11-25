@@ -8,9 +8,14 @@
 //
 // # Guarantees
 //
-//   - Deterministic output. The same document and the same options produce a
-//     byte-identical PDF. [Options].Date defaults to a fixed constant rather
-//     than the system clock.
+//   - Deterministic output. The same engine build, HTML bytes, options and
+//     resolved asset bytes — linked stylesheets, images and selected font bytes
+//     — produce a byte-identical PDF. [Options].Date defaults to a fixed
+//     constant rather than the system clock, and the document identifier is a
+//     hash of the content. A file edited in place is a changed input, and
+//     system-font fallback is environment-dependent, so a reproducible
+//     deployment selects [Options].FallbackFont (or an @font-face source) and
+//     keeps its stylesheets and images immutable.
 //   - No writes. [Convert] and [Validate] create, modify and delete no files.
 //     They read only the assets the document references, inside the configured
 //     roots, and the PDF is returned to the caller, who decides where it goes.

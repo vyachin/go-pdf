@@ -8,7 +8,7 @@ The engine **does not ship fonts in the binary**. Fonts are part of the document
 
 - **Licenses.** PT Serif, PT Sans and Liberation are distributed freely, but their redistribution terms differ, and Times New Roman and Arial cannot be redistributed at all. Embedding a font in the binary is distributing it.
 - **Size.** One family in four faces is 1.5–3 MB. A full set for documents (serif, sans-serif, mono) easily adds 8–10 MB to the binary.
-- **Reproducibility.** Byte-identical PDFs depend on the exact font version. Keeping the font in the same artifact as the documents is more reliable than depending on the system font.
+- **Reproducibility.** Byte-identical PDFs depend on the exact font bytes — and on every other resolved input. The complete input is the engine build, the HTML bytes, the options and the bytes of every linked stylesheet, image and selected font under the same resolution choices. A file edited in place at the same path is a changed input, and system fallback selects different bytes on different machines. Keeping the font in the same artifact as the documents is more reliable than depending on the system font; pin `Options.FallbackFont` or declare `@font-face`, and keep the stylesheets and images immutable next to it. `Options.Date` defaults to a fixed constant and the document identifier is a hash of the content, so the clock does not enter the output.
 
 For an integrator this means: the service that embeds the engine decides for itself how to deliver the font — through `go:embed` in its own binary, through a file in the container or through a volume with the fonts.
 
