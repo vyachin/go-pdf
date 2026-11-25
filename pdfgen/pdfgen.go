@@ -89,6 +89,17 @@ type Limits struct {
 	MaxRasterPixels int
 	// MaxFontBytes bounds the size of a font file. Default 16 MiB.
 	MaxFontBytes int
+	// MaxTotalImageBytes bounds the encoded bytes of every image one
+	// conversion reads, in addition to MaxImageBytes per file. An image that
+	// would cross it is rejected before it is opened. Default 64 MiB.
+	MaxTotalImageBytes int
+	// MaxTotalImagePixels bounds the decoded pixels of every image one
+	// conversion decodes, in addition to MaxImagePixels per file. Default
+	// 80,000,000.
+	MaxTotalImagePixels int
+	// MaxTotalFontBytes bounds the bytes of every font one conversion parses,
+	// in addition to MaxFontBytes per file. Default 32 MiB.
+	MaxTotalFontBytes int
 	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
 	// parsing. Default 256.
 	MaxDOMDepth int

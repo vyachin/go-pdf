@@ -39,11 +39,21 @@ type fontRegistry struct {
 	// only when a document really asks for a family it does not declare.
 	maxFontBytes int
 	guard        *budget.Guard
-	systemTried  bool
+	// maxTotalFontBytes bounds every font of one conversion in addition to the
+	// per-file limit; totalFontBytes is counted once per canonical file.
+	maxTotalFontBytes int
+	totalFontBytes    int64
+	systemTried       bool
 }
 
 func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Stylesheet, opts Options) (*fontRegistry, error) {
-	r := &fontRegistry{cache: map[string]*layout.FontFace{}, guard: guard, maxFontBytes: opts.Limits.resolved().MaxFontBytes}
+	limits := opts.Limits.resolved()
+	r := &fontRegistry{
+		cache:             map[string]*layout.FontFace{},
+		guard:             guard,
+		maxFontBytes:      limits.MaxFontBytes,
+		maxTotalFontBytes: limits.MaxTotalFontBytes,
+	}
 	if err := guard.Err(); err != nil {
 		return nil, err
 	}
@@ -95,11 +105,30 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			continue
 		}
 		path := resolvePath(src, opts.FontDir, opts.BaseDir)
-		// The file is parsed once; every family alias that names it still gets
-		// its own registration.
-		f, ok := parsed[path]
+		// The file is identified by its canonical path, so two spellings of one
+		// font share one parse and one entry in the document total.
+		canonical, err := fontRoot.Resolve(path)
+		if err != nil {
+			if errors.Is(err, fsx.ErrOutsideRoot) {
+				return nil, fmt.Errorf("font %q is outside the font directory", src)
+			}
+			return nil, fmt.Errorf("loading font %q: %w", src, err)
+		}
+		f, ok := parsed[canonical]
 		if !ok {
-			data, err := fontRoot.ReadLimit(path, maxFontBytes)
+			size, err := fontRoot.Size(canonical)
+			if err != nil {
+				return nil, fmt.Errorf("loading font %q: %w", src, err)
+			}
+			if maxFontBytes > 0 && size > int64(maxFontBytes) {
+				return nil, fmt.Errorf("%w: font %q exceeds the limit of %d bytes", budget.ErrExceeded, src, maxFontBytes)
+			}
+			// The size is known before the file is opened, so the aggregate
+			// limit rejects a font without reading it.
+			if err := r.admitFont(size, src); err != nil {
+				return nil, err
+			}
+			data, err := fontRoot.ReadLimit(canonical, maxFontBytes)
 			if err != nil {
 				if errors.Is(err, fsx.ErrOutsideRoot) {
 					return nil, fmt.Errorf("font %q is outside the font directory", src)
@@ -118,9 +147,9 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			if err != nil {
 				return nil, loadFontError(src, err)
 			}
-			parsed[path] = f
+			parsed[canonical] = f
 		}
-		key := fmt.Sprintf("%s|%d|%v|%s", path, weight, italic, family)
+		key := fmt.Sprintf("%s|%d|%v|%s", canonical, weight, italic, family)
 		if seen[key] {
 			continue
 		}
@@ -129,6 +158,16 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 	}
 	if opts.FallbackFont != "" {
 		if err := guard.Err(); err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(opts.FallbackFont)
+		if err != nil {
+			return nil, fmt.Errorf("loading fallback font: %w", err)
+		}
+		if maxFontBytes > 0 && info.Size() > int64(maxFontBytes) {
+			return nil, fmt.Errorf("%w: fallback font %q exceeds the limit of %d bytes", budget.ErrExceeded, opts.FallbackFont, maxFontBytes)
+		}
+		if err := r.admitFont(info.Size(), opts.FallbackFont); err != nil {
 			return nil, err
 		}
 		data, err := fsx.ReadFileLimit(opts.FallbackFont, maxFontBytes)
@@ -151,6 +190,17 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		r.fallback = f
 	}
 	return r, nil
+}
+
+// admitFont counts one font file against the conversion total. A file already
+// parsed under the same canonical path is never counted twice, because the
+// caller checks the parsed map first.
+func (r *fontRegistry) admitFont(size int64, src string) error {
+	if r.maxTotalFontBytes > 0 && r.totalFontBytes+size > int64(r.maxTotalFontBytes) {
+		return fmt.Errorf("%w: the document's fonts exceed %d bytes in total, while loading %q", budget.ErrExceeded, r.maxTotalFontBytes, src)
+	}
+	r.totalFontBytes += size
+	return nil
 }
 
 // loadFontError reports why a font file was refused. A conversion that exceeds
@@ -255,7 +305,7 @@ func (r *fontRegistry) systemFaces() []*registeredFace {
 		return r.fallbackFaces
 	}
 	r.systemTried = true
-	r.fallbackFaces = loadSystemFamily(r.maxFontBytes, r.guard)
+	r.fallbackFaces = r.loadSystemFamily()
 	return r.fallbackFaces
 }
 
@@ -316,28 +366,28 @@ var DefaultFallbackFonts = []string{
 	"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
 }
 
-func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
-	if guard.Err() != nil {
+func (r *fontRegistry) loadSystemFamily() []*registeredFace {
+	if r.guard.Err() != nil {
 		return nil
 	}
 	// PDFTEST_FONT is an explicit override: use exactly that face and do not
 	// guess variants next to it, so tests stay reproducible.
 	if env := os.Getenv("PDFTEST_FONT"); env != "" {
-		if f := loadFontFile(env, maxBytes, guard); f != nil {
+		if f := r.loadFontFile(env); f != nil {
 			return []*registeredFace{{weight: 400, font: f}}
 		}
 	}
 	for _, path := range DefaultFallbackFonts {
-		if guard.Err() != nil {
+		if r.guard.Err() != nil {
 			return nil
 		}
-		regular := loadFontFile(path, maxBytes, guard)
+		regular := r.loadFontFile(path)
 		if regular == nil {
 			continue
 		}
 		faces := []*registeredFace{{weight: 400, font: regular}}
 		for _, variant := range variantPaths(path) {
-			f := loadFontFile(variant, maxBytes, guard)
+			f := r.loadFontFile(variant)
 			if f == nil {
 				continue
 			}
@@ -349,12 +399,25 @@ func loadSystemFamily(maxBytes int, guard *budget.Guard) []*registeredFace {
 	return nil
 }
 
-func loadFontFile(path string, maxBytes int, guard *budget.Guard) *font.Font {
-	data, err := fsx.ReadFileLimit(path, maxBytes)
+// loadFontFile loads one system font, applying the per-file and aggregate font
+// limits before the file is opened. It reports nil when the font is unavailable
+// or over a limit; the guard carries the reason.
+func (r *fontRegistry) loadFontFile(path string) *font.Font {
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil
 	}
-	f, err := font.LoadWithOptions(data, font.ParseOptions{Guard: guard})
+	if r.maxFontBytes > 0 && info.Size() > int64(r.maxFontBytes) {
+		return nil
+	}
+	if err := r.admitFont(info.Size(), path); err != nil {
+		return nil
+	}
+	data, err := fsx.ReadFileLimit(path, r.maxFontBytes)
+	if err != nil {
+		return nil
+	}
+	f, err := font.LoadWithOptions(data, font.ParseOptions{Guard: r.guard})
 	if err != nil {
 		return nil
 	}

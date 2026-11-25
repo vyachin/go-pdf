@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image/png"
@@ -186,7 +187,14 @@ func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
 func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.List) (*layout.Document, error) {
 	limits := opts.Limits.resolved()
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
-	images := &imageLoader{baseDir: opts.BaseDir, maxPixels: limits.MaxImagePixels, maxBytes: limits.MaxImageBytes, guard: p.guard}
+	images := &imageLoader{
+		baseDir:        opts.BaseDir,
+		maxPixels:      limits.MaxImagePixels,
+		maxBytes:       limits.MaxImageBytes,
+		maxTotalBytes:  limits.MaxTotalImageBytes,
+		maxTotalPixels: limits.MaxTotalImagePixels,
+		guard:          p.guard,
+	}
 	defer func() { _ = images.Close() }()
 
 	// target-counter needs a second pass: the page numbers written into the
@@ -282,7 +290,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	})
 	// One pdf.Image per decoded image, shared across pages, so the writer
 	// embeds a repeated source once.
-	pdfImages := map[*layout.ImageData]*pdf.Image{}
+	pdfImages := map[[32]byte]*pdf.Image{}
 	for _, p := range pages.Pages {
 		writer.AddPage(p.Size.Width, p.Size.Height, toPDFOps(p.Ops, pdfImages))
 	}
@@ -500,7 +508,7 @@ func toPDFOutline(entries []layout.OutlineEntry) []pdf.OutlineEntry {
 	return out
 }
 
-func toPDFOps(ops []layout.Op, images map[*layout.ImageData]*pdf.Image) []pdf.Op {
+func toPDFOps(ops []layout.Op, images map[[32]byte]*pdf.Image) []pdf.Op {
 	out := make([]pdf.Op, 0, len(ops))
 	for _, op := range ops {
 		switch op.Kind {
@@ -534,7 +542,11 @@ func toPDFOps(ops []layout.Op, images map[*layout.ImageData]*pdf.Image) []pdf.Op
 				continue
 			}
 			img := op.Image.Image
-			shared, ok := images[img]
+			// The encoded bytes identify the image: two files with the same
+			// content, or the same file reached through a second path, produce
+			// one PDF object. Hashing also covers data: URIs, which have no path.
+			key := sha256.Sum256(img.Data)
+			shared, ok := images[key]
 			if !ok {
 				shared = &pdf.Image{
 					Data:   img.Data,
@@ -542,7 +554,7 @@ func toPDFOps(ops []layout.Op, images map[*layout.ImageData]*pdf.Image) []pdf.Op
 					PixelW: img.PixelW,
 					PixelH: img.PixelH,
 				}
-				images[img] = shared
+				images[key] = shared
 			}
 			var clip *pdf.Rect
 			if c := op.Image.Clip; c != nil {

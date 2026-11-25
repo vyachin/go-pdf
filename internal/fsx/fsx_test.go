@@ -190,3 +190,39 @@ func TestReadLimitBoundsTheRead(t *testing.T) {
 		t.Fatalf("ReadFileLimit at the limit: %d bytes, err=%v", len(data), err)
 	}
 }
+
+// TestResolveCanonicalizesSpellings guards the identity a caller uses to cache
+// an asset: every spelling of one file resolves to the same absolute path.
+func TestResolveCanonicalizesSpellings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	plain, err := root.Resolve(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spelled, err := root.Resolve(filepath.Join(dir, "sub", "..", "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain != spelled {
+		t.Fatalf("spellings resolved to %q and %q", plain, spelled)
+	}
+	size, err := root.Size(filepath.Join(dir, "sub", "..", "a.txt"))
+	if err != nil || size != 3 {
+		t.Fatalf("Size = %d, %v; want 3", size, err)
+	}
+	if _, err := root.Resolve(filepath.Join(dir, "..", "missing.txt")); !errors.Is(err, ErrOutsideRoot) {
+		t.Fatalf("an outside path resolved to %v", err)
+	}
+}

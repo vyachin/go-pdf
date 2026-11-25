@@ -3,11 +3,16 @@ package engine
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"image"
 	"image/jpeg"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/budget"
 )
 
 // imageData returns the header and base64 payload of a data: URI for a tiny
@@ -91,5 +96,88 @@ func TestLoadDataURI(t *testing.T) {
 				t.Fatal("no image data")
 			}
 		})
+	}
+}
+
+// TestImageIdentityIsCanonicalPath guards the cache key: different spellings of
+// one file must share one decode and one ImageData.
+func TestImageIdentityIsCanonicalPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestPNG(t, filepath.Join(dir, "a.png"))
+	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
+
+	first, err := loader.Load("a.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spelling := range []string{"./a.png", "sub/../a.png", "./sub/../a.png"} {
+		img, err := loader.Load(spelling)
+		if err != nil {
+			t.Fatalf("%s: %v", spelling, err)
+		}
+		if img != first {
+			t.Fatalf("%s decoded a second copy", spelling)
+		}
+	}
+	if loader.loads != 1 {
+		t.Fatalf("decoded %d times, want 1", loader.loads)
+	}
+}
+
+// TestImageIdentityIsDataURIBytes guards the data: identity: the same bytes in
+// two spellings share one decode and one ImageData.
+func TestImageIdentityIsDataURIBytes(t *testing.T) {
+	header, payload := imageData(t, "image/png")
+	loader := &imageLoader{}
+	first, err := loader.Load("data:" + header + "," + payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := loader.Load("data: " + header + " , " + chunked(payload, 16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatal("the second spelling decoded a copy")
+	}
+	if loader.loads != 1 {
+		t.Fatalf("decoded %d times, want 1", loader.loads)
+	}
+}
+
+// TestImageTotalBytesLimit guards the aggregate byte cap: the size is checked
+// before the file is opened or decoded.
+func TestImageTotalBytesLimit(t *testing.T) {
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "a.png"))
+	info, err := os.Stat(filepath.Join(dir, "a.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := &imageLoader{baseDir: dir, maxTotalBytes: int(info.Size()) - 1}
+	defer func() { _ = loader.Close() }()
+	if _, err := loader.Load("a.png"); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("Load returned %v, want budget.ErrExceeded", err)
+	}
+	if loader.loads != 0 {
+		t.Fatalf("the rejected image was decoded %d times", loader.loads)
+	}
+}
+
+// TestImageTotalPixelsLimit guards the aggregate pixel cap.
+func TestImageTotalPixelsLimit(t *testing.T) {
+	dir := t.TempDir()
+	writeTestPNG(t, filepath.Join(dir, "a.png"))
+	loader := &imageLoader{baseDir: dir, maxTotalPixels: 1}
+	defer func() { _ = loader.Close() }()
+	if _, err := loader.Load("a.png"); !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("Load returned %v, want budget.ErrExceeded", err)
+	}
+	if loader.loads != 0 {
+		t.Fatalf("the rejected image was decoded %d times", loader.loads)
 	}
 }

@@ -77,6 +77,17 @@ type Limits struct {
 	MaxRasterPixels int
 	// MaxFontBytes bounds the size of a font file.
 	MaxFontBytes int
+	// MaxTotalImageBytes bounds the encoded bytes of every image one
+	// conversion reads, in addition to MaxImageBytes per file. An image that
+	// would cross it is rejected before it is opened. Default 64 MiB.
+	MaxTotalImageBytes int
+	// MaxTotalImagePixels bounds the decoded pixels of every image one
+	// conversion decodes, in addition to MaxImagePixels per file. Default
+	// 80,000,000.
+	MaxTotalImagePixels int
+	// MaxTotalFontBytes bounds the bytes of every font one conversion parses,
+	// in addition to MaxFontBytes per file. Default 32 MiB.
+	MaxTotalFontBytes int
 	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
 	// parsing, before the tree allocates one node per level.
 	MaxDOMDepth int
@@ -112,6 +123,15 @@ func (l Limits) resolved() Limits {
 	}
 	if l.MaxFontBytes <= 0 {
 		l.MaxFontBytes = 16 << 20
+	}
+	if l.MaxTotalImageBytes <= 0 {
+		l.MaxTotalImageBytes = 64 << 20
+	}
+	if l.MaxTotalImagePixels <= 0 {
+		l.MaxTotalImagePixels = 80_000_000
+	}
+	if l.MaxTotalFontBytes <= 0 {
+		l.MaxTotalFontBytes = 32 << 20
 	}
 	if l.MaxDOMDepth <= 0 {
 		l.MaxDOMDepth = 256
