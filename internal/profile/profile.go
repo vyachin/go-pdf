@@ -120,13 +120,32 @@ func walkElements(n *html.Node, fn func(*html.Node) bool) bool {
 
 func validateSheet(doc *html.Document, sh *css.Stylesheet, out *diag.List) {
 	for _, p := range sh.Problems {
-		out.Errorf("css/syntax", toDiag(sh.Position(p.Offset)), "", "%s", p.Message)
+		code := p.Code
+		if code == "" {
+			code = "css/syntax"
+		}
+		out.Errorf(code, toDiag(sh.Position(p.Offset)), "", "%s", p.Message)
 	}
 	validateRules(doc, sh.Rules, out)
 }
 
+// validateRules validates the rules in document order. It walks with an
+// explicit stack: the parser bounds at-rule nesting, but validation must not
+// add a second recursion that could disagree with that bound.
 func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
-	for _, r := range rules {
+	type frame struct {
+		rules []css.Rule
+		next  int
+	}
+	stack := []frame{{rules: rules}}
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if top.next >= len(top.rules) {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		r := top.rules[top.next]
+		top.next++
 		switch r.Kind {
 		case css.StyleRule:
 			if r.Err != nil {
@@ -150,7 +169,7 @@ func validateRules(doc *html.Document, rules []css.Rule, out *diag.List) {
 				out.Errorf("css/unsupported-media", rulePos(r), "", "@media %q is not supported, only print and all", r.Name)
 				continue
 			}
-			validateRules(doc, r.Rules, out)
+			stack = append(stack, frame{rules: r.Rules})
 		case css.UnknownAtRule:
 			out.Errorf("css/unsupported-at-rule", rulePos(r), "", "@%s is not supported", r.Name)
 		}

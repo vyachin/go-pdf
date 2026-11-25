@@ -375,9 +375,27 @@ Every local file named by the document SHALL be opened inside a configured root:
 - **WHEN** the template sets `background-image: url("data:image/svg+xml;base64,…")`
 - **THEN** conversion fails with a diagnostic naming the image type, because SVG is not decoded
 
+### Requirement: At-rule nesting is depth-limited
+
+The CSS parser SHALL reject a stylesheet whose at-rules are nested deeper than 64 levels with a `resource/limit` diagnostic during parsing, before any recursive walk over the rules. The limit SHALL apply to `@media`, page margin boxes and every other nested at-rule.
+
+#### Scenario: A deeply nested media query is rejected
+- **WHEN** a document contains an inline stylesheet with 500,000 nested `@media`
+  blocks, below the default input limit
+- **THEN** the call returns a `resource/limit` diagnostic
+- **AND** the process does not crash
+
+#### Scenario: The limit does not reject valid nesting
+- **WHEN** a stylesheet nests at-rules 64 levels deep
+- **THEN** validation accepts the stylesheet and the declared rules apply
+
+#### Scenario: One level over the limit
+- **WHEN** a stylesheet nests at-rules 65 levels deep
+- **THEN** the call returns a `resource/limit` diagnostic naming the nesting limit
+
 ### Requirement: Media rules apply at any nesting
 
-Rules inside `@media` blocks whose query matches `print` or `all` SHALL apply to the document, at any nesting depth, preserving document order. The same traversal MUST feed the cascade, `@page` resolution and `@font-face` collection; a `@media` with any other query MUST apply nothing.
+Rules inside `@media` blocks whose query matches `print` or `all` SHALL apply to the document, at any nesting depth within the at-rule nesting limit, preserving document order. The same traversal MUST feed the cascade, `@page` resolution and `@font-face` collection; a `@media` with any other query MUST apply nothing.
 
 #### Scenario: Nested print block
 - **WHEN** the stylesheet contains `@media print { p { display: none } }`
