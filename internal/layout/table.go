@@ -280,12 +280,12 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y int32) int32 {
 	h := t.rowHeights[index]
 	// The rows sit inside the table's padding box; the columns were already
 	// computed for the content width, so the origin includes the padding.
-	startX := t.x + t.borderLeft() + t.padLeft()
+	startX := satAdd(satAdd(t.x, t.borderLeft()), t.padLeft())
 	// The row background is painted before the cells so that opaque cell
 	// backgrounds still cover it.
 	var rowWidth int32
 	for _, w := range t.columns {
-		rowWidth += w
+		rowWidth = satAdd(rowWidth, w)
 	}
 	if row.Style != nil && row.Style.Background.Set && rowWidth > 0 && h > 0 {
 		l.ops++
@@ -390,22 +390,22 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		paintSide(2, Rect{X: x, Y: y + h - bb, W: w, H: bb})
 	}
 
-	inner := w - cell.padLeft() - cell.padRight() - leftInset - rightInset
+	inner := clampInt32(int64(w) - int64(cell.padLeft()) - int64(cell.padRight()) - int64(leftInset) - int64(rightInset))
 	if inner < 0 {
 		inner = 0
 	}
-	contentX := x + leftInset + cell.padLeft()
-	contentY := y + topInset + cell.padTop()
+	contentX := satAdd(satAdd(x, leftInset), cell.padLeft())
+	contentY := satAdd(satAdd(y, topInset), cell.padTop())
 	contentH := int32(0)
 	for _, c := range cell.Children {
-		contentH += l.measure(c, inner)
+		contentH = satAdd(contentH, l.measure(c, inner))
 	}
-	availH := h - topInset - bottomInset - cell.padTop() - cell.padBottom()
+	availH := clampInt32(int64(h) - int64(topInset) - int64(bottomInset) - int64(cell.padTop()) - int64(cell.padBottom()))
 	switch cell.Style.VerticalAlign {
 	case css.VAMiddle:
-		contentY += (availH - contentH) / 2
+		contentY = satAdd(contentY, satSub(availH, contentH)/2)
 	case css.VABottom:
-		contentY += availH - contentH
+		contentY = satAdd(contentY, satSub(availH, contentH))
 	}
 	if contentY < y+bt+cell.padTop() {
 		contentY = y + bt + cell.padTop()
@@ -416,7 +416,7 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 // paintStaticTable draws a table nested inside a cell: columns are computed for
 // the available width and rows are painted at explicit positions.
 func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32 {
-	inner := width - t.padLeft() - t.padRight() - t.borderLeft() - t.borderRight()
+	inner := clampInt32(int64(width) - int64(t.padLeft()) - int64(t.padRight()) - int64(t.borderLeft()) - int64(t.borderRight()))
 	if inner < 0 {
 		inner = 0
 	}
@@ -435,7 +435,7 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width int32) int32
 	t.built = true
 	t.x = x
 	t.width = width
-	height := t.borderTop() + t.padTop() + rows + t.padBottom() + t.borderBottom()
+	height := satAdd(satAdd(satAdd(t.borderTop(), t.padTop()), rows), satAdd(t.padBottom(), t.borderBottom()))
 	if ops := l.decorationOps(t, y, y+height, true, true); len(ops) > 0 {
 		l.ops += len(ops)
 		page.Ops = append(page.Ops, ops...)
@@ -488,8 +488,8 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		page.Ops = append(page.Ops, Op{
 			Kind: ImageOpKind,
 			Rect: Rect{
-				X: b.x + b.borderLeft() + b.padLeft(),
-				Y: y + b.borderTop() + b.padTop(),
+				X: satAdd(satAdd(b.x, b.borderLeft()), b.padLeft()),
+				Y: satAdd(satAdd(y, b.borderTop()), b.padTop()),
 				W: w,
 				H: h,
 			},
@@ -505,19 +505,20 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width int32) int32
 		if !b.built {
 			l.buildLines(b, inner)
 		}
-		lineY := y + b.borderTop() + b.padTop()
+		lineY := satAdd(satAdd(y, b.borderTop()), b.padTop())
 		for i := range b.lines {
-			l.paintLineAt(page, b, &b.lines[i], b.x+b.borderLeft()+b.padLeft(), lineY, inner, i == len(b.lines)-1)
+			l.paintLineAt(page, b, &b.lines[i], satAdd(satAdd(b.x, b.borderLeft()), b.padLeft()), lineY, inner, i == len(b.lines)-1)
 			for _, id := range b.lines[i].Anchors {
 				if _, ok := l.anchors[id]; !ok {
 					l.anchors[id] = Anchor{Page: page.Number, Y: lineY}
 				}
 			}
-			contentH += b.lines[i].Height
-			lineY += b.lines[i].Height
+			contentH = satAdd(contentH, b.lines[i].Height)
+			lineY = satAdd(lineY, b.lines[i].Height)
 		}
 	} else {
-		contentH = l.paintStaticBlocks(page, b.Children, b.x+b.borderLeft()+b.padLeft(), y+b.borderTop()+b.padTop(), inner)
+		contentH = l.paintStaticBlocks(page, b.Children, satAdd(satAdd(b.x, b.borderLeft()), b.padLeft()),
+			satAdd(satAdd(y, b.borderTop()), b.padTop()), inner)
 	}
 	height := l.staticHeight(b, contentH)
 	l.paintStaticDecorations(page, b, y, height, opStart)
@@ -530,7 +531,7 @@ func (l *layouter) staticHeight(b *Box, contentH int32) int32 {
 	if b.Style.Height.Kind == css.MP && b.Style.Height.Value > contentH {
 		contentH = b.Style.Height.Value
 	}
-	return b.borderTop() + b.padTop() + contentH + b.padBottom() + b.borderBottom()
+	return satAdd(satAdd(satAdd(b.borderTop(), b.padTop()), contentH), satAdd(b.padBottom(), b.borderBottom()))
 }
 
 // paintStaticDecorations inserts the background and border fills behind the

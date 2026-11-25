@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"image"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/pdfdebug"
 )
 
 // imageData returns the header and base64 payload of a data: URI for a tiny
@@ -179,5 +181,51 @@ func TestImageTotalPixelsLimit(t *testing.T) {
 	}
 	if loader.loads != 0 {
 		t.Fatalf("the rejected image was decoded %d times", loader.loads)
+	}
+}
+
+// TestWideImageIntrinsicSizeDoesNotWrap guards the intrinsic conversion: a
+// 3,000,000 x 2 PNG is legal under the pixel limit, and 3,000,000 px at
+// 0.75 pt each exceeds int32 millipoints, which used to wrap to a negative
+// width and reach the PDF as a negative image scale.
+func TestWideImageIntrinsicSizeDoesNotWrap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wide.png")
+	const width, height = 3_000_000, 2
+	img := image.NewGray(image.Rect(0, 0, width, height))
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
+	got, err := loader.Load("wide.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Width <= 0 || got.Height <= 0 {
+		t.Fatalf("intrinsic size = %d x %d, want positive", got.Width, got.Height)
+	}
+	if got.PixelW != width || got.PixelH != height {
+		t.Fatalf("pixel size = %d x %d, want %d x %d", got.PixelW, got.PixelH, width, height)
+	}
+	res, err := Convert(context.Background(), []byte(`<img src="wide.png">`), Options{
+		BaseDir:      dir,
+		File:         "wide.html",
+		FallbackFont: testFontPath(t),
+	})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
+		if bytes.Contains(stream, []byte("q -")) {
+			t.Fatalf("the image scale is negative: %q", stream)
+		}
 	}
 }

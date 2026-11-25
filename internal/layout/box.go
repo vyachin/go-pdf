@@ -59,20 +59,30 @@ type Box struct {
 	Level int
 
 	// Pagination state.
-	lines         []Line
-	built         bool
-	cursor        cursor
-	started       bool
-	entered       bool
-	x             int32 // absolute position of the box origin on the x axis
-	width         int32
-	startPage     int
-	fragStartY    int32
-	fragStartPage int
-	fragOpStart   int
-	fragments     int
-	listMarkerY   int32
-	contentTopY   int32
+	lines   []Line
+	built   bool
+	cursor  cursor
+	started bool
+	entered bool
+	x       int32 // absolute position of the box origin on the x axis
+	width   int32
+	// containing is the containing block's content width, the base for a
+	// percentage width, margin, padding and text-indent.
+	containing int32
+	// indentBase is the containing block width an inherited percentage
+	// text-indent resolves against, carried from the block that declared it to
+	// the anonymous block that holds its text.
+	indentBase int32
+	// geometryOverflow records that a geometry sum did not fit in int32 and was
+	// clamped, so pagination reports one layout/overflow diagnostic.
+	geometryOverflow bool
+	startPage        int
+	fragStartY       int32
+	fragStartPage    int
+	fragOpStart      int
+	fragments        int
+	listMarkerY      int32
+	contentTopY      int32
 	// anchored records that the id and heading of the box were registered,
 	// so a repeated table header does not duplicate outline entries.
 	anchored bool

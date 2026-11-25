@@ -163,10 +163,16 @@ func (l *layouter) generatedText(b *Box) string {
 func (l *layouter) buildLines(b *Box, width int32) {
 	var pieces []piece
 	l.collectPieces(b, &pieces)
-	indent := b.Style.TextIndent.Resolve(width)
-	if b.Style.TextIndent.Kind == css.Percent {
-		indent = b.Style.TextIndent.Resolve(width)
+	// A percentage indent resolves against the containing block width, not
+	// against this box's content width.
+	indentBase := width
+	if b.containing > 0 {
+		indentBase = b.containing
 	}
+	if b.indentBase > 0 {
+		indentBase = b.indentBase
+	}
+	indent := b.Style.TextIndent.Resolve(indentBase)
 
 	var lines []Line
 	cur := Line{}
@@ -237,7 +243,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		cur.Items = append(cur.Items, item)
 		cur.Height = max(cur.Height, item.H)
 		cur.Ascent = max(cur.Ascent, face.Ascent)
-		x += run.Width
+		x = satAdd(x, run.Width)
 	}
 
 	for _, p := range pieces {
@@ -275,7 +281,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if spacePending && len(cur.Items) > 0 {
 				spaceW = l.spaceWidth(p.style)
 			}
-			if len(cur.Items) > 0 && x+spaceW+w > width {
+			if len(cur.Items) > 0 && int64(x)+int64(spaceW)+int64(w) > int64(width) {
 				spacePending = false
 				flush(false)
 				canWrap = false
@@ -290,7 +296,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Items = append(cur.Items, item)
 			cur.Height = max(cur.Height, h)
 			cur.Ascent = max(cur.Ascent, h)
-			x += w
+			x = satAdd(x, w)
 		case wordPiece:
 			face, err := l.face(p.style)
 			if err != nil {
@@ -387,10 +393,16 @@ func imageSize(style *css.Style, img *ImageData, containerWidth int32, ctx Conte
 	// The unspecified dimension follows the aspect ratio; this must work for
 	// a percentage width as well as for an absolute one.
 	if hasW && !hasH && img.Width > 0 {
-		h = int32(int64(w) * int64(img.Height) / int64(img.Width))
+		h = clampInt32(int64(w) * int64(img.Height) / int64(img.Width))
 	}
 	if hasH && !hasW && img.Height > 0 {
-		w = int32(int64(h) * int64(img.Width) / int64(img.Height))
+		w = clampInt32(int64(h) * int64(img.Width) / int64(img.Height))
+	}
+	if w < 0 {
+		w = 0
+	}
+	if h < 0 {
+		h = 0
 	}
 	return w, h
 }

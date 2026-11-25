@@ -87,6 +87,9 @@ column the author would see, not the longer UTF-8 column.
 
 `px`, `pt`, `mm`, `cm`, `in`, `%`, `em`. Everything else (`rem`, `vw`, `vh`, `ch`) is an error.
 
+A percentage resolves against the containing block width for `width`, margins, padding
+and `text-indent`; `em` resolves against the element's computed `font-size`.
+
 With `border-collapse: collapse` the shared grid line is drawn once: the outer border comes from the table's own `border` (if set), and the inner borders are the left and top borders of the cell to the right or below. A conflict between different widths and colours is resolved in favour of that single border; CSS priorities (`cell > row > table`) are not modelled.
 
 The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does not synthesise a visible hyphen at the break. A regular `-` and `U+2010` break the line after themselves and are preserved in the text layer as written.
@@ -127,7 +130,7 @@ Inside `a::after` only the `content` property is allowed, with strings, `counter
 ```css
 @page {
   size: A4;              /* A4, A5, Letter, two lengths or landscape/portrait */
-  margin: 20mm 15mm;     /* one to four lengths */
+  margin: 20mm 15mm;     /* one to four non-negative lengths */
 }
 
 @page { size: A4 landscape }  /* 297 x 210 mm */
@@ -150,6 +153,11 @@ Inside `a::after` only the `content` property is allowed, with strings, `counter
 
 @media print { /* or @media all */ }
 ```
+
+A page margin is a non-negative length only: `auto`, percentages and negative values
+are rejected with `css/unsupported-value`. An `em` margin resolves against the initial
+font size (12 pt), not the page width. `size: portrait` flips a landscape fallback and
+`size: landscape` flips a portrait one.
 
 Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right`.
 `content` values: quoted strings, `counter(page)`, `counter(pages)`, `target-counter(attr(href), page)`.

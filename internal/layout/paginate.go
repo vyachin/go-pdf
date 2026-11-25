@@ -62,12 +62,22 @@ func (f *flow) newPage() bool {
 	return true
 }
 
-func (f *flow) contentHeight() int32 { return f.bottom - f.top }
+func (f *flow) contentHeight() int32 { return satSub(f.bottom, f.top) }
 
-func (b *Box) padTop() int32       { return b.Style.Padding[0].Resolve(b.width) }
-func (b *Box) padRight() int32     { return b.Style.Padding[1].Resolve(b.width) }
-func (b *Box) padBottom() int32    { return b.Style.Padding[2].Resolve(b.width) }
-func (b *Box) padLeft() int32      { return b.Style.Padding[3].Resolve(b.width) }
+// paddingBase is the width a percentage padding resolves against: the
+// containing block width, not the box's own width. A box measured before
+// pagination falls back to its used width.
+func (b *Box) paddingBase() int32 {
+	if b.containing > 0 {
+		return b.containing
+	}
+	return b.width
+}
+
+func (b *Box) padTop() int32       { return b.Style.Padding[0].Resolve(b.paddingBase()) }
+func (b *Box) padRight() int32     { return b.Style.Padding[1].Resolve(b.paddingBase()) }
+func (b *Box) padBottom() int32    { return b.Style.Padding[2].Resolve(b.paddingBase()) }
+func (b *Box) padLeft() int32      { return b.Style.Padding[3].Resolve(b.paddingBase()) }
 func (b *Box) borderTop() int32    { return visibleWidth(b.Style.Border[0]) }
 func (b *Box) borderRight() int32  { return visibleWidth(b.Style.Border[1]) }
 func (b *Box) borderBottom() int32 { return visibleWidth(b.Style.Border[2]) }
@@ -81,11 +91,15 @@ func visibleWidth(side css.BorderSide) int32 {
 }
 
 func (b *Box) contentWidth() int32 {
-	w := b.width - b.padLeft() - b.padRight() - b.borderLeft() - b.borderRight()
+	w := int64(b.width) - int64(b.padLeft()) - int64(b.padRight()) -
+		int64(b.borderLeft()) - int64(b.borderRight())
 	if w < 0 {
 		return 0
 	}
-	return w
+	if w > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(w)
 }
 
 // isTextBlock reports whether the box only contains inline content.
@@ -170,8 +184,15 @@ func (l *layouter) registerAnchor(b *Box, page int, y int32) {
 // so the outer width adds padding and borders. Pagination and the static path
 // inside table cells share it.
 func (b *Box) usedGeometry(x, width int32) {
-	b.width = usedWidth(b.Style, width)
-	b.x = x + b.Style.Margin[3].Resolve(width)
+	b.containing = width
+	w, overflow := usedWidthChecked(b.Style, width)
+	b.width = w
+	b.geometryOverflow = overflow
+	bx := int64(x) + int64(b.Style.Margin[3].Resolve(width))
+	if bx > math.MaxInt32 || bx < math.MinInt32 {
+		b.geometryOverflow = true
+	}
+	b.x = clampInt32(bx)
 }
 
 // usedWidth returns the width a box would use inside a containing block of the
@@ -179,25 +200,48 @@ func (b *Box) usedGeometry(x, width int32) {
 // placement and measurement go through it, so a text block inside a table cell
 // wraps at the width its declarations ask for.
 func usedWidth(st *css.Style, width int32) int32 {
-	marginLeft := st.Margin[3].Resolve(width)
-	marginRight := st.Margin[1].Resolve(width)
-	avail := width - marginLeft - marginRight
+	w, _ := usedWidthChecked(st, width)
+	return w
+}
+
+// usedWidthChecked applies the margins and the declared width of a style inside
+// a containing block. Every sum is computed in 64-bit; the flag reports that an
+// intermediate value did not fit in the int32 geometry, so the caller can
+// diagnose the clamp.
+func usedWidthChecked(st *css.Style, containing int32) (int32, bool) {
+	overflow := false
+	mark := func(v int64) int64 {
+		if v > math.MaxInt32 || v < math.MinInt32 {
+			overflow = true
+		}
+		return v
+	}
+	marginLeft := st.Margin[3].Resolve(containing)
+	marginRight := st.Margin[1].Resolve(containing)
+	avail := mark(int64(containing) - int64(marginLeft) - int64(marginRight))
 	if avail < 0 {
 		avail = 0
 	}
-	extra := st.Padding[1].Resolve(avail) + st.Padding[3].Resolve(avail) +
-		visibleWidth(st.Border[1]) + visibleWidth(st.Border[3])
-	w := avail
+	// Percentage padding resolves against the containing block width, not
+	// against what is left after the margins or against the box's own width.
+	extra := mark(int64(st.Padding[1].Resolve(containing)) + int64(st.Padding[3].Resolve(containing)) +
+		int64(visibleWidth(st.Border[1])) + int64(visibleWidth(st.Border[3])))
+	var w int64
 	switch st.Width.Kind {
 	case css.MP:
-		w = st.Width.Value + extra
+		w = mark(int64(st.Width.Value) + extra)
 	case css.Percent:
-		w = st.Width.Resolve(avail) + extra
-	}
-	if w > avail || w <= 0 {
+		w = mark(int64(st.Width.Resolve(containing)) + extra)
+	default:
 		w = avail
 	}
-	return w
+	if w < 0 {
+		w = 0
+	}
+	if w > avail {
+		w = avail
+	}
+	return int32(w), overflow
 }
 
 // placeBlock places as much of b as fits and reports whether it is complete.
@@ -210,6 +254,9 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		b.started = true
 		b.startPage = f.pageNum
 		b.usedGeometry(x, width)
+		if b.geometryOverflow {
+			l.warnOverflow(b, "the box's geometry exceeds the page bounds and is clamped")
+		}
 	}
 	cw := b.contentWidth()
 
@@ -249,8 +296,8 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 			// Only a page that already painted something can be advanced; on an
 			// empty page the orphans rule would loop between pages forever.
 			if len(f.page.Ops) > 0 {
-				startY := satAdd(f.y, b.borderTop()+b.padTop())
-				avail := f.bottom - b.padBottom() - b.borderBottom()
+				startY := satAdd(f.y, satAdd(b.borderTop(), b.padTop()))
+				avail := satSub(satSub(f.bottom, b.padBottom()), b.borderBottom())
 				n := countFitting(b.lines, 0, startY, avail)
 				if n < len(b.lines) && n < st.Orphans {
 					// Move the whole block to the next page.
@@ -264,7 +311,7 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		b.fragStartPage = f.pageNum
 		b.fragOpStart = len(f.page.Ops)
 		l.registerAnchor(b, f.pageNum, f.y)
-		f.y = satAdd(f.y, b.borderTop()+b.padTop())
+		f.y = satAdd(f.y, satAdd(b.borderTop(), b.padTop()))
 		b.contentTopY = f.y
 		if b.Kind == ListItem && b.cursor.child == 0 && b.cursor.line == 0 {
 			b.listMarkerY = f.y
@@ -312,7 +359,15 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 		for b.cursor.child < len(b.Children) {
 			c := b.Children[b.cursor.child]
 			// Children start inside the parent content box.
-			if !l.placeChild(f, c, b.x+b.borderLeft()+b.padLeft(), cw) {
+			if c.indentBase == 0 {
+				c.indentBase = b.containing
+			}
+			cx, overflow := satAddChecked(satAdd(b.x, b.borderLeft()), b.padLeft())
+			if overflow {
+				c.geometryOverflow = true
+				l.warnOverflow(c, "the box's geometry exceeds the page bounds and is clamped")
+			}
+			if !l.placeChild(f, c, cx, cw) {
 				l.finishFragment(f, b, false)
 				return false
 			}
@@ -381,9 +436,11 @@ func (l *layouter) placeChild(f *flow, c *Box, x, width int32) bool {
 
 func (l *layouter) afterBlock(f *flow, b *Box) {
 	// Bottom padding and border are part of the flow after a completed block.
-	f.y = satAdd(f.y, b.padBottom()+b.borderBottom())
+	f.y = satAdd(f.y, satAdd(b.padBottom(), b.borderBottom()))
 	b.cursor.done = true
-	f.pending = b.Style.Margin[2].Resolve(b.width)
+	// A percentage bottom margin resolves against the containing block width,
+	// like every other margin, not against this box's own width.
+	f.pending = b.Style.Margin[2].Resolve(b.paddingBase())
 	if b.Style.BreakAfter == css.BreakPage {
 		// Create the page only when another visible box follows; otherwise a
 		// trailing break would add an empty page and change counter(pages).
@@ -397,8 +454,8 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 		return true
 	}
 	w, h := imageSize(b.Style, b.Image, width, l.ctx)
-	avail := f.bottom - b.padBottom() - b.borderBottom()
-	if f.y+h > avail {
+	avail := satSub(satSub(f.bottom, b.padBottom()), b.borderBottom())
+	if int64(f.y)+int64(h) > int64(avail) {
 		if len(f.page.Ops) == 0 {
 			l.warnOverflow(b, "an image is taller than the page and is clipped")
 		} else {
@@ -407,18 +464,22 @@ func (l *layouter) placeImageBlock(f *flow, b *Box, width int32) bool {
 			return false
 		}
 	}
+	imageX, overflow := satAddChecked(satAdd(b.x, b.borderLeft()), b.padLeft())
+	if overflow {
+		l.warnOverflow(b, "the box's geometry exceeds the page bounds and is clamped")
+	}
 	l.ops++
 	f.page.Ops = append(f.page.Ops, Op{
 		Kind: ImageOpKind,
 		Rect: Rect{
-			X: b.x + b.borderLeft() + b.padLeft(),
+			X: imageX,
 			Y: f.y,
 			W: w,
 			H: h,
 		},
 		Image: &ImageOp{Image: b.Image},
 	})
-	f.y += h
+	f.y = satAdd(f.y, h)
 	f.pageHasBody = true
 	return true
 }
@@ -429,7 +490,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		l.buildLines(b, width)
 	}
 	st := b.Style
-	avail := f.bottom - b.padBottom() - b.borderBottom()
+	avail := satSub(satSub(f.bottom, b.padBottom()), b.borderBottom())
 	total := len(b.lines) - b.cursor.line
 	if total <= 0 {
 		return true
@@ -462,7 +523,11 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		}
 		line := &b.lines[b.cursor.line]
 		last := b.cursor.line == len(b.lines)-1
-		l.paintLineAt(f.page, b, line, b.x+b.borderLeft()+b.padLeft(), f.y, width, last)
+		lineX, overflow := satAddChecked(satAdd(b.x, b.borderLeft()), b.padLeft())
+		if overflow {
+			l.warnOverflow(b, "the box's geometry exceeds the page bounds and is clamped")
+		}
+		l.paintLineAt(f.page, b, line, lineX, f.y, width, last)
 		for _, id := range line.Anchors {
 			if _, ok := l.anchors[id]; !ok {
 				l.anchors[id] = Anchor{Page: f.pageNum, Y: f.y}
@@ -493,10 +558,10 @@ func countFitting(lines []Line, from int, y, bottom int32) int {
 func (l *layouter) measure(b *Box, width int32) int32 {
 	st := b.Style
 	used := usedWidth(st, width)
-	own := st.Padding[0].Resolve(used) + st.Padding[2].Resolve(used) +
-		visibleWidth(st.Border[0]) + visibleWidth(st.Border[2])
-	inner := used - st.Padding[1].Resolve(used) - st.Padding[3].Resolve(used) -
-		visibleWidth(st.Border[1]) - visibleWidth(st.Border[3])
+	own := clampInt32(int64(st.Padding[0].Resolve(width)) + int64(st.Padding[2].Resolve(width)) +
+		int64(visibleWidth(st.Border[0])) + int64(visibleWidth(st.Border[2])))
+	inner := clampInt32(int64(used) - int64(st.Padding[1].Resolve(width)) - int64(st.Padding[3].Resolve(width)) -
+		int64(visibleWidth(st.Border[1])) - int64(visibleWidth(st.Border[3])))
 	if inner < 0 {
 		inner = 0
 	}
@@ -537,7 +602,7 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 		return
 	}
 	target := satAdd(b.contentTopY, st.Height.Value)
-	if target > f.bottom-b.padBottom()-b.borderBottom() {
+	if target > satSub(satSub(f.bottom, b.padBottom()), b.borderBottom()) {
 		l.warnOverflow(b, "content is taller than the page and is clipped")
 		return
 	}
@@ -582,13 +647,28 @@ func nodePath(b *Box) string {
 // satAdd adds two geometry values, saturating at the int32 range. Margins and
 // offsets come from CSS lengths up to the documented maximum, so the sum of two
 // of them would otherwise wrap around and place content above the page.
-func satAdd(a, b int32) int32 {
+func satAdd(a, b int32) int32 { return clampInt32(int64(a) + int64(b)) }
+
+// satSub subtracts two geometry values, saturating at the int32 range.
+func satSub(a, b int32) int32 { return clampInt32(int64(a) - int64(b)) }
+
+// satAddChecked adds two geometry values and reports whether the sum did not
+// fit in int32, so the caller can diagnose the clamp.
+func satAddChecked(a, b int32) (int32, bool) {
 	sum := int64(a) + int64(b)
-	if sum > math.MaxInt32 {
+	if sum > math.MaxInt32 || sum < math.MinInt32 {
+		return clampInt32(sum), true
+	}
+	return int32(sum), false
+}
+
+// clampInt32 narrows a 64-bit geometry value, saturating instead of wrapping.
+func clampInt32(v int64) int32 {
+	if v > math.MaxInt32 {
 		return math.MaxInt32
 	}
-	if sum < math.MinInt32 {
+	if v < math.MinInt32 {
 		return math.MinInt32
 	}
-	return int32(sum)
+	return int32(v)
 }

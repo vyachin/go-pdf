@@ -73,3 +73,38 @@ func TestBorderAcceptsEveryColorForm(t *testing.T) {
 		t.Fatalf("transparent border = %+v, want an invisible side", st.Border[0])
 	}
 }
+
+// TestPageMarginGrammar guards page margins: lengths only, with em resolved
+// against the initial 12 pt font size.
+func TestPageMarginGrammar(t *testing.T) {
+	box, err := ParsePageMargin(Tokenize([]byte("1em")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if box[0].Kind != MP || box[0].Value != 12000 {
+		t.Fatalf("1em page margin = %+v, want 12 pt", box[0])
+	}
+	for _, value := range []string{"auto", "10%", "-20mm"} {
+		if _, err := ParsePageMargin(Tokenize([]byte(value))); err == nil {
+			t.Fatalf("page margin %q was accepted", value)
+		}
+	}
+}
+
+// TestPortraitFlipsLandscapeFallback guards both orientations of the fallback.
+func TestPortraitFlipsLandscapeFallback(t *testing.T) {
+	portrait, err := ParsePageSizeSpec(Tokenize([]byte("portrait")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := portrait.Resolve(PageSize{Width: 850394, Height: 566929}); got.Width != 566929 || got.Height != 850394 {
+		t.Fatalf("portrait resolved to %v", got)
+	}
+	landscape, err := ParsePageSizeSpec(Tokenize([]byte("landscape")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := landscape.Resolve(PageSize{Width: 566929, Height: 850394}); got.Width != 850394 || got.Height != 566929 {
+		t.Fatalf("landscape resolved to %v", got)
+	}
+}

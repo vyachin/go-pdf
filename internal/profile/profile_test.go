@@ -106,6 +106,10 @@ func TestPageRules(t *testing.T) {
 	if len(badSize) != 1 || badSize[0].Code != "css/unsupported-value" {
 		t.Fatalf("page size diagnostics = %v", badSize.Lines())
 	}
+	badMargin := validate(t, `<style>@page { margin: auto }</style><p>x</p>`)
+	if len(badMargin) != 1 || badMargin[0].Code != "css/unsupported-value" {
+		t.Fatalf("page margin diagnostics = %v", badMargin.Lines())
+	}
 }
 
 func TestFontFace(t *testing.T) {
