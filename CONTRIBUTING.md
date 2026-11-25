@@ -157,14 +157,24 @@ and run only on request, never as part of the ordinary suite.
 
 ## Continuous integration
 
-The `test` job runs `go vet`, the full suite with `PDF_REQUIRE_VALIDATOR=1` and
-`PDF_REQUIRE_RENDER=1`, the race detector, both snapshot layers explicitly (a
-skipped layer fails the job), a short fuzz session per target, the reference
-command's import check, and a build of the package from a module outside this
-repository. The `lint` job runs `gofmt` and `golangci-lint`.
+The test work runs as independent jobs that start together, each reporting its
+own check:
 
-The `test` job must be a required check in branch protection; that is a
-repository setting, not a file in this repository.
+| Job | Runs | Tools |
+|---|---|---|
+| `unit` | `go vet`, the suite with `PDF_REQUIRE_VALIDATOR=1`, the reference command's import check, and a build of the package from a module outside this repository | Go, `pdfcpu` |
+| `race` | the suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
+| `golden` | both snapshot layers explicitly (a skipped layer fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
+| `fuzz` | a short fuzz session per target | Go |
+| `lint` | `gofmt` and the pinned `golangci-lint` | Go, `golangci-lint` |
+
+The render tests are required only in `golden`, which owns the pinned
+`ubuntu-24.04` image and its poppler; `unit` and `race` skip them, so they do not
+pay for a rasterizer. The `gate` job depends on all five and fails when any of
+them is not successful, including a skipped one.
+
+Branch protection must require the `gate` check; that is a repository setting,
+not a file in this repository.
 
 Remaining inputs stay manual because every bump of them is a decision rather
 than a refresh: the `ubuntu-24.04` runner and its poppler, which determine the
