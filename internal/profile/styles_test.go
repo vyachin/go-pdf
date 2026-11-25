@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -244,5 +245,42 @@ func TestStylesheetCollectionHonoursCancellation(t *testing.T) {
 	CollectStylesheets(doc, Options{Budget: guard})
 	if !errors.Is(guard.Err(), context.Canceled) {
 		t.Fatalf("collection did not notice the cancellation: %v", guard.Err())
+	}
+}
+
+// TestRepeatedStylesheetSharesOneParseKeepsOrder guards the stylesheet half of
+// the asset contract: one file linked twice with another sheet between is read
+// and parsed once, yet both inclusions keep their place in the cascade.
+func TestRepeatedStylesheetSharesOneParseKeepsOrder(t *testing.T) {
+	dir := t.TempDir()
+	writeCSS(t, dir, "a.css", "p { color: #ff0000 }")
+	writeCSS(t, dir, "b.css", "p { color: #00ff00 }")
+	doc := parseDoc(t, `<link rel="stylesheet" href="a.css"><link rel="stylesheet" href="b.css"><link rel="stylesheet" href="a.css"><p>x</p>`)
+	reg := assets.New(nil)
+	defer func() { _ = reg.Close() }()
+	sheets, diags := CollectStylesheets(doc, Options{BaseDir: dir, Assets: reg})
+	if diags.HasErrors() {
+		t.Fatalf("collection failed: %v", diags.Lines())
+	}
+	if len(sheets) != 3 {
+		t.Fatalf("collected %d inclusions, want 3", len(sheets))
+	}
+	if sheets[0] != sheets[2] {
+		t.Fatal("the repeated stylesheet was parsed again")
+	}
+	if filepath.Base(sheets[1].File) != "b.css" {
+		t.Fatalf("the middle inclusion is %q, want b.css", sheets[1].File)
+	}
+	// One file read once: a.css and b.css, in that order, nothing else.
+	if got := reg.Reads(assets.Stylesheet); got != 2 {
+		t.Fatalf("read %d stylesheets, want 2", got)
+	}
+	// The cascade keeps the document order: red, green, red.
+	rules := css.RulesForPrint(sheets)
+	if len(rules) != 3 {
+		t.Fatalf("the cascade has %d rules, want 3", len(rules))
+	}
+	if rules[0].Sheet != rules[2].Sheet || rules[0].Offset != rules[2].Offset {
+		t.Fatal("the repeated inclusion does not point at the same parsed rule")
 	}
 }

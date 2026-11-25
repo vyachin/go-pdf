@@ -777,13 +777,14 @@ func TestImageLoaderOpensRootOnce(t *testing.T) {
 		writeTestPNG(t, filepath.Join(dir, name))
 	}
 	loader := &imageLoader{baseDir: dir}
+	defer func() { _ = loader.Close() }()
 	for _, name := range []string{"a.png", "b.png", "c.png"} {
 		if _, err := loader.Load(name); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if loader.rootOpens != 1 {
-		t.Fatalf("the root was resolved %d times, want 1", loader.rootOpens)
+	if got := loader.assets().Roots(); got != 1 {
+		t.Fatalf("the root was opened %d times, want 1", got)
 	}
 }
 
@@ -846,7 +847,7 @@ func TestFontFamilyAliasesShareOneFile(t *testing.T) {
 		@font-face { font-family: One; src: url(f.ttf) }
 		@font-face { font-family: Two; src: url(f.ttf) }
 	`))
-	reg, err := newFontRegistry(context.Background(), nil, []*css.Stylesheet{sheet}, Options{BaseDir: dir, FallbackFont: testFontPath(t)})
+	reg, err := newFontRegistry(context.Background(), nil, []*css.Stylesheet{sheet}, Options{BaseDir: dir, FallbackFont: testFontPath(t)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1586,10 +1587,11 @@ func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &fontRegistry{
-		faces:       []*registeredFace{{family: "pt serif", weight: 400, font: f}},
-		cache:       map[string]*layout.FontFace{},
-		systemTried: true, // a machine with no system font left to try
+		faces: []*registeredFace{{family: "pt serif", weight: 400, font: f}},
+		cache: map[string]*layout.FontFace{},
 	}
+	// A machine with no system font left to try: the once-guard is consumed.
+	r.systemOnce.Do(func() {})
 	if got := r.pick([]string{"Arial"}, 400, false); got != nil {
 		t.Fatalf("pick returned the unrelated %q face for Arial", got.Family())
 	}

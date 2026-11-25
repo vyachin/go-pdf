@@ -132,7 +132,7 @@ func (r *Root) relative(path string) (string, error) {
 		// judged on the clean absolute path. A traversal above the root is then
 		// an escape rather than a missing file, which is the diagnostic the
 		// callers report for it.
-		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
+		if rel, relErr := filepath.Rel(r.containmentBase(abs), abs); relErr != nil || escapes(rel) {
 			return "", ErrOutsideRoot
 		}
 		return "", err
@@ -170,7 +170,11 @@ func (r *Root) Resolve(path string) (string, error) {
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
+		// A path that does not exist has no resolved form, so containment is
+		// judged on the path itself. The configured directory may be reached
+		// through a symlink (a temporary directory on macOS), so the path is
+		// compared against whichever of the two spellings it belongs to.
+		if rel, relErr := filepath.Rel(r.containmentBase(abs), abs); relErr != nil || escapes(rel) {
 			return "", ErrOutsideRoot
 		}
 		return "", err
@@ -180,6 +184,16 @@ func (r *Root) Resolve(path string) (string, error) {
 		return "", ErrOutsideRoot
 	}
 	return real, nil
+}
+
+// containmentBase returns the directory a path that does not exist is compared
+// against: the resolved root when the path lies inside it, otherwise the
+// configured directory as the caller spelled it.
+func (r *Root) containmentBase(abs string) string {
+	if rel, err := filepath.Rel(r.dir, abs); err == nil && !escapes(rel) {
+		return r.dir
+	}
+	return r.absDir
 }
 
 // Size returns the size of path in bytes after the same containment check as
