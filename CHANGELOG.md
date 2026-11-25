@@ -42,7 +42,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   replaced by that allowlist; `golang.org/x/net` is the first requirement
   outside the standard library. The HTML charset package now decodes legacy
   input, so `golang.org/x/net` brings its encoding tables along and the binary
-  grows by about 830 KB.
+  grows by about 830 KB. `golang.org/x/image` is a test-only requirement: the
+  font tests compare the private parser and subsetter with the Go project's
+  decoder, `sfnt`, and the module stays out of the package's runtime graph.
 - **Text normalization.** `golang.org/x/text/unicode/norm` performs canonical
   composition instead of a generated table and its undocumented generator, so
   the result follows the Unicode version of the module. Canonical decomposition

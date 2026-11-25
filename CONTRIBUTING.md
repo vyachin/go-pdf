@@ -47,7 +47,11 @@ that a module now covers.
 - **Font subsetter** (`internal/font`). `x/image/font/sfnt` parses `cmap`,
   `hmtx` and `glyf`, but it does not expose the raw tables the subsetter
   rewrites and it cannot subset. Adopting it would keep the private parser and
-  add a second one, so it stays a test oracle instead.
+  add a second one, so it stays a test oracle instead: `sfnt_oracle_test.go`
+  compares the character map, the advances, the vertical metrics and every
+  outline against it, and `sfnt_subset_test.go` hands it the subsetter's
+  rewritten tables. Kerning is not compared — `sfnt` reads a Latin-only subset
+  of `GPOS`.
 - **Debug raster scaler** (`internal/backend/raster`). Nearest-neighbour
   scaling is deliberate: `testdata/golden/render` is compared pixel by pixel,
   and any interpolation would make every golden depend on the filter.
