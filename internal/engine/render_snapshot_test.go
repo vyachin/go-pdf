@@ -135,6 +135,7 @@ func visualFixtures(t *testing.T) []snapshotFixture {
 			baseDir: filepath.Join(root, "testdata"),
 		})
 	}
+	out = append(out, openTypeFixture(root))
 	paths, err := filepath.Glob(filepath.Join(root, "testdata", "fixtures", "visual-*.html"))
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +162,7 @@ func convertFixture(t *testing.T, f snapshotFixture) []byte {
 		FallbackFont: bundledFont(t),
 		File:         filepath.Base(f.path),
 		BaseDir:      f.baseDir,
-		FontDir:      filepath.Join(repoRoot(), "testdata", "fonts"),
+		FontDir:      f.fontDirectory(),
 	})
 	if err != nil {
 		t.Fatalf("convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))

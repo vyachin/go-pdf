@@ -24,6 +24,17 @@ type snapshotFixture struct {
 	name    string
 	path    string
 	baseDir string
+	// fontDir is where the @font-face paths of this document resolve. Empty
+	// means the shared testdata/fonts directory.
+	fontDir string
+}
+
+// fontDirectory is the font root of a fixture.
+func (f snapshotFixture) fontDirectory() string {
+	if f.fontDir != "" {
+		return f.fontDir
+	}
+	return filepath.Join(repoRoot(), "testdata", "fonts")
 }
 
 // snapshotFixtures returns the document snapshot set: the corpus and every
@@ -39,6 +50,7 @@ func snapshotFixtures(t *testing.T) []snapshotFixture {
 			baseDir: filepath.Join(root, "testdata"),
 		})
 	}
+	out = append(out, openTypeFixture(root))
 	paths, err := filepath.Glob(filepath.Join(root, "testdata", "fixtures", "*.html"))
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +64,19 @@ func snapshotFixtures(t *testing.T) []snapshotFixture {
 		})
 	}
 	return out
+}
+
+// openTypeFixture is the document that declares OpenType fonts with CFF
+// outlines. Its fonts live in the corpus directory rather than in
+// testdata/fonts, so the fixture names that directory as its font root and
+// nothing is duplicated in the repository.
+func openTypeFixture(root string) snapshotFixture {
+	return snapshotFixture{
+		name:    "otf",
+		path:    filepath.Join(root, "testdata", "otf.html"),
+		baseDir: filepath.Join(root, "testdata"),
+		fontDir: filepath.Join(root, "testdata"),
+	}
 }
 
 func repoRoot() string {
@@ -73,7 +98,7 @@ func prepareSnapshot(t *testing.T, f snapshotFixture) (*prepared, docdump.Input)
 	opts := Options{
 		File:    filepath.Base(f.path),
 		BaseDir: f.baseDir,
-		FontDir: filepath.Join(repoRoot(), "testdata", "fonts"),
+		FontDir: f.fontDirectory(),
 	}
 	p, diags, err := prepare(context.Background(), src, opts)
 	if err != nil {

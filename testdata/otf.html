@@ -1,0 +1,32 @@
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>OpenType font</title>
+    <style>
+      @font-face {
+        font-family: Barlow;
+        src: url(weasyprint/ticket/barlowcondensed-regular.otf);
+      }
+      @font-face {
+        font-family: Barlow;
+        font-weight: 700;
+        src: url(weasyprint/ticket/barlowcondensed-bold.otf);
+      }
+      body {
+        font-family: Barlow;
+        font-size: 18pt;
+      }
+      h1 {
+        font-size: 28pt;
+      }
+      b {
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Barlow Condensed</h1>
+    <p>Regular 1257797706706 - the quick brown fox</p>
+    <p><b>Bold 8 r 128 - the quick brown fox</b></p>
+  </body>
+</html>

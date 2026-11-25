@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **OpenType fonts with CFF outlines.** `@font-face` and `Options.FallbackFont`
+  accept an `.otf` whose outlines are PostScript, so a template can name PT Serif,
+  PT Sans and the other families that ship that way without converting the font
+  first. The engine reads the `CFF ` table and its Type 2 charstrings itself,
+  fits quadratics to the cubic outlines in memory within a quarter of a font unit
+  and deterministically, and then takes the existing path: shaping, subsetting,
+  `CIDFontType2`/`FontFile2` embedding and the copyable text layer. The glyph
+  numbering, `cmap`, `GPOS` and the metrics are kept and the PDF structure does
+  not change. The conversion is bounded — a glyph over 8192 points or a `glyf`
+  over four times the input, never above 64 MiB, fails with `resource/limit` —
+  and it refuses rather than approximates the deprecated `seac` accent
+  composition. WOFF, WOFF2, CFF2, variable fonts, font collections and remote
+  URLs stay rejected, each with a diagnostic naming the format.
 - **`html/truncated` diagnostic.** A document that ends inside an HTML tag
   fails with that diagnostic at the position of the incomplete tag, instead of
   converting a document shorter than the author wrote.
@@ -29,6 +42,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **No new runtime dependency for OpenType support.** The CFF reader lives in
+  `internal/font`, so the published package's build closure is unchanged;
+  `golang.org/x/image`, the decoder the font tests compare against, stays the
+  test-only requirement it already was.
 - **HTML frontend.** Documents are parsed by `golang.org/x/net/html`, the
   standard tree-construction algorithm maintained by the Go team, instead of the
   in-house tokenizer and tree builder. Character references now follow the HTML

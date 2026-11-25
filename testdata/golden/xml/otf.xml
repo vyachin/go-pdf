@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="OpenType font"/>
+  <page width="595.276pt" height="841.89pt" margin-top="56.693pt" margin-right="56.693pt" margin-bottom="56.693pt" margin-left="56.693pt"/>
+  <font-face family="Barlow" src="weasyprint/ticket/barlowcondensed-regular.otf" weight="400" style="normal"/>
+  <font-face family="Barlow" src="weasyprint/ticket/barlowcondensed-bold.otf" weight="700" style="normal"/>
+  <html display="block">
+    <body display="block" font-family="Barlow" font-size="18pt">
+      <h1 display="block" font-size="28pt" font-weight="700" margin-bottom="11.339pt">Barlow Condensed</h1>
+      <p display="block" margin-bottom="8.504pt">Regular 1257797706706 - the quick brown fox</p>
+      <p display="block" margin-bottom="8.504pt">
+        <b font-weight="700">Bold 8 r 128 - the quick brown fox</b>
+      </p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>
