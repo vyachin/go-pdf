@@ -65,6 +65,7 @@ const (
 type piece struct {
 	kind      pieceKind
 	text      string
+	src       srcRef
 	style     *css.Style
 	image     *ImageData
 	preserve  bool   // a space that must not be collapsed or dropped
@@ -110,8 +111,12 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 	for _, c := range b.Children {
 		switch c.Kind {
 		case Text:
+			// The piece keeps the text node it came from: a diagnostic names the
+			// node's first byte, because splitting and whitespace folding have
+			// already moved the characters away from their raw offsets.
+			src := l.sourceOf(c.Node)
 			if c.Text == "\n" {
-				*out = append(*out, piece{kind: breakPiece, style: c.Style})
+				*out = append(*out, piece{kind: breakPiece, src: src, style: c.Style})
 				continue
 			}
 			pre := c.Style.WhiteSpace == css.WhiteSpacePre
@@ -119,11 +124,11 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 			for _, it := range items {
 				switch it.Kind {
 				case text.Newline:
-					*out = append(*out, piece{kind: breakPiece, style: c.Style})
+					*out = append(*out, piece{kind: breakPiece, src: src, style: c.Style})
 				case text.Space:
-					*out = append(*out, piece{kind: spacePiece, style: c.Style, preserve: pre})
+					*out = append(*out, piece{kind: spacePiece, src: src, style: c.Style, preserve: pre})
 				default:
-					*out = append(*out, piece{kind: wordPiece, text: it.Text, style: c.Style, wrapAfter: it.BreakAfter})
+					*out = append(*out, piece{kind: wordPiece, text: it.Text, src: src, style: c.Style, wrapAfter: it.BreakAfter})
 				}
 			}
 		case Image:
@@ -134,7 +139,7 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 					*out = append(*out, piece{kind: anchorPiece, style: c.Style, anchor: id})
 				}
 			}
-			*out = append(*out, piece{kind: imagePiece, style: c.Style, image: c.Image})
+			*out = append(*out, piece{kind: imagePiece, src: l.sourceOf(c.Node), style: c.Style, image: c.Image})
 		default:
 			if c.Node != nil {
 				if id := c.Node.ID(); id != "" {
@@ -147,12 +152,13 @@ func (l *layouter) collectPieces(b *Box, out *[]piece) {
 	// Generated content of a::after participates in the line flow like any
 	// other inline text of the anchor.
 	if b.Node != nil && b.Node.Tag == "a" && len(b.Style.AfterContent) > 0 {
+		src := l.generatedSource(b, b.Style.AfterContent)
 		for _, item := range text.Split(l.generatedText(b), false) {
 			if item.Kind == text.Space {
-				*out = append(*out, piece{kind: spacePiece, style: b.Style})
+				*out = append(*out, piece{kind: spacePiece, src: src, style: b.Style})
 				continue
 			}
-			*out = append(*out, piece{kind: wordPiece, text: item.Text, style: b.Style})
+			*out = append(*out, piece{kind: wordPiece, text: item.Text, src: src, style: b.Style})
 		}
 	}
 }
@@ -262,7 +268,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	// same line, which collapses runs across text nodes and drops trailing
 	// spaces without touching the line width afterwards.
 	spacePending := false
-	addSpace := func(style *css.Style) {
+	addSpace := func(style *css.Style, src srcRef) {
 		ensureIndent()
 		face, err := l.face(style)
 		if err != nil {
@@ -271,7 +277,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if l.stopsOnGuard(l.ctx.Budget.Err()) {
 				return
 			}
-			l.diags.Errorf(diag.TextFont, diag.Position{}, "", "%v", err)
+			pos, element := src.at()
+			l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
 			return
 		}
 		run, err := l.shape(face, " ")
@@ -301,7 +308,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		case spacePiece:
 			if p.preserve {
 				attachAnchors()
-				addSpace(p.style)
+				addSpace(p.style, p.src)
 				canWrap = true
 				continue
 			}
@@ -328,7 +335,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				firstLine = false
 			}
 			if spacePending && len(cur.Items) > 0 {
-				addSpace(p.style)
+				addSpace(p.style, p.src)
 				spacePending = false
 			}
 			attachAnchors()
@@ -343,7 +350,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				if l.stopsOnGuard(l.ctx.Budget.Err()) {
 					return
 				}
-				l.diags.Errorf(diag.TextFont, diag.Position{}, "", "%v", err)
+				pos, element := p.src.at()
+				l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
 				continue
 			}
 			run, err := l.shape(face, p.text)
@@ -351,7 +359,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				if l.stopsOnGuard(err) {
 					return
 				}
-				l.diags.Errorf(diag.TextGlyph, diag.Position{}, "", "%v", err)
+				pos, element := p.src.at()
+				l.diags.Errorf(diag.TextGlyph, pos, element, "%v", err)
 				continue
 			}
 			ensureIndent()
@@ -369,7 +378,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				firstLine = false
 			}
 			if spacePending && len(cur.Items) > 0 {
-				addSpace(p.style)
+				addSpace(p.style, p.src)
 				spacePending = false
 			}
 			attachAnchors()

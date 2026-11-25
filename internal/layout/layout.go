@@ -9,9 +9,12 @@ import (
 )
 
 type layouter struct {
-	ctx       Context
-	diags     diag.List
-	doc       *Document
+	ctx   Context
+	diags diag.List
+	doc   *Document
+	// source is the document the layout reads, kept for source positions: a
+	// diagnostic names a byte in the original file, not a decoded offset.
+	source    *html.Document
 	pageStyle PageStyle
 	faces     map[string]*FontFace
 	anchors   map[string]Anchor
@@ -37,6 +40,7 @@ type layouter struct {
 func Run(doc *html.Document, ctx Context) (*Document, diag.List) {
 	l := &layouter{
 		ctx:       ctx,
+		source:    doc,
 		doc:       &Document{Anchors: map[string]Anchor{}, Targets: map[string]bool{}},
 		pageStyle: ctx.PageStyle,
 		faces:     map[string]*FontFace{},

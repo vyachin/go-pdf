@@ -15,6 +15,9 @@ type PageStyle struct {
 	Size   css.PageSize
 	Margin [4]int32
 	Boxes  map[string][]css.ContentItem
+	// BoxPos is the source position of the content declaration that filled
+	// each margin box, used when the box generates a text diagnostic.
+	BoxPos map[string]diag.Position
 }
 
 // ParsePageStyle resolves @page and margin box rules across all stylesheets.
@@ -60,7 +63,7 @@ func ParsePageStyle(sheets []*css.Stylesheet, fallbackSize css.PageSize, fallbac
 		}
 	}
 
-	ps := PageStyle{Size: fallbackSize, Margin: fallbackMargin, Boxes: map[string][]css.ContentItem{}}
+	ps := PageStyle{Size: fallbackSize, Margin: fallbackMargin, Boxes: map[string][]css.ContentItem{}, BoxPos: map[string]diag.Position{}}
 	if sizeDecl != nil {
 		if spec, err := css.ParsePageSizeSpec(sizeDecl.Value); err == nil {
 			ps.Size = spec.Resolve(fallbackSize)
@@ -76,7 +79,12 @@ func ParsePageStyle(sheets []*css.Stylesheet, fallbackSize css.PageSize, fallbac
 	names := slices.Sorted(maps.Keys(boxDecl))
 	for _, name := range names {
 		if items, err := css.ParseContent(boxDecl[name].Value); err == nil {
+			pos := boxDecl[name].Position()
+			for i := range items {
+				items[i].Pos = pos
+			}
 			ps.Boxes[name] = items
+			ps.BoxPos[name] = pos
 		}
 	}
 	return ps
@@ -109,8 +117,9 @@ func (l *layouter) paintMarginBoxes() {
 			run, err := l.shape(face, label)
 			if err != nil {
 				// Losing a header or footer silently is not acceptable: report
-				// it the same way body text reports a missing glyph.
-				l.diags.Errorf(diag.TextGlyph, diag.Position{}, "", "margin box %s: %v", name, err)
+				// it the same way body text reports a missing glyph, at the
+				// content declaration that generated the text when known.
+				l.diags.Errorf(diag.TextGlyph, l.pageStyle.BoxPos[name], name, "margin box %s: %v", name, err)
 				continue
 			}
 			var x, y int32
