@@ -44,13 +44,40 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	limits := opts.Limits.resolved()
 	guard := budget.New(ctx, limits.MaxOperations)
 	var diags diag.List
-	// A caller-named encoding is an option, so it is checked before the input
-	// is read and before any asset is opened.
+	// Every option is parsed and checked before an asset is opened. The
+	// diagnostics accumulate, so a bad option and a bad document are reported
+	// together instead of the first option hiding the document problems.
+	var pageSize css.PageSize
+	var margin [4]int32
+	charsetInvalid := false
+	optionInvalid := false
 	if opts.Charset != "" {
 		if _, err := charset.Validate(opts.Charset); err != nil {
 			diags.Errorf("options/charset", diag.Position{}, "", "%v", err)
-			return nil, diags, nil
+			charsetInvalid, optionInvalid = true, true
 		}
+	}
+	if p, err := ParsePageSize(opts.PageSize); err != nil {
+		diags.Errorf("options/page-size", diag.Position{}, "", "%v", err)
+		optionInvalid = true
+	} else {
+		pageSize = p
+	}
+	if m, err := ParseMargin(opts.Margin); err != nil {
+		diags.Errorf("options/margin", diag.Position{}, "", "%v", err)
+		optionInvalid = true
+	} else {
+		margin = m
+	}
+	if !opts.Date.IsZero() {
+		if year := opts.Date.Year(); year < 0 || year > 9999 {
+			diags.Errorf("options/date", diag.Position{}, "", "year %d is outside 0..9999", year)
+			optionInvalid = true
+		}
+	}
+	if charsetInvalid {
+		diags.Sort()
+		return nil, diags, nil
 	}
 	if len(src) > limits.MaxInputBytes {
 		diags.Errorf("resource/limit", diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
@@ -96,6 +123,21 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		}
 		return nil, diags, err
 	}
+	profileOpts := profile.Options{
+		BaseDir:            opts.BaseDir,
+		Strict:             opts.Strict,
+		Budget:             guard,
+		MaxStylesheetBytes: limits.MaxStylesheetBytes,
+	}
+	if optionInvalid {
+		// The options are already wrong, but the document is still validated so
+		// its inline CSS and attributes are reported in the same pass. Linked
+		// stylesheets and fonts are not opened: no asset is read for a request
+		// that cannot proceed.
+		diags = append(diags, profile.ValidateSheets(doc, profileOpts, nil, nil)...)
+		diags.Sort()
+		return nil, diags, nil
+	}
 	// A configured asset root must be usable. Opening it here means a missing
 	// BaseDir or FontDir fails with its own code before any stylesheet or font
 	// is read, instead of surfacing as a link error or reading unbounded.
@@ -111,12 +153,6 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 		}
 		_ = root.Close()
 	}
-	profileOpts := profile.Options{
-		BaseDir:            opts.BaseDir,
-		Strict:             opts.Strict,
-		Budget:             guard,
-		MaxStylesheetBytes: limits.MaxStylesheetBytes,
-	}
 	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
 	strictDiags := profile.ValidateSheets(doc, profileOpts, sheets, nil)
 	diags = append(diags, sheetDiags...)
@@ -126,16 +162,6 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	}
 	diags.Sort()
 	if diags.HasErrors() {
-		return nil, diags, nil
-	}
-	pageSize, err := ParsePageSize(opts.PageSize)
-	if err != nil {
-		diags.Errorf("options/page-size", diag.Position{}, "", "%v", err)
-		return nil, diags, nil
-	}
-	margin, err := ParseMargin(opts.Margin)
-	if err != nil {
-		diags.Errorf("options/margin", diag.Position{}, "", "%v", err)
 		return nil, diags, nil
 	}
 	pageStyle := layout.ParsePageStyle(sheets, pageSize, margin)
@@ -200,6 +226,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 	// target-counter needs a second pass: the page numbers written into the
 	// table of contents can change the page breaks themselves.
 	targets := map[string]int{}
+	positions := map[string]diag.Position{}
 	var pages *layout.Document
 	var layoutDiags diag.List
 	const maxPasses = 4
@@ -229,19 +256,21 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 		if layoutDiags.HasErrors() {
 			break
 		}
-		next := referencedTargets(doc, pages)
+		next, nextPositions := referencedTargets(doc, pages)
 		if maps.Equal(next, targets) {
 			targets = next
+			positions = nextPositions
 			break
 		}
 		targets = next
+		positions = nextPositions
 		if pass == maxPasses-1 {
 			diags.Warnf("pagination/target-counter", diag.Position{}, "", "target-counter did not converge after %d passes", maxPasses)
 		}
 	}
 	for id, page := range targets {
 		if page == 0 {
-			diags.Warnf("pagination/unknown-target", diag.Position{}, "", "no element with id %q, the table of contents shows 0", id)
+			diags.Warnf("pagination/unknown-target", positions[id], "", "no element with id %q, the table of contents shows 0", id)
 		}
 	}
 	*diags = append(*diags, layoutDiags...)
@@ -467,16 +496,22 @@ func ParseMargin(s string) ([4]int32, error) {
 	return out, nil
 }
 
-// referencedTargets maps every anchor target used in the document to the page
-// it landed on. Unknown targets get page 0.
-func referencedTargets(doc *html.Document, pages *layout.Document) map[string]int {
+// referencedTargets maps every anchor a target-counter consumed to the page it
+// landed on, together with the anchor's source position. Unknown targets get
+// page 0. An ordinary href="#id" that no target-counter uses is not included,
+// and href="#" is ignored.
+func referencedTargets(doc *html.Document, pages *layout.Document) (map[string]int, map[string]diag.Position) {
 	out := map[string]int{}
+	positions := map[string]diag.Position{}
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Tag == "a" {
-			if href, ok := n.Attr("href"); ok && strings.HasPrefix(href, "#") {
+		if n.Type == html.ElementNode && n.Tag == "a" && len(pages.Targets) > 0 {
+			if href, ok := n.Attr("href"); ok {
 				id := strings.TrimPrefix(href, "#")
-				out[id] = pages.Anchors[id].Page
+				if id != "" && pages.Targets[id] {
+					out[id] = pages.Anchors[id].Page
+					positions[id] = doc.Pos(n)
+				}
 			}
 		}
 		for _, c := range n.Children {
@@ -484,7 +519,7 @@ func referencedTargets(doc *html.Document, pages *layout.Document) map[string]in
 		}
 	}
 	walk(doc.Root)
-	return out
+	return out, positions
 }
 
 func documentTitle(doc *html.Document, opts Options) string {

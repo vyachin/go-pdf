@@ -14,7 +14,23 @@ img span br hr strong b em i a title meta style link
 
 `<script>` is allowed but ignored with the warning `html/ignored-script`: the code is not executed or rendered. With `Options.Strict` this is an error.
 
-An unknown element is the error `html/unsupported-element`. The supported attributes are `id`, `class`, `style`, `src`, `colspan`, `rowspan`, `start` (for `ol`), `name`/`content` (for `meta`).
+An unknown element is the error `html/unsupported-element`. Attributes are
+validated too: an attribute outside the documented list is the warning
+`html/unsupported-attribute` with its position, which `Strict` turns into an
+error.
+
+| Scope | Attributes |
+|---|---|
+| every element | `id`, `class`, `style`, `hidden`, `lang`, `dir`, `title` |
+| `a` | `href` (a local `#id` link; `target-counter` reads it) |
+| `img` | `src`, `alt`, `width`, `height` |
+| `link` | `rel`, `href`, `media` |
+| `meta` | `name`, `content`, `charset`, `http-equiv` |
+| `td`, `th` | `colspan`, `rowspan` |
+| `ol` | `start` |
+
+The HTML `hidden` attribute hides the element's subtree like `display: none`;
+its content is not laid out and does not appear in the PDF.
 
 ## Input encodings
 
@@ -230,7 +246,7 @@ Every error contains the file, line, column and element path:
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `html/parse`, `text/glyph`, `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/unsupported-attribute`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `html/parse`, `text/glyph`, `text/font` (no face could be resolved for a family), `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
 
 ## Work budget
 

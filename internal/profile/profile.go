@@ -68,6 +68,13 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 		}
 		if !css.SupportedElements[n.Tag] {
 			out.Errorf("html/unsupported-element", doc.Pos(n), n.Path(), "element <%s> is not supported", n.Tag)
+		} else {
+			for _, attr := range n.Attrs {
+				if allowedAttribute(n.Tag, attr.Key) {
+					continue
+				}
+				out.Warnf("html/unsupported-attribute", doc.Pos(n), n.Path(), "attribute %q is not supported", attr.Key)
+			}
 		}
 		if n.Tag == "td" || n.Tag == "th" {
 			for _, name := range []string{"colspan", "rowspan"} {
@@ -97,6 +104,33 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 		out.EscalateWarnings()
 	}
 	return out
+}
+
+// allowedAttributes are accepted on every element.
+var allowedAttributes = map[string]bool{
+	"id": true, "class": true, "style": true, "hidden": true,
+	"lang": true, "dir": true, "title": true,
+}
+
+// elementAttributes are accepted on the named element in addition to the
+// global list. Keeping this table next to the profile documentation means a
+// new attribute read by layout must be added in both places.
+var elementAttributes = map[string]map[string]bool{
+	"a":    {"href": true},
+	"img":  {"src": true, "alt": true, "width": true, "height": true},
+	"link": {"rel": true, "href": true, "media": true},
+	"meta": {"name": true, "content": true, "charset": true, "http-equiv": true},
+	"td":   {"colspan": true, "rowspan": true},
+	"th":   {"colspan": true, "rowspan": true},
+	"ol":   {"start": true},
+}
+
+// allowedAttribute reports whether the profile reads the attribute.
+func allowedAttribute(tag, name string) bool {
+	if allowedAttributes[name] {
+		return true
+	}
+	return elementAttributes[tag][name]
 }
 
 // walkElements calls fn for every element in document order. fn returns false

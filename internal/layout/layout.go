@@ -37,7 +37,7 @@ type layouter struct {
 func Run(doc *html.Document, ctx Context) (*Document, diag.List) {
 	l := &layouter{
 		ctx:       ctx,
-		doc:       &Document{Anchors: map[string]Anchor{}},
+		doc:       &Document{Anchors: map[string]Anchor{}, Targets: map[string]bool{}},
 		pageStyle: ctx.PageStyle,
 		faces:     map[string]*FontFace{},
 		anchors:   map[string]Anchor{},

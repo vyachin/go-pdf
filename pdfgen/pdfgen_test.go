@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/engine"
+	"github.com/vyachin/go-pdf/internal/pdfdebug"
 	"github.com/vyachin/go-pdf/pdfgen"
 )
 
@@ -499,5 +500,165 @@ func TestTotalAssetLimitReachesTheEngine(t *testing.T) {
 	})
 	if err == nil || len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != "resource/limit" {
 		t.Fatalf("the total font limit was not applied: err=%v diags=%v", err, res.Diagnostics)
+	}
+}
+
+func findDiagnostic(list pdfgen.Diagnostics, code string) (pdfgen.Diagnostic, bool) {
+	for _, d := range list {
+		if d.Code == code {
+			return d, true
+		}
+	}
+	return pdfgen.Diagnostic{}, false
+}
+
+// TestDocumentDiagnosticsNameTheFile guards the diagnostic contract: a missing
+// image, a resource limit and a linked stylesheet all identify the document or
+// the stylesheet that caused them.
+func TestDocumentDiagnosticsNameTheFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	res, err := pdfgen.Convert(ctx, []byte(`<img src="missing.png">`), pdfgen.Options{
+		BaseDir: dir,
+		File:    "invoice.html",
+	})
+	if err == nil {
+		t.Fatal("a missing image was accepted")
+	}
+	missing, ok := findDiagnostic(res.Diagnostics, "img/load")
+	if !ok || missing.File != "invoice.html" || missing.Line == 0 {
+		t.Fatalf("img/load diagnostic = %+v", missing)
+	}
+
+	res, err = pdfgen.Convert(ctx, []byte(`<p>x</p>`), pdfgen.Options{
+		File:   "invoice.html",
+		Limits: pdfgen.Limits{MaxOperations: 1},
+	})
+	if err == nil {
+		t.Fatal("the limit was not enforced")
+	}
+	limit, ok := findDiagnostic(res.Diagnostics, "resource/limit")
+	if !ok || limit.File != "invoice.html" {
+		t.Fatalf("resource/limit diagnostic = %+v", limit)
+	}
+
+	styleDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(styleDir, "bad.css"), []byte("p { display: grid }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err = pdfgen.Convert(ctx, []byte(`<link rel="stylesheet" href="bad.css"><p>x</p>`), pdfgen.Options{
+		BaseDir: styleDir,
+		File:    "invoice.html",
+	})
+	if err == nil {
+		t.Fatal("the bad stylesheet was accepted")
+	}
+	rule, ok := findDiagnostic(res.Diagnostics, "css/unsupported-value")
+	if !ok || !strings.HasSuffix(rule.File, "bad.css") || rule.Line == 0 {
+		t.Fatalf("stylesheet diagnostic = %+v", rule)
+	}
+}
+
+// TestOptionAndDocumentErrorsTogether guards early option validation: a bad
+// option and a bad inline declaration are both reported.
+func TestOptionAndDocumentErrorsTogether(t *testing.T) {
+	res, err := pdfgen.Convert(context.Background(), []byte(`<p style="display: grid">x</p>`), pdfgen.Options{
+		File:     "doc.html",
+		PageSize: "banana",
+	})
+	if err == nil {
+		t.Fatal("the invalid page size was accepted")
+	}
+	if _, ok := findDiagnostic(res.Diagnostics, "options/page-size"); !ok {
+		t.Fatalf("options/page-size is missing: %v", res.Diagnostics)
+	}
+	if _, ok := findDiagnostic(res.Diagnostics, "css/unsupported-value"); !ok {
+		t.Fatalf("the CSS error is missing: %v", res.Diagnostics)
+	}
+}
+
+// TestAnchorWarningsAreTargeted guards the anchor contract: href="#" and an
+// unused href="#missing" warn nothing (and Strict accepts), while a real
+// target-counter warning carries the anchor position.
+func TestAnchorWarningsAreTargeted(t *testing.T) {
+	ctx := context.Background()
+	for _, src := range []string{
+		`<p><a href="#">top</a></p>`,
+		`<p><a href="#missing">top</a></p>`,
+	} {
+		res, err := pdfgen.Convert(ctx, []byte(src), pdfgen.Options{File: "links.html", Strict: true, FallbackFont: filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf")})
+		if err != nil {
+			t.Fatalf("%s: %v\n%v", src, err, res.Diagnostics)
+		}
+	}
+
+	src := []byte(`<style>a.toc::after { content: target-counter(attr(href), page) }</style><p><a class="toc" href="#missing">x</a></p>`)
+	res, err := pdfgen.Convert(ctx, []byte(src), pdfgen.Options{File: "toc.html", FallbackFont: filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warn, ok := findDiagnostic(res.Diagnostics, "pagination/unknown-target")
+	if !ok || warn.File != "toc.html" || warn.Line == 0 {
+		t.Fatalf("unknown-target diagnostic = %+v", warn)
+	}
+}
+
+// TestErrorListContainsOnlyErrors guards the split lists: the error value holds
+// only the error entry while Result.Diagnostics keeps the warning.
+func TestErrorListContainsOnlyErrors(t *testing.T) {
+	res, err := pdfgen.Convert(context.Background(), []byte(`<video src="x"></video><script>1</script>`), pdfgen.Options{File: "mixed.html"})
+	if err == nil {
+		t.Fatal("the unsupported element was accepted")
+	}
+	var verr *pdfgen.Error
+	if !errors.As(err, &verr) || len(verr.Diagnostics) != 1 || verr.Diagnostics[0].Code != "html/unsupported-element" {
+		t.Fatalf("Error.Diagnostics = %+v", verr)
+	}
+	if len(res.Diagnostics) < 2 {
+		t.Fatalf("Result.Diagnostics = %v, want both entries", res.Diagnostics)
+	}
+}
+
+// TestAttributesAreValidatedAndHiddenHides guards the attribute contract.
+func TestAttributesAreValidatedAndHiddenHides(t *testing.T) {
+	ctx := context.Background()
+	fontPath := filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf")
+	res, err := pdfgen.Convert(ctx, []byte(`<div data-x="1" onclick="x">x</div>`), pdfgen.Options{File: "attrs.html", FallbackFont: fontPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen int
+	for _, d := range res.Diagnostics {
+		if d.Code == "html/unsupported-attribute" {
+			seen++
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("attribute diagnostics = %v", res.Diagnostics)
+	}
+
+	ok, err := pdfgen.Convert(ctx, []byte(`<table><tr><td colspan="2">x</td></tr></table><p><a href="#id">y</a></p>`), pdfgen.Options{File: "ok.html", FallbackFont: fontPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range ok.Diagnostics {
+		if d.Code == "html/unsupported-attribute" {
+			t.Fatalf("a documented attribute was reported: %s", d)
+		}
+	}
+}
+
+// TestHiddenAttributeHidesContent guards the HTML hidden attribute.
+func TestHiddenAttributeHidesContent(t *testing.T) {
+	res, err := pdfgen.Convert(context.Background(), []byte(`<div hidden><p>SECRET</p></div><p>VISIBLE</p>`), pdfgen.Options{File: "hidden.html", FallbackFont: filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "SECRET") || !strings.Contains(text, "VISIBLE") {
+		t.Fatalf("extracted text = %q", text)
 	}
 }

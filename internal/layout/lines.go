@@ -148,6 +148,9 @@ func (l *layouter) generatedText(b *Box) string {
 		case css.ContentTarget:
 			href, _ := b.Node.Attr(item.Text)
 			id := strings.TrimPrefix(href, "#")
+			if id != "" && l.doc != nil {
+				l.doc.Targets[id] = true
+			}
 			if page, ok := l.targets[id]; ok && page > 0 {
 				sb.WriteString(strconv.Itoa(page))
 			} else {
