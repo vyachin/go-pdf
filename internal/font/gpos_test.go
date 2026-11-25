@@ -53,7 +53,9 @@ func TestClassKerningRequiresCoverage(t *testing.T) {
 	body = append(body, classDef2...)
 
 	f := &Font{gpos: &kerning{}}
-	f.gpos.parsePairPos(body, 0)
+	if err := f.gpos.parsePairPos(body, 0); err != nil {
+		t.Fatalf("parsePairPos: %v", err)
+	}
 	if got := f.Kerning(65, 86); got != -100 {
 		t.Fatalf("covered pair kerning = %d, want -100", got)
 	}
@@ -132,7 +134,9 @@ func TestClassDefExpansionIsBoundedThroughPairPos(t *testing.T) {
 	}
 	body := pairPosFormat2WithClassDefs(coverageFormat1Test([]uint16{0}), classDef, classDefFormat1Test(0, []uint16{0}))
 	k := &kerning{}
-	k.parsePairPos(body, 0)
+	if err := k.parsePairPos(body, 0); err != nil {
+		t.Fatalf("parsePairPos: %v", err)
+	}
 	for _, lookup := range k.lookups {
 		if len(lookup.classes) != 0 || len(lookup.pairs) != 0 {
 			t.Fatal("an over-budget class definition was expanded")
@@ -183,12 +187,16 @@ func TestCoverageBudgetIsSharedAcrossSubtables(t *testing.T) {
 	body := pairPosFormat2Test(coverage)
 	k := &kerning{}
 	for i := 0; i < 3; i++ {
-		k.parsePairPos(body, 0)
+		if err := k.parsePairPos(body, 0); err != nil {
+			t.Fatalf("parsePairPos %d: %v", i, err)
+		}
 	}
 	if k.coverGlyphs != 3*65535 {
 		t.Fatalf("three subtables expanded %d glyphs, want %d", k.coverGlyphs, 3*65535)
 	}
-	k.parsePairPos(body, 0)
+	if err := k.parsePairPos(body, 0); err != nil {
+		t.Fatalf("parsePairPos after the budget was spent: %v", err)
+	}
 	if k.coverGlyphs > maxKerningGlyphs {
 		t.Fatalf("shared budget was exceeded: %d", k.coverGlyphs)
 	}
@@ -283,7 +291,9 @@ func TestClassKerningUsesImplicitClassZero(t *testing.T) {
 	body = append(body, classDef2...)
 
 	f := &Font{gpos: &kerning{}}
-	f.gpos.parsePairPos(body, 0)
+	if err := f.gpos.parsePairPos(body, 0); err != nil {
+		t.Fatalf("parsePairPos: %v", err)
+	}
 	if got := f.Kerning(65, 87); got != -50 {
 		t.Fatalf("kerning for an implicit class 0 right glyph = %d, want -50", got)
 	}
