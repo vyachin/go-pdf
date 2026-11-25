@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/fsx"
@@ -32,6 +34,9 @@ type Options struct {
 type linkError struct {
 	code string
 	msg  string
+	// pos overrides the link element's position when the problem is inside
+	// the stylesheet file rather than in the document that refers to it.
+	pos *diag.Position
 }
 
 func (e *linkError) Error() string { return e.msg }
@@ -88,7 +93,11 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				if err != nil {
 					var le *linkError
 					if errors.As(err, &le) {
-						out.Errorf(le.code, doc.Pos(n), n.Path(), "%s", le.msg)
+						pos := doc.Pos(n)
+						if le.pos != nil {
+							pos = *le.pos
+						}
+						out.Errorf(le.code, pos, n.Path(), "%s", le.msg)
 						return
 					}
 					if errors.Is(err, budget.ErrExceeded) {
@@ -164,7 +173,113 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, root *fsx.Ro
 	if err := opts.Budget.Add(uint64(len(data)/4) + 1); err != nil {
 		return nil, err
 	}
-	return css.ParseSheet(css.SheetOptions{File: path}, data), nil
+	// A linked sheet is read with the document's encoding: CSS 2.1 gives a
+	// sheet without its own @charset the encoding of the referring document.
+	text, mapper, err := decodeSheet(doc.Charset(), path, data)
+	if err != nil {
+		return nil, err
+	}
+	opts2 := css.SheetOptions{File: path}
+	if mapper != nil {
+		// Positions in the decoded sheet are translated back to its source
+		// bytes, so a diagnostic names the file the author edits.
+		opts2.Locate = func(offset int) css.Position {
+			line, col := mapper.Position(offset)
+			return css.Position{File: path, Line: line, Col: col}
+		}
+	}
+	return css.ParseSheet(opts2, text), nil
+}
+
+// decodeSheet decodes one linked stylesheet and consumes a @charset rule at its
+// start. A rule that names the document's encoding is accepted and blanked, so
+// that the parser sees whitespace where the rule was and every later offset
+// stays where it was; a rule that names another encoding is an error. The
+// returned mapper is nil when the decoded text is the source byte for byte.
+func decodeSheet(enc *charset.Encoding, path string, data []byte) ([]byte, *charset.Mapper, error) {
+	dec, err := charset.Decode(enc, data)
+	if err != nil {
+		var encErr *charset.Error
+		if errors.As(err, &encErr) {
+			pos := diag.Position{File: path, Line: encErr.Line, Col: encErr.Col}
+			return nil, nil, &linkError{
+				code: "css/link-encoding",
+				msg:  fmt.Sprintf("cannot decode stylesheet %q: %s", path, encErr.Msg),
+				pos:  &pos,
+			}
+		}
+		return nil, nil, err
+	}
+	documentEncoding := charset.UTF8
+	if enc != nil {
+		documentEncoding = enc.Name()
+	}
+	text := dec.Text
+	if label, end, ok := charsetRule(text); ok {
+		named, err := charset.Validate(label)
+		if err != nil || named.Name() != documentEncoding {
+			pos := diag.Position{File: path, Line: 1, Col: 1}
+			return nil, nil, &linkError{
+				code: "css/link-encoding",
+				msg:  fmt.Sprintf("stylesheet %q declares @charset %q but the document encoding is %q", path, label, documentEncoding),
+				pos:  &pos,
+			}
+		}
+		// Blank the rule instead of removing it: same length, same line
+		// structure, the parser sees whitespace, and every later offset stays
+		// where the author wrote it.
+		text = bytes.Clone(text)
+		for i := 0; i < end; i++ {
+			if text[i] != '\n' && text[i] != '\r' {
+				text[i] = ' '
+			}
+		}
+	}
+	if dec.Widths == nil && dec.Skip == 0 {
+		// The decoded text is the source byte for byte, so offsets already
+		// point into the file the author edits.
+		return text, nil, nil
+	}
+	return text, charset.NewMapper(data, text, dec.Widths, dec.Skip), nil
+}
+
+// charsetRule returns the encoding label of a @charset rule at the very start
+// of a stylesheet and the offset just past the rule. The rule must be the first
+// thing in the file, as CSS requires.
+func charsetRule(text []byte) (label string, end int, ok bool) {
+	const prefix = "@charset"
+	if len(text) < len(prefix) || !strings.EqualFold(string(text[:len(prefix)]), prefix) {
+		return "", 0, false
+	}
+	i := len(prefix)
+	for i < len(text) && isCSSSpace(text[i]) {
+		i++
+	}
+	if i >= len(text) || (text[i] != '"' && text[i] != '\'') {
+		return "", 0, false
+	}
+	quote := text[i]
+	j := i + 1
+	for j < len(text) && text[j] != quote {
+		j++
+	}
+	if j >= len(text) {
+		return "", 0, false
+	}
+	label = string(text[i+1 : j])
+	j++
+	for j < len(text) && isCSSSpace(text[j]) {
+		j++
+	}
+	if j >= len(text) || text[j] != ';' {
+		return "", 0, false
+	}
+	return label, j + 1, true
+}
+
+// isCSSSpace reports whether b is CSS whitespace.
+func isCSSSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
 }
 
 // readConfined reads a stylesheet through a root confined to the base

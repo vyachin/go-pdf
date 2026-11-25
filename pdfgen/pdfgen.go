@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/engine"
 )
@@ -42,6 +43,14 @@ type Options struct {
 	// document whose font cannot be found fails with a diagnostic instead of
 	// silently replacing glyphs.
 	FallbackFont string
+	// Charset names the input encoding explicitly and wins over the document's
+	// own declaration and its byte order mark. Empty means detect: a byte
+	// order mark, then a <meta charset> or http-equiv declaration in the first
+	// 1024 bytes, then UTF-8. The supported encodings are "utf-8",
+	// "windows-1251", "koi8-r" and "ibm866" and their aliases; any other
+	// value, including "utf-16" and "windows-1252", fails with an
+	// options/charset diagnostic before any asset is read.
+	Charset string
 	// Strict turns profile warnings into errors, so a document that would
 	// render with warnings is rejected instead. Callers use it to gate a
 	// template in continuous integration.
@@ -61,6 +70,8 @@ type Options struct {
 // instead of exhausting memory.
 type Limits struct {
 	// MaxInputBytes is the largest accepted HTML document. Default 8 MiB.
+	// A single-byte input encoding decodes to at most three times its size, so
+	// a document at the limit holds 24 MiB of decoded text before parsing.
 	MaxInputBytes int
 	// MaxStylesheetBytes bounds one external stylesheet. Default 8 MiB.
 	MaxStylesheetBytes int
@@ -280,6 +291,15 @@ func Validate(ctx context.Context, src []byte, opts Options) (Diagnostics, error
 	return out, nil
 }
 
+// CharsetSupported reports whether name is a supported input encoding. It
+// matches the labels Options.Charset accepts, so "cp1251" and "windows-1251"
+// both report true. The reference command uses it to reject a bad -charset as a
+// usage error before reading the input.
+func CharsetSupported(name string) bool {
+	_, err := charset.Validate(name)
+	return err == nil
+}
+
 func (o Options) toEngine() engine.Options {
 	return engine.Options{
 		PageSize:      o.PageSize,
@@ -291,6 +311,7 @@ func (o Options) toEngine() engine.Options {
 		RenderPNG:     o.RenderPNG,
 		File:          o.File,
 		FallbackFont:  o.FallbackFont,
+		Charset:       o.Charset,
 		Strict:        o.Strict,
 		ImportBrowser: o.ImportBrowser,
 		Limits: engine.Limits{

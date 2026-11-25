@@ -1,0 +1,4 @@
+@charset "windows-1251";
+/* ќформление счЄта в кодировке windows-1251. */
+.note { color: #444444 }
+body { font-size: 11pt }

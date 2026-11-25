@@ -108,6 +108,39 @@ first.
 - Fonts, subsetting and the copyable text layer: [docs/fonts.md](docs/fonts.md).
 - Accepting a browser-oriented template: [docs/browser-import.md](docs/browser-import.md).
 
+## Input encodings
+
+A template does not have to be UTF-8. The encoding is detected the way the HTML
+standard detects it: a byte order mark first, then a `<meta charset>` or
+`<meta http-equiv="Content-Type">` declaration in the first 1024 bytes, and
+otherwise UTF-8. A UTF-8 byte order mark is removed before parsing, so it never
+reaches the page.
+
+The accepted set is closed: **UTF-8, windows-1251, KOI8-R and IBM866**. Anything
+else — UTF-16, shift_jis, windows-1252 — fails with `html/encoding`, a message
+that names the encoding and lists the supported ones, instead of rendering
+replacement characters and then complaining about a missing glyph. A document
+that is not valid UTF-8 and declares nothing fails the same way, at its first
+invalid byte.
+
+`Options.Charset` names the encoding explicitly for a file exported by a tool
+that forgot its declaration, and wins over both the byte order mark and the
+declaration:
+
+```go
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{Charset: "windows-1251"})
+```
+
+A value outside the set is `options/charset`, reported before any asset is read.
+The reference command takes the same setting as `-charset`.
+
+A linked stylesheet is decoded with the document's encoding. A `@charset` rule
+that names the same encoding is accepted and ignored; one that names another
+fails with `css/link-encoding`. Every diagnostic still points at the original
+file: a position inside a decoded document or stylesheet is translated back to
+its byte, line and column, so the column never counts UTF-8 bytes the author did
+not write.
+
 ## Reference command
 
 `cmd/pdfgen` is a complete example of the package: one file in, one PDF out.

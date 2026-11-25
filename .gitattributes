@@ -2,3 +2,11 @@
 # the bytes on disk, so an end-of-line conversion on add or checkout would make
 # a freshly cloned corpus look edited. Never normalise the corpus.
 testdata/weasyprint/** -text
+
+# The input-encoding fixtures are deliberately not UTF-8: their bytes are the
+# thing under test, so git must never normalise them. Same for the windows-1251
+# stylesheet the invoice links.
+testdata/fixtures/cp1251-invoice.html -text
+testdata/fixtures/cp1251-styles.css -text
+testdata/fixtures/koi8r-invoice.html -text
+testdata/fixtures/utf8-bom-invoice.html -text
