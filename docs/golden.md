@@ -77,7 +77,7 @@ with `pdftoppm -png -r 72`. The set is the four corpus documents and every
 
 The committed goldens belong to `pdftoppm` 24.02.0 from Ubuntu 24.04, which is
 the image `ci.yml` pins and the version `renderer.txt` records. The pixel images
-must be regenerated on that pinned image (`go test ./internal/engine -run
+must be regenerated on that same image (`go test ./internal/engine -run
 TestRenderSnapshots -update` inside it) whenever the pin or the renderer record
 moves; the workflow, this document, `CONTRIBUTING.md` and `renderer.txt` then
 name the same image and the same poppler in one change.
@@ -127,8 +127,10 @@ fixture ever runs it.
 
 ## Continuous integration
 
-Both layers run in the `golden` job of `.github/workflows/ci.yml`, which pins
-`ubuntu-24.04` and installs poppler and pdfcpu. In addition, a dedicated
+Both layers run in the `golden` job of `.github/workflows/ci.yml`, which runs on
+`ubuntu-latest` and installs poppler and pdfcpu. The label floats: the job follows
+the image GitHub serves, so when that image rolls the renderer changes and the
+render goldens are regenerated in the change that accepts the new rasters. In addition, a dedicated
 `Golden snapshots` step runs the three tests explicitly with `-count=1 -v` and
 fails when any of them is skipped:
 

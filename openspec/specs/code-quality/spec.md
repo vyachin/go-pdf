@@ -430,28 +430,30 @@ the ban on elapsed-time thresholds.
 - **WHEN** a fixture runs on a slow machine
 - **THEN** it still passes or fails on its diagnostic, not on elapsed time
 
-### Requirement: Rendering jobs share the pinned image
+### Requirement: Rendering jobs share one runner image
 
-A job that rasterizes pages for a golden comparison SHALL run on the pinned runner
-image with the pinned poppler package, and MUST NOT use a floating image label.
-Moving either pin MUST regenerate the goldens in the same change. The workflow, the
-renderer record committed beside the goldens and the documentation MUST name the same
-image and the same renderer version.
+Every job that rasterizes pages for a golden comparison SHALL run on the same
+runner image label as the rest of the workflow, and the workflow, the renderer
+record beside the goldens and the documentation MUST name that label and the
+renderer version it produces. The label MAY float instead of naming a dated
+image, so the job follows the image GitHub serves.
 
-#### Scenario: The pinned image renders
+#### Scenario: The shared image renders
 
 - **WHEN** the golden job runs
-- **THEN** it uses the `ubuntu-24.04` image and the poppler package recorded in the workflow
+- **THEN** its `runs-on` is the label the workflow uses everywhere and the documentation names
+- **AND** it installs the poppler the job records
 
-#### Scenario: No floating label renders
+#### Scenario: One label, no divergence
 
 - **WHEN** a workflow job rasterizes pages
-- **THEN** its `runs-on` names the pinned image, not `ubuntu-latest`
+- **THEN** its `runs-on` equals the label in every other job and in the documentation
 
-#### Scenario: A pin moves
+#### Scenario: The floating image rolls
 
-- **WHEN** the runner image or the poppler pin moves
-- **THEN** the same change regenerates the render goldens
+- **WHEN** GitHub moves `ubuntu-latest` to a new release and its renderer changes
+- **THEN** the change that accepts the new rasters regenerates the render goldens
+- **AND** the renderer record and the documentation name the new version
 
 #### Scenario: The renderer record matches (RV4-29)
 
