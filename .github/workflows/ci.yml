@@ -15,25 +15,26 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# The test work is split into independent jobs that start together; the gate
+# below is the single check branch protection requires. Poppler is installed
+# only where pages are rasterized, and pdfcpu only where the validator is
+# required, so each job pays for the tools it uses and no more.
+
 jobs:
-  test:
-    # Pinned: the render goldens are produced with the poppler of this release.
-    # An image bump must be a deliberate commit that regenerates them.
+  unit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           # The module declares go 1.26: CI must prove that minimum works.
           go-version-file: go.mod
-          # go.sum pins the one test-only dependency; caching that download is
-          # not worth a stale module cache in a build this short.
+          # Left off deliberately: the graph is two small modules, and the
+          # parallel jobs would restore and race to save the same cache for a
+          # few seconds each. A cache becomes worth it only if a measurement
+          # shows the download dominating a job.
           cache: false
-      - name: Install poppler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y poppler-utils
       - name: Install pdfcpu
         # Pinned and coupled to the go directive: this release requires
         # Go 1.26, which is exactly the module's minimum. Bump both together.
@@ -55,49 +56,11 @@ jobs:
             exit 1
           fi
       - name: Test
+        # The render tests need poppler, which only the golden job installs;
+        # they skip here and golden owns them.
         env:
           PDF_REQUIRE_VALIDATOR: "1"
-          PDF_REQUIRE_RENDER: "1"
-          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
         run: go test ./...
-      - name: Race
-        env:
-          PDF_REQUIRE_VALIDATOR: "1"
-          PDF_REQUIRE_RENDER: "1"
-          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
-        run: go test -race ./...
-      - name: Golden snapshots
-        # Runs both snapshot layers explicitly and fails when either one skips.
-        # A suite that never ran them is not a gate: PDF_REQUIRE_RENDER makes a
-        # missing rasterizer fail here even if another step deleted the install.
-        env:
-          PDF_REQUIRE_RENDER: "1"
-          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
-        run: |
-          set -o pipefail
-          go test ./internal/engine \
-            -run 'TestDocumentSnapshots|TestRenderSnapshots|TestProfileCoverage' \
-            -count=1 -v | tee golden.log
-          ! grep -q -- '--- SKIP' golden.log
-          grep -q -- '--- PASS: TestDocumentSnapshots ' golden.log
-          grep -q -- '--- PASS: TestRenderSnapshots ' golden.log
-      - name: Snapshot artifacts
-        # Uploaded only when a golden test fails: produced, expected and diff.
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: golden-artifacts
-          path: artifacts/golden
-          if-no-files-found: ignore
-      - name: Fuzz
-        # Short runs on the parsers that read untrusted input. A longer fuzz
-        # session belongs to a nightly job, not to every pull request.
-        run: |
-          go test ./internal/font -run '^$' -fuzz '^FuzzParse$' -fuzztime 20s
-          go test ./internal/font -run '^$' -fuzz '^FuzzParseClassDef$' -fuzztime 10s
-          go test ./internal/html -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
-          go test ./internal/css -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
-          go test ./pdfgen -run '^$' -fuzz '^FuzzConvert$' -fuzztime 15s
       - name: Public API from another module
         # The package must be importable by a module outside this repository.
         run: |
@@ -123,6 +86,94 @@ jobs:
           go mod tidy
           go build ./...
 
+  race:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install pdfcpu
+        # Pinned to the release named in the unit job.
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.4
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Race
+        # The render tests skip here: only the golden job installs poppler.
+        env:
+          PDF_REQUIRE_VALIDATOR: "1"
+        run: go test -race ./...
+
+  golden:
+    # Pinned: the render goldens are produced with the poppler of this release.
+    # An image bump must be a deliberate commit that regenerates them.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+      - name: Install pdfcpu
+        # Pinned to the release named in the unit job.
+        run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.4
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Golden snapshots
+        # Runs both snapshot layers explicitly and fails when either one skips.
+        # A suite that never ran them is not a gate: PDF_REQUIRE_RENDER makes a
+        # missing rasterizer fail here even if another step deleted the install.
+        env:
+          PDF_REQUIRE_VALIDATOR: "1"
+          PDF_REQUIRE_RENDER: "1"
+          GOLDEN_ARTIFACTS: ${{ github.workspace }}/artifacts/golden
+        run: |
+          set -eo pipefail
+          go test ./internal/engine \
+            -run 'TestDocumentSnapshots|TestRenderSnapshots|TestProfileCoverage' \
+            -count=1 -v | tee golden.log
+          if grep -q -- '--- SKIP' golden.log; then
+            echo "a snapshot test skipped:" >&2
+            grep -- '--- SKIP' golden.log >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestDocumentSnapshots ' golden.log
+          grep -q -- '--- PASS: TestRenderSnapshots ' golden.log
+      - name: Snapshot artifacts
+        # Uploaded only when a golden test fails: produced, expected and diff.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: golden-artifacts
+          path: artifacts/golden
+          if-no-files-found: ignore
+
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fuzz
+        # Short runs on the parsers that read untrusted input. A longer fuzz
+        # session belongs to a nightly job, not to every pull request.
+        run: |
+          go test ./internal/font -run '^$' -fuzz '^FuzzParse$' -fuzztime 20s
+          go test ./internal/font -run '^$' -fuzz '^FuzzParseClassDef$' -fuzztime 10s
+          go test ./internal/html -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
+          go test ./internal/css -run '^$' -fuzz '^FuzzParse$' -fuzztime 10s
+          go test ./pdfgen -run '^$' -fuzz '^FuzzConvert$' -fuzztime 15s
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -131,8 +182,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          # go.sum pins the one test-only dependency; caching that download is
-          # not worth a stale module cache in a build this short.
+          # Left off deliberately: the graph is two small modules, and the
+          # parallel jobs would restore and race to save the same cache for a
+          # few seconds each.
           cache: false
       - name: Format
         run: |
@@ -149,3 +201,31 @@ jobs:
         with:
           version: v2.15.0
           args: --timeout=5m
+
+  gate:
+    # The single check branch protection requires. It runs even when a job
+    # failed, and treats anything but success — failure, skipped, cancelled —
+    # as a failure, so a suite that never ran cannot pass.
+    needs: [unit, race, golden, fuzz, lint]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        run: |
+          failed=""
+          check() {
+            if [ "$2" != "success" ]; then
+              echo "::error::job $1 reported $2"
+              failed="$failed $1($2)"
+            fi
+          }
+          check unit "${{ needs.unit.result }}"
+          check race "${{ needs.race.result }}"
+          check golden "${{ needs.golden.result }}"
+          check fuzz "${{ needs.fuzz.result }}"
+          check lint "${{ needs.lint.result }}"
+          if [ -n "$failed" ]; then
+            echo "required jobs did not succeed:$failed" >&2
+            exit 1
+          fi

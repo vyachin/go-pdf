@@ -124,13 +124,13 @@ fixture ever runs it.
 
 ## Continuous integration
 
-Both layers run in the `test` job of `.github/workflows/ci.yml`, which pins
+Both layers run in the `golden` job of `.github/workflows/ci.yml`, which pins
 `ubuntu-24.04` and installs poppler and pdfcpu. In addition, a dedicated
 `Golden snapshots` step runs the three tests explicitly with `-count=1 -v` and
 fails when any of them is skipped:
 
 ```
-! grep -q -- '--- SKIP' golden.log
+if grep -q -- '--- SKIP' golden.log; then exit 1; fi
 grep -q -- '--- PASS: TestDocumentSnapshots ' golden.log
 grep -q -- '--- PASS: TestRenderSnapshots ' golden.log
 ```
@@ -142,9 +142,10 @@ and a future skip fails through the grep. The step also sets
 `GOLDEN_ARTIFACTS`, so a failure uploads `produced`, `expected` and `diff`
 images as the `golden-artifacts` artifact.
 
-Making the `test` job a required check is branch protection, not a workflow
-file: without it a red build can still be merged. The `lint` job is separate and
-does not run the snapshots.
+Branch protection requires the `gate` job — which depends on every test job and
+fails when one of them fails or is skipped — not the individual jobs, and that is
+a repository setting rather than a workflow file: without it a red build can
+still be merged. The `lint` job is separate and does not run the snapshots.
 
 ## What these layers do not cover
 
