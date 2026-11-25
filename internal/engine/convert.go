@@ -45,6 +45,14 @@ type prepared struct {
 	assets *assets.Registry
 }
 
+// aggregatePosition names the document for a failure that has no single source
+// node — a conversion-wide budget, a writer error, a rasterizer error. The file
+// is known and the coordinates are not, so the diagnostic can point the reader
+// at the document without inventing a line or an element.
+func aggregatePosition(opts Options) diag.Position {
+	return diag.Position{File: sourceName(opts)}
+}
+
 // prepare validates the template and resolves everything that does not need
 // layout, so both entry points report the same problems. It owns the asset
 // registry: a preparation that fails closes it before it returns.
@@ -102,7 +110,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		return nil, diags, nil
 	}
 	if len(src) > limits.MaxInputBytes {
-		diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
+		diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "input is %d bytes, the limit is %d", len(src), limits.MaxInputBytes)
 		return nil, diags, nil
 	}
 	doc, err := html.ParseWithOptions(src, html.ParseOptions{
@@ -116,7 +124,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		// shared guard is not the source, so it must be turned into a
 		// diagnostic here.
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
 			return nil, diags, nil
 		}
 		if failed, ctxErr := budgetFailure(guard, &diags); failed {
@@ -200,7 +208,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 			return nil, diags, ctxErr
 		}
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
 			return nil, diags, nil
 		}
 		var srcErr *fontSourceError
@@ -323,7 +331,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := stageFailure(p.guard, &layoutDiags, diags); err != nil {
+		if err := stageFailure(p.guard, opts, &layoutDiags, diags); err != nil {
 			return nil, err
 		}
 		if layoutDiags.HasErrors() {
@@ -403,14 +411,14 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	data, err := writer.Bytes()
 	if err != nil {
 		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
 			diags.Sort()
 			return Result{Diagnostics: diags}, diags.Error()
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Result{Diagnostics: diags}, ctxErr
 		}
-		diags.Errorf(diag.PDFWrite, diag.Position{}, "", "%v", err)
+		diags.Errorf(diag.PDFWrite, aggregatePosition(opts), "", "%v", err)
 		diags.Sort()
 		return Result{Diagnostics: diags}, diags.Error()
 	}
@@ -429,11 +437,11 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 				return Result{Diagnostics: diags}, ctxErr
 			}
 			if errors.Is(err, budget.ErrExceeded) {
-				diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+				diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
 				diags.Sort()
 				return Result{Diagnostics: diags}, diags.Error()
 			}
-			diags.Errorf(diag.RasterRender, diag.Position{}, "", "%v", err)
+			diags.Errorf(diag.RasterRender, aggregatePosition(opts), "", "%v", err)
 			diags.Sort()
 			return Result{Diagnostics: diags}, diags.Error()
 		}
@@ -448,7 +456,7 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 
 // stageFailure moves a budget failure recorded by layout into the conversion
 // diagnostics and returns the context error when the conversion was cancelled.
-func stageFailure(guard *budget.Guard, stage, diags *diag.List) error {
+func stageFailure(guard *budget.Guard, opts Options, stage, diags *diag.List) error {
 	err := guard.Err()
 	if err == nil {
 		return nil
@@ -463,7 +471,7 @@ func stageFailure(guard *budget.Guard, stage, diags *diag.List) error {
 			return nil
 		}
 	}
-	diags.Errorf(diag.ResourceLimit, diag.Position{}, "", "%v", err)
+	diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
 	return nil
 }
 

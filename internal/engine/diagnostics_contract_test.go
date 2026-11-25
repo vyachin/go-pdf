@@ -205,3 +205,80 @@ func TestOnePipelineServesBothEntryPoints(t *testing.T) {
 		}
 	}
 }
+
+// TestAggregateDiagnosticNamesTheDocument guards the documented location
+// classes: a failure with no single source node names the document and leaves
+// the coordinates zero, while a source-attributable failure keeps its position.
+func TestAggregateDiagnosticNamesTheDocument(t *testing.T) {
+	t.Run("input limit", func(t *testing.T) {
+		res, err := Convert(context.Background(), []byte(strings.Repeat("x", 64)), Options{
+			File:   "big.html",
+			Limits: Limits{MaxInputBytes: 8},
+		})
+		if err == nil {
+			t.Fatal("the input limit was not enforced")
+		}
+		d := diagWithCode(t, res.Diagnostics, "resource/limit")
+		if d.Pos.File != "big.html" || d.Pos.Line != 0 || d.Pos.Col != 0 {
+			t.Fatalf("aggregate diagnostic = %s:%d:%d, want big.html:0:0", d.Pos.File, d.Pos.Line, d.Pos.Col)
+		}
+	})
+
+	t.Run("raster limit", func(t *testing.T) {
+		res, err := Convert(context.Background(), []byte(`<p>A</p>`), Options{
+			File:         "render.html",
+			FallbackFont: testFontPath(t),
+			RenderPNG:    true,
+			Limits:       Limits{MaxRasterPixels: 1},
+		})
+		if err == nil {
+			t.Fatal("the raster limit was not enforced")
+		}
+		d := diagWithCode(t, res.Diagnostics, "resource/limit")
+		if d.Pos.File != "render.html" || d.Pos.Line != 0 || d.Pos.Col != 0 {
+			t.Fatalf("aggregate diagnostic = %s:%d:%d, want render.html:0:0", d.Pos.File, d.Pos.Line, d.Pos.Col)
+		}
+	})
+
+	t.Run("conversion budget names the document", func(t *testing.T) {
+		res, err := Convert(context.Background(), []byte(strings.Repeat("<p>Строка для бюджета операций.</p>", 20)), Options{
+			File:         "budget.html",
+			FallbackFont: testFontPath(t),
+			Limits:       Limits{MaxOperations: 20},
+		})
+		if err == nil {
+			t.Fatal("the operation budget was not enforced")
+		}
+		d := diagWithCode(t, res.Diagnostics, "resource/limit")
+		if d.Pos.File != "budget.html" {
+			t.Fatalf("budget diagnostic names %q, want budget.html", d.Pos.File)
+		}
+	})
+
+	t.Run("source attributable keeps its position", func(t *testing.T) {
+		res, err := Convert(context.Background(), []byte("<p>text</p>\n<img src=\"missing.png\">"), Options{
+			File:         "page.html",
+			BaseDir:      t.TempDir(),
+			FallbackFont: testFontPath(t),
+		})
+		if err == nil {
+			t.Fatal("the missing image was accepted")
+		}
+		d := diagWithCode(t, res.Diagnostics, "img/load")
+		if d.Pos.File != "page.html" || d.Pos.Line != 2 || d.Pos.Col < 1 {
+			t.Fatalf("source diagnostic = %s:%d:%d, want page.html:2:<col>", d.Pos.File, d.Pos.Line, d.Pos.Col)
+		}
+	})
+}
+
+// diagWithCode returns the first diagnostic with the given code.
+func diagWithCode(t *testing.T, l diag.List, code string) diag.Diagnostic {
+	t.Helper()
+	for _, d := range l {
+		if d.Code == code {
+			return d
+		}
+	}
+	t.Fatalf("no %s diagnostic:\n%s", code, strings.Join(l.Lines(), "\n"))
+	return diag.Diagnostic{}
+}
