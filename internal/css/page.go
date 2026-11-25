@@ -52,8 +52,17 @@ func (s PageSizeSpec) Resolve(fallback PageSize) PageSize {
 	if !s.HasBase {
 		size = fallback
 	}
-	if s.Orientation == OrientationLandscape {
-		size.Width, size.Height = size.Height, size.Width
+	switch s.Orientation {
+	case OrientationLandscape:
+		if size.Width < size.Height {
+			size.Width, size.Height = size.Height, size.Width
+		}
+	case OrientationPortrait:
+		// The fallback size may be landscape; portrait must flip it, exactly as
+		// landscape flips a portrait fallback.
+		if size.Width > size.Height {
+			size.Width, size.Height = size.Height, size.Width
+		}
 	}
 	return size
 }
@@ -122,13 +131,37 @@ func ParsePageSizeSpec(toks []Token) (PageSizeSpec, error) {
 	return spec, nil
 }
 
-// ParsePageMargin parses the margin shorthand of an @page rule.
+// ParsePageMargin parses the margin shorthand of an @page rule. A page margin is
+// a non-negative length: auto and percentages have no meaning on the page box,
+// and an em resolves against the initial font size (12 pt), not the page width.
 func ParsePageMargin(toks []Token) ([4]Length, error) {
 	v, err := parseBoxShorthand(toks)
 	if err != nil {
 		return [4]Length{}, err
 	}
-	return v.Box, nil
+	const initialFontSize = 12000 // 12 pt in millipoints
+	var out [4]Length
+	for i, l := range v.Box {
+		switch l.Kind {
+		case MP:
+			if l.Value < 0 {
+				return [4]Length{}, fmt.Errorf("page margin must not be negative")
+			}
+			out[i] = l
+		case Em:
+			if l.Value < 0 {
+				return [4]Length{}, fmt.Errorf("page margin must not be negative")
+			}
+			out[i] = Abs(l.Resolve(initialFontSize))
+		case Auto:
+			return [4]Length{}, fmt.Errorf("page margin must be a length, not auto")
+		case Percent:
+			return [4]Length{}, fmt.Errorf("page margin must be a length, not a percentage")
+		default:
+			return [4]Length{}, fmt.Errorf("page margin must be a length")
+		}
+	}
+	return out, nil
 }
 
 // ContentKind classifies a generated content item.

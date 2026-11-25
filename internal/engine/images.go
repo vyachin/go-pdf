@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -130,6 +131,21 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	default:
 		return nil, fmt.Errorf("unsupported image format: %s (only png and jpeg are supported)", src)
 	}
+}
+
+// intrinsicMillipoints converts an intrinsic pixel count to millipoints at the
+// 96 dpi CSS ratio. The product is computed in 64-bit and clamped: a legal very
+// wide image would otherwise wrap to a negative width and reach the PDF as a
+// negative image scale.
+func intrinsicMillipoints(px int) int32 {
+	v := int64(px) * 750
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < 0 {
+		return 0
+	}
+	return int32(v)
 }
 
 // admitBytes counts one image's encoded size against the conversion total. It
@@ -257,8 +273,8 @@ func (l *imageLoader) decodePNG(src, name string, data []byte, key string) (*lay
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return l.store(key, &layout.ImageData{
-		Width:  int32(cfg.Width) * 750,
-		Height: int32(cfg.Height) * 750,
+		Width:  intrinsicMillipoints(cfg.Width),
+		Height: intrinsicMillipoints(cfg.Height),
 		PixelW: cfg.Width,
 		PixelH: cfg.Height,
 		Format: "png",
@@ -293,8 +309,8 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte, key string) (*la
 	// A JPEG is embedded as DCTDecode without decoding, so the header check
 	// is the whole check Convert performs.
 	return l.store(key, &layout.ImageData{
-		Width:  int32(cfg.Width) * 750,
-		Height: int32(cfg.Height) * 750,
+		Width:  intrinsicMillipoints(cfg.Width),
+		Height: intrinsicMillipoints(cfg.Height),
 		PixelW: cfg.Width,
 		PixelH: cfg.Height,
 		Format: "jpeg",

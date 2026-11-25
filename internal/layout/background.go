@@ -29,11 +29,15 @@ func coverRect(img *ImageData, rect Rect) Rect {
 	if h < rh {
 		h = rh
 	}
+	cw, ch := clampInt32(w), clampInt32(h)
+	if cw <= 0 || ch <= 0 {
+		return Rect{}
+	}
 	return Rect{
-		X: rect.X + int32((rw-w)/2),
-		Y: rect.Y + int32((rh-h)/2),
-		W: int32(w),
-		H: int32(h),
+		X: satAdd(rect.X, clampInt32((rw-w)/2)),
+		Y: satAdd(rect.Y, clampInt32((rh-h)/2)),
+		W: cw,
+		H: ch,
 	}
 }
 

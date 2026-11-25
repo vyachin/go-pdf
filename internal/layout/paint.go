@@ -13,7 +13,7 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	top := b.fragStartY
 	bottom := f.y
 	if completed {
-		bottom += b.padBottom() + b.borderBottom()
+		bottom = satAdd(bottom, satAdd(b.padBottom(), b.borderBottom()))
 	}
 	if bottom < top {
 		bottom = top
@@ -62,8 +62,8 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 	}
 	bl, br := b.borderLeft(), b.borderRight()
 	bt, bb := b.borderTop(), b.borderBottom()
-	paintBorder(3, Rect{X: b.x, Y: top, W: bl, H: bottom - top})
-	paintBorder(1, Rect{X: b.x + b.width - br, Y: top, W: br, H: bottom - top})
+	paintBorder(3, Rect{X: b.x, Y: top, W: bl, H: satSub(bottom, top)})
+	paintBorder(1, Rect{X: satSub(satAdd(b.x, b.width), br), Y: top, W: br, H: satSub(bottom, top)})
 	if first {
 		paintBorder(0, Rect{X: b.x, Y: top, W: b.width, H: bt})
 	}
@@ -229,7 +229,7 @@ func (l *layouter) paintListMarkerAt(page *Page, b *Box, left int32) {
 	}
 	// The marker belongs to the list's left padding, not to the item's
 	// content box: place it before the text and never over it.
-	x := b.x + b.padLeft() - run.Width - 2000
+	x := satSub(satSub(satAdd(b.x, b.padLeft()), run.Width), 2000)
 	if x < left {
 		x = left
 	}
