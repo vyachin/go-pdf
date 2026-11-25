@@ -107,6 +107,8 @@ jobs:
         run: go test -race ./...
 
   golden:
+    # Temporary for gate verification: a skipped job must fail the gate.
+    if: false
     # Pinned: the render goldens are produced with the poppler of this release.
     # An image bump must be a deliberate commit that regenerates them.
     runs-on: ubuntu-24.04
