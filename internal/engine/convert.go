@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"maps"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/vyachin/go-pdf/internal/backend/raster"
 	"github.com/vyachin/go-pdf/internal/browser"
@@ -284,11 +285,32 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	}
 
 	doc := p.doc
+	title := documentTitle(doc, opts)
+	author := metaContent(doc, "author")
+	subject := metaContent(doc, "description")
+	keywords := metaContent(doc, "keywords")
+	for _, meta := range []struct {
+		code  string
+		value string
+	}{
+		{"options/title", title},
+		{"options/author", author},
+		{"options/subject", subject},
+		{"options/keywords", keywords},
+	} {
+		if !utf8.ValidString(meta.value) {
+			diags.Errorf(meta.code, diag.Position{}, "", "the metadata value is not valid UTF-8")
+		}
+	}
+	if diags.HasErrors() {
+		diags.Sort()
+		return Result{Diagnostics: diags}, diags.Error()
+	}
 	writer := pdf.New(pdf.Options{
-		Title:        documentTitle(doc, opts),
-		Author:       metaContent(doc, "author"),
-		Subject:      metaContent(doc, "description"),
-		Keywords:     metaContent(doc, "keywords"),
+		Title:        title,
+		Author:       author,
+		Subject:      subject,
+		Keywords:     keywords,
 		CreationDate: opts.Date,
 		Outline:      toPDFOutline(pages.Outline),
 		Budget:       p.guard,

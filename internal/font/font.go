@@ -549,3 +549,46 @@ func (s *cmapSubtable) lookup(r rune) (uint16, bool) {
 	}
 	return 0, false
 }
+
+// ItalicAngle returns the angle from the font's post table, in degrees. A font
+// without a post table or with version 3 declares no italic angle.
+func (f *Font) ItalicAngle() float64 {
+	post, ok := f.tables["post"]
+	if !ok || len(post) < 8 {
+		return 0
+	}
+	if binary.BigEndian.Uint32(post[0:4]) == 0x00030000 {
+		return 0
+	}
+	return float64(int32(binary.BigEndian.Uint32(post[4:8]))) / 65536
+}
+
+// CapHeight returns the capital height in font units: the OS/2 sCapHeight when
+// the table declares it, otherwise the measured height of 'H', otherwise the
+// ascent. The PDF descriptor needs a positive value, so the fallback is never
+// zero for a real font.
+func (f *Font) CapHeight() int16 {
+	if os2, ok := f.tables["OS/2"]; ok && len(os2) >= 90 {
+		if binary.BigEndian.Uint16(os2[0:2]) >= 2 {
+			if v := int16(binary.BigEndian.Uint16(os2[88:90])); v > 0 {
+				return v
+			}
+		}
+	}
+	if gid, ok := f.GlyphIndex('H'); ok {
+		if contours, err := f.GlyphPath(gid); err == nil {
+			top := float32(-1 << 20)
+			for _, c := range contours {
+				for _, p := range c {
+					if p.Y > top {
+						top = p.Y
+					}
+				}
+			}
+			if top > 0 {
+				return int16(top + 0.5)
+			}
+		}
+	}
+	return f.ascent
+}

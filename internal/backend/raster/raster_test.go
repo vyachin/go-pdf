@@ -269,3 +269,24 @@ func TestRenderHonoursCancellation(t *testing.T) {
 		t.Fatalf("Render returned %v, want context.Canceled", err)
 	}
 }
+
+// TestImageClipKeepsPageBackgroundOutside guards the debug raster clip: a
+// background image wider than its box must not paint outside the box.
+func TestImageClipKeepsPageBackgroundOutside(t *testing.T) {
+	clip := layout.Rect{X: 20_000, Y: 20_000, W: 20_000, H: 20_000}
+	page := newPage(100_000, 100_000, layout.Op{
+		Kind:  layout.ImageOpKind,
+		Rect:  layout.Rect{X: 0, Y: 0, W: 100_000, H: 100_000},
+		Image: &layout.ImageOp{Image: &layout.ImageData{Data: solidPNG(t, color.NRGBA{R: 255, A: 255}), Format: "png", PixelW: 1, PixelH: 1}, Clip: &clip},
+	})
+	img, err := Render(page, Options{DPI: 72})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, g, b, _ := img.At(2, 2).RGBA(); r != 0xffff || g != 0xffff || b != 0xffff {
+		t.Fatalf("outside the clip = %#x,%#x,%#x, want white", r, g, b)
+	}
+	if r, g, b, _ := img.At(20, 20).RGBA(); r != 0xffff || g != 0 || b != 0 {
+		t.Fatalf("inside the clip = %#x,%#x,%#x, want red", r, g, b)
+	}
+}

@@ -17,12 +17,15 @@ func writeOutline(w *objectWriter, entries []OutlineEntry, rootID int, pages []*
 	children := make([][]int, n)
 	var rootChildren []int
 	var stack []int
-	for i, e := range entries {
-		level := e.Level
-		if level < 1 {
-			level = 1
+	levelOf := func(i int) int {
+		if entries[i].Level < 1 {
+			return 1
 		}
-		for len(stack) > 0 && entries[stack[len(stack)-1]].Level >= level {
+		return entries[i].Level
+	}
+	for i := range entries {
+		level := levelOf(i)
+		for len(stack) > 0 && levelOf(stack[len(stack)-1]) >= level {
 			stack = stack[:len(stack)-1]
 		}
 		if len(stack) == 0 {

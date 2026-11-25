@@ -77,14 +77,14 @@ func TestPageTextsCountsAPageThatDrawsOnlyAnImage(t *testing.T) {
 		t.Fatalf("PageCount = %d, want 2", count)
 	}
 
-	// The old reader keys on text operators, so it sees one page. That gap is
-	// why PageCount exists; this assertion documents it.
+	// Pages follows the page tree, so the image-only page is an empty text
+	// page rather than invisible.
 	pages, err := pdfdebug.Pages(pdf)
 	if err != nil {
 		t.Fatalf("Pages: %v", err)
 	}
-	if len(pages) != 1 {
-		t.Fatalf("Pages = %d pages, want 1 (the image-only page must be invisible to it)", len(pages))
+	if len(pages) != 2 || pages[1] != "" {
+		t.Fatalf("Pages = %d pages %q, want 2 with an empty image-only page", len(pages), pages)
 	}
 }
 

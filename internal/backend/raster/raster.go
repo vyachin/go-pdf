@@ -211,6 +211,15 @@ func drawImage(img *image.RGBA, op layout.Op, sx, sy float64) {
 	// Only the visible part of the image needs a scaled buffer. An image that
 	// is wider than the page would otherwise allocate its full CSS size.
 	dst := image.Rect(x0, y0, x0+w, y0+h).Intersect(img.Bounds())
+	if clip := op.Image.Clip; clip != nil {
+		// The PDF intersects the image with its clip, so a covered background
+		// must not paint outside its box in the debug raster either.
+		cx0 := int(math.Floor(float64(clip.X) * sx))
+		cy0 := int(math.Floor(float64(clip.Y) * sy))
+		cx1 := int(math.Ceil(float64(clip.X+clip.W) * sx))
+		cy1 := int(math.Ceil(float64(clip.Y+clip.H) * sy))
+		dst = dst.Intersect(image.Rect(cx0, cy0, cx1, cy1))
+	}
 	if dst.Empty() {
 		return
 	}

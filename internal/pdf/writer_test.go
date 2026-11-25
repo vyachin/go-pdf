@@ -820,3 +820,65 @@ func TestImageClipIsWrittenBeforeTheDraw(t *testing.T) {
 		t.Fatalf("an image without a clip was clipped anyway: %q", plain)
 	}
 }
+
+// TestNilFontReturnsError guards the writer against a nil font pointer.
+func TestNilFontReturnsError(t *testing.T) {
+	d := New(Options{})
+	d.AddPage(1000, 1000, []Op{{Kind: TextOpKind, Text: &Text{
+		X: 0, Y: 0, Size: 12000, Font: nil,
+		Glyphs: []Glyph{{GID: 1, Rune: 'A', Advance: 500}},
+	}}})
+	if _, err := d.Bytes(); err == nil {
+		t.Fatal("a nil font was accepted")
+	}
+}
+
+// TestTooManyCIDsIsAResourceLimit guards the uint16 CID: more than 65,535
+// distinct glyph-rune pairs must fail instead of wrapping.
+func TestTooManyCIDsIsAResourceLimit(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fonts", "DejaVuSans.ttf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := font.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	glyphs := make([]Glyph, 65536)
+	for i := range glyphs {
+		glyphs[i] = Glyph{GID: 1, Rune: rune(i), Advance: 500}
+	}
+	d := New(Options{})
+	d.AddPage(1000, 1000, []Op{{Kind: TextOpKind, Text: &Text{
+		X: 0, Y: 0, Size: 12000, Font: f, Glyphs: glyphs,
+	}}})
+	_, err = d.Bytes()
+	if !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("Bytes returned %v, want a resource limit", err)
+	}
+}
+
+// TestZeroOutlineLevelIsASibling guards outline normalisation: level 0 is
+// level 1, so B is a sibling of A, not its child.
+func TestZeroOutlineLevelIsASibling(t *testing.T) {
+	w := &objectWriter{}
+	rootID := w.add()
+	pageID := w.add()
+	pages := []*page{{width: 1000, height: 1000}}
+	pageIDs := []int{pageID}
+	writeOutline(w, []OutlineEntry{
+		{Title: "A", Page: 1, Level: 0},
+		{Title: "B", Page: 1, Level: 1},
+	}, rootID, pages, pageIDs, rootID)
+	// add order: root, page, A, B.
+	if len(w.bodies) < 4 {
+		t.Fatalf("got %d objects", len(w.bodies))
+	}
+	bBody := string(w.bodies[3])
+	if !strings.Contains(bBody, "/Parent 1 0 R") {
+		t.Fatalf("B is not a root child: %s", bBody)
+	}
+	if strings.Contains(bBody, "/Parent 3 0 R") {
+		t.Fatalf("B was nested under A: %s", bBody)
+	}
+}
