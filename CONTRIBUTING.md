@@ -68,12 +68,15 @@ that a module now covers.
 ## Tests
 
 ```bash
-go test ./...                                  # unit and integration tests
-go test -race ./...                            # the concurrency guarantee
-PDF_REQUIRE_VALIDATOR=1 go test ./...          # require pdfcpu, do not skip
-go test ./internal/engine -bench .             # benchmarks
+go test -shuffle=on ./...                           # unit and integration tests
+go test -shuffle=on -race ./...                     # the concurrency guarantee
+PDF_REQUIRE_VALIDATOR=1 go test -shuffle=on ./...   # require pdfcpu, do not skip
+go test ./internal/engine -bench .                  # benchmarks
 ```
 
+- The suite runs with `-shuffle=on`, so each package's tests run in a random
+  order. A test that depends on another test having run first fails here and in
+  CI instead of staying a latent assumption; fix the test, not the flag.
 - Document snapshots (`testdata/golden/xml`) freeze what the engine understood:
   elements, effective styles, the `@page` setup and the diagnostics, as
   canonical XML. They need no font and no external tool, so a failure is a
@@ -162,8 +165,8 @@ own check:
 
 | Job | Runs | Tools |
 |---|---|---|
-| `unit` | `go vet`, the suite with `PDF_REQUIRE_VALIDATOR=1`, the reference command's import check, and a build of the package from a module outside this repository | Go, `pdfcpu` |
-| `race` | the suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
+| `unit` | `go vet`, the shuffled suite with `PDF_REQUIRE_VALIDATOR=1`, the reference command's import check, and a build of the package from a module outside this repository | Go, `pdfcpu` |
+| `race` | the shuffled suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
 | `golden` | both snapshot layers explicitly (a skipped layer fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
 | `fuzz` | a short fuzz session per target | Go |
 | `lint` | `gofmt` and the pinned `golangci-lint` | Go, `golangci-lint` |
@@ -194,8 +197,8 @@ other change.
 ## Releasing
 
 1. `CHANGELOG.md` gains the new version and what changed.
-2. The suite is green on the exact commit: `go test ./...`,
-   `go test -race ./...`, both snapshot layers and `pdfcpu`.
+2. The suite is green on the exact commit: `go test -shuffle=on ./...`,
+   `go test -shuffle=on -race ./...`, both snapshot layers and `pdfcpu`.
 3. Tag `vX.Y.Z` and push the tag.
 4. Verify consumption from a scratch module:
    `go mod init tmp && go get github.com/vyachin/go-pdf/pdfgen@vX.Y.Z`.
