@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Aggregate asset limits.** `Limits` gains `MaxTotalImageBytes` (64 MiB),
+  `MaxTotalImagePixels` (80,000,000) and `MaxTotalFontBytes` (32 MiB), so one
+  conversion also bounds the totals of its images and fonts, not only each file.
+  An asset that would cross a total is rejected with `resource/limit` before it
+  is opened or its pixels are decoded, and the fields are additive so a caller
+  can raise them.
 - **OpenType fonts with CFF outlines.** `@font-face` and `Options.FallbackFont`
   accept an `.otf` whose outlines are PostScript, so a template can name PT Serif,
   PT Sans and the other families that ship that way without converting the font
@@ -105,6 +111,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **One overflow warning per box.** A clipped box is reported once: the
   duplicated fixed-height pass is gone, and so is the second report when the text
   path and the fixed height clip the same box.
+- **Repeated assets are embedded once.** An image is identified by its canonical
+  resolved path after symlinks, or by the SHA-256 of its decoded bytes for a
+  `data:` URI, and the PDF writer keys image objects by the same content hash. One
+  1.96 MB PNG referenced through 50 spellings used to be read, decoded and
+  embedded 50 times, producing a 98 MB PDF; it now produces one object and a PDF
+  close to the asset size. Repeated `data:` URIs are decoded once.
 - **The work budget covers every stage.** `Limits.MaxOperations` now charges
   stylesheet rules and compounds matched by the cascade, font parsing, image
   decoding, copied drawing operations and diagnostic path segments in addition

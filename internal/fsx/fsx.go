@@ -116,6 +116,54 @@ func escapes(rel string) bool {
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// Resolve returns the absolute path of path with symlinks resolved, after the
+// same containment check Read applies. It is the identity of a file: two
+// spellings of one path resolve to the same string. A path outside the root
+// returns ErrOutsideRoot; a missing path keeps its open error.
+func (r *Root) Resolve(path string) (string, error) {
+	if r == nil || r.dir == "" {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			return real, nil
+		}
+		return abs, nil
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		if rel, relErr := filepath.Rel(r.absDir, abs); relErr != nil || escapes(rel) {
+			return "", ErrOutsideRoot
+		}
+		return "", err
+	}
+	rel, err := filepath.Rel(r.dir, real)
+	if err != nil || escapes(rel) {
+		return "", ErrOutsideRoot
+	}
+	return real, nil
+}
+
+// Size returns the size of path in bytes after the same containment check as
+// Read, so a caller can reject an asset before opening it. A missing path keeps
+// its stat error.
+func (r *Root) Size(path string) (int64, error) {
+	real, err := r.Resolve(path)
+	if err != nil {
+		return 0, err
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
 // open resolves path against the root and opens it, applying the containment
 // rules of Read.
 func (r *Root) open(path string) (*os.File, error) {

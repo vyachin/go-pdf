@@ -208,5 +208,18 @@ The first stage to exhaust the budget stops with `resource/limit`, and a
 cancelled context is returned as `context.Canceled` from that stage instead of
 being reported as a document diagnostic. The default is 20,000,000 operations.
 
+## Asset limits
+
+`Options.Limits` bounds the assets of one conversion in addition to each file.
+`MaxTotalImageBytes` (64 MiB) and `MaxTotalImagePixels` (80,000,000) cap every
+image one conversion reads; `MaxTotalFontBytes` (32 MiB) caps every font it
+parses. A document that would cross a total fails with `resource/limit` before
+the offending asset is opened or its pixels are decoded.
+
+An image is identified by its canonical resolved path after symlinks, or by the
+SHA-256 of its decoded bytes for a `data:` URI. Every spelling of one file and
+every repetition of one `data:` URI share one decode and one image object in the
+PDF, and the aggregate totals count that identity once.
+
 An option error, such as `options/charset` or `options/page-size`, names no
 position: it is about the call, not the document.

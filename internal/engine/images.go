@@ -2,7 +2,9 @@ package engine
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image/color"
@@ -23,6 +25,12 @@ type imageLoader struct {
 	baseDir   string
 	maxPixels int
 	maxBytes  int
+	// Aggregate caps for one conversion: encoded bytes and decoded pixels of
+	// every image, counted once per identity.
+	maxTotalBytes  int
+	maxTotalPixels int
+	totalBytes     int64
+	totalPixels    int64
 	// guard bounds decoding work and carries cancellation. Nil means no limit.
 	guard     *budget.Guard
 	root      *fsx.Root
@@ -46,17 +54,14 @@ func (l *imageLoader) Close() error {
 	return err
 }
 
-// Load implements layout.ImageLoader.
+// Load implements layout.ImageLoader. A file is identified by its canonical
+// absolute path after symlinks, so every spelling of one file shares one cache
+// entry and one PDF object. A data: URI is identified by the SHA-256 of its
+// decoded bytes, so a repeated URI is decoded once.
 func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if src == "" {
 		return nil, fmt.Errorf("image has no src")
 	}
-	l.mu.Lock()
-	if img, ok := l.cache[src]; ok {
-		l.mu.Unlock()
-		return img, nil
-	}
-	l.mu.Unlock()
 	lower := strings.ToLower(src)
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return nil, fmt.Errorf("remote images are not supported: %s", src)
@@ -81,7 +86,33 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.baseDir, path)
 	}
-	data, err := root.ReadLimit(path, l.maxBytes)
+	canonical, err := root.Resolve(path)
+	if err != nil {
+		if errors.Is(err, fsx.ErrOutsideRoot) {
+			return nil, fmt.Errorf("image %q is outside the base directory", src)
+		}
+		return nil, err
+	}
+	key := "file:" + canonical
+	l.mu.Lock()
+	if img, ok := l.cache[key]; ok {
+		l.mu.Unlock()
+		return img, nil
+	}
+	l.mu.Unlock()
+	// The size is known before the file is opened, so an image past the per-file
+	// or aggregate limit is never read into memory.
+	size, err := root.Size(canonical)
+	if err != nil {
+		return nil, err
+	}
+	if l.maxBytes > 0 && size > int64(l.maxBytes) {
+		return nil, fmt.Errorf("%w: image %q exceeds the limit of %d bytes", budget.ErrExceeded, src, l.maxBytes)
+	}
+	if err := l.admitBytes(size); err != nil {
+		return nil, err
+	}
+	data, err := root.ReadLimit(canonical, l.maxBytes)
 	if err != nil {
 		if errors.Is(err, fsx.ErrOutsideRoot) {
 			return nil, fmt.Errorf("image %q is outside the base directory", src)
@@ -91,17 +122,44 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		}
 		return nil, err
 	}
-	l.mu.Lock()
-	l.loads++
-	l.mu.Unlock()
 	switch {
 	case strings.HasSuffix(lower, ".png"):
-		return l.decodePNG(src, path, data)
+		return l.decodePNG(src, path, data, key)
 	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
-		return l.decodeJPEG(src, path, data)
+		return l.decodeJPEG(src, path, data, key)
 	default:
 		return nil, fmt.Errorf("unsupported image format: %s (only png and jpeg are supported)", src)
 	}
+}
+
+// admitBytes counts one image's encoded size against the conversion total. It
+// reports resource/limit before the file is read.
+func (l *imageLoader) admitBytes(n int64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.maxTotalBytes > 0 && l.totalBytes+n > int64(l.maxTotalBytes) {
+		return fmt.Errorf("%w: the document's images exceed %d encoded bytes in total", budget.ErrExceeded, l.maxTotalBytes)
+	}
+	l.totalBytes += n
+	return nil
+}
+
+// admitPixels counts one image's pixels against the conversion total. It is
+// called after the header check and before the pixels are decoded.
+func (l *imageLoader) admitPixels(n int64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.maxTotalPixels > 0 && l.totalPixels+n > int64(l.maxTotalPixels) {
+		return fmt.Errorf("%w: the document's images exceed %d pixels in total", budget.ErrExceeded, l.maxTotalPixels)
+	}
+	l.totalPixels += n
+	return nil
+}
+
+func (l *imageLoader) countDecode() {
+	l.mu.Lock()
+	l.loads++
+	l.mu.Unlock()
 }
 
 // charge records the work of one image: one unit for the image itself and one
@@ -147,21 +205,34 @@ func (l *imageLoader) loadDataURI(src string) (*layout.ImageData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("data: URI image: %v", err)
 	}
+	sum := sha256.Sum256(data)
+	key := "sha256:" + hex.EncodeToString(sum[:])
+	l.mu.Lock()
+	if img, ok := l.cache[key]; ok {
+		l.mu.Unlock()
+		return img, nil
+	}
+	l.mu.Unlock()
 	if l.maxBytes > 0 && len(data) > l.maxBytes {
 		return nil, fmt.Errorf("%w: data: URI image exceeds the limit of %d bytes", budget.ErrExceeded, l.maxBytes)
 	}
+	// The encoded bytes are already in the document, but the size is counted
+	// before the pixels are decoded.
+	if err := l.admitBytes(int64(len(data))); err != nil {
+		return nil, err
+	}
 	switch mime {
 	case "image/png":
-		return l.decodePNG(src, "data:image/png", data)
+		return l.decodePNG(src, "data:image/png", data, key)
 	case "image/jpeg", "image/jpg":
-		return l.decodeJPEG(src, "data:image/jpeg", data)
+		return l.decodeJPEG(src, "data:image/jpeg", data, key)
 	default:
 		return nil, fmt.Errorf("unsupported data: URI image type %q (only png and jpeg are supported)", mime)
 	}
 }
 
-// decodePNG builds image data from PNG bytes and checks the pixel budget.
-func (l *imageLoader) decodePNG(src, name string, data []byte) (*layout.ImageData, error) {
+// decodePNG builds image data from PNG bytes and checks the pixel budgets.
+func (l *imageLoader) decodePNG(src, name string, data []byte, key string) (*layout.ImageData, error) {
 	cfg, err := png.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -169,18 +240,23 @@ func (l *imageLoader) decodePNG(src, name string, data []byte) (*layout.ImageDat
 	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 	}
-	// Charge the work before decoding: the header already tells how many pixels
-	// the decoder will allocate.
-	if err := l.charge(int64(cfg.Width) * int64(cfg.Height)); err != nil {
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if err := l.admitPixels(pixels); err != nil {
 		return nil, err
 	}
+	// Charge the work before decoding: the header already tells how many pixels
+	// the decoder will allocate.
+	if err := l.charge(pixels); err != nil {
+		return nil, err
+	}
+	l.countDecode()
 	// The writer decodes the pixels when it embeds the image, so a truncated
 	// file passes the header check and fails only at render time. Decoding
 	// here keeps Validate and Convert reporting the same problem.
 	if _, err := png.Decode(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
-	return l.store(src, &layout.ImageData{
+	return l.store(key, &layout.ImageData{
 		Width:  int32(cfg.Width) * 750,
 		Height: int32(cfg.Height) * 750,
 		PixelW: cfg.Width,
@@ -191,7 +267,7 @@ func (l *imageLoader) decodePNG(src, name string, data []byte) (*layout.ImageDat
 }
 
 // decodeJPEG builds image data from JPEG bytes without recompression.
-func (l *imageLoader) decodeJPEG(src, name string, data []byte) (*layout.ImageData, error) {
+func (l *imageLoader) decodeJPEG(src, name string, data []byte, key string) (*layout.ImageData, error) {
 	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -204,14 +280,19 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte) (*layout.ImageDa
 	if l.maxPixels > 0 && cfg.Width*cfg.Height > l.maxPixels {
 		return nil, fmt.Errorf("%w: image %q is %d pixels, the limit is %d", budget.ErrExceeded, src, cfg.Width*cfg.Height, l.maxPixels)
 	}
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if err := l.admitPixels(pixels); err != nil {
+		return nil, err
+	}
 	// A JPEG is embedded without decoding, so only the image itself is
 	// charged here.
 	if err := l.charge(0); err != nil {
 		return nil, err
 	}
+	l.countDecode()
 	// A JPEG is embedded as DCTDecode without decoding, so the header check
 	// is the whole check Convert performs.
-	return l.store(src, &layout.ImageData{
+	return l.store(key, &layout.ImageData{
 		Width:  int32(cfg.Width) * 750,
 		Height: int32(cfg.Height) * 750,
 		PixelW: cfg.Width,
@@ -221,12 +302,12 @@ func (l *imageLoader) decodeJPEG(src, name string, data []byte) (*layout.ImageDa
 	}), nil
 }
 
-func (l *imageLoader) store(src string, img *layout.ImageData) *layout.ImageData {
+func (l *imageLoader) store(key string, img *layout.ImageData) *layout.ImageData {
 	l.mu.Lock()
 	if l.cache == nil {
 		l.cache = map[string]*layout.ImageData{}
 	}
-	l.cache[src] = img
+	l.cache[key] = img
 	l.mu.Unlock()
 	return img
 }
