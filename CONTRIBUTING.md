@@ -229,7 +229,7 @@ own check:
 |---|---|---|
 | `unit` | `go vet` and the shuffled suite with `PDF_REQUIRE_VALIDATOR=1`, plus the coverage floor | Go, `pdfcpu` |
 | `race` | the shuffled suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
-| `golden` | both snapshot layers explicitly (a skipped layer fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
+| `golden` | both snapshot layers and the independent renderer checks explicitly (a skipped or missing one fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
 | `fuzz` | a short fuzz session per target | Go |
 | `lint` | `gofmt` and the pinned `golangci-lint` | Go, `golangci-lint` |
 

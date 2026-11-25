@@ -128,7 +128,11 @@ fixture ever runs it.
 ## Continuous integration
 
 Both layers run in the `golden` job of `.github/workflows/ci.yml`, which runs on
-`ubuntu-latest` and installs poppler and pdfcpu. The label floats: the job follows
+`ubuntu-latest` and installs poppler and pdfcpu. The same job runs the
+independent renderer checks (`TestIndependentRenderer*`), which compare the PDF
+against another renderer's text, colours and transparency; the job lists their
+expected names, so a rename that drops one from the selection fails there instead
+of passing with an empty run. The label floats: the job follows
 the image GitHub serves, so when that image rolls the renderer changes and the
 render goldens are regenerated in the change that accepts the new rasters. In addition, a dedicated
 `Golden snapshots` step runs the three tests explicitly with `-count=1 -v` and

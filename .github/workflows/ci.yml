@@ -106,6 +106,37 @@ jobs:
         run: go install github.com/pdfcpu/pdfcpu/cmd/pdfcpu@v0.16.4
       - name: Add Go bin to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Independent renderer checks
+        # The independent text, geometry/colour and transparency checks are the
+        # ones that compare the PDF against what another renderer produces, so
+        # they must run where poppler is installed. The expected names are
+        # listed: a rename that silently drops one from the selection fails here
+        # rather than passing with an empty run.
+        env:
+          PDF_REQUIRE_VALIDATOR: "1"
+          PDF_REQUIRE_RENDER: "1"
+        run: |
+          set -eo pipefail
+          expected="TestIndependentRendererSeesContent TestIndependentRendererColoursAndCoordinates TestIndependentRendererCompositesTransparency"
+          listed=$(go test ./internal/engine -list '^TestIndependentRenderer')
+          for name in $expected; do
+            if ! grep -qx "$name" <<<"$listed"; then
+              echo "the independent renderer test $name is missing" >&2
+              exit 1
+            fi
+          done
+          go test ./internal/engine -run '^TestIndependentRenderer' -count=1 -v | tee independent.log
+          if grep -q -- '--- SKIP' independent.log; then
+            echo "an independent renderer test skipped:" >&2
+            grep -- '--- SKIP' independent.log >&2
+            exit 1
+          fi
+          for name in $expected; do
+            if ! grep -q -- "--- PASS: $name " independent.log; then
+              echo "the independent renderer test $name did not run and pass" >&2
+              exit 1
+            fi
+          done
       - name: Golden snapshots
         # Runs both snapshot layers explicitly and fails when either one skips.
         # A suite that never ran them is not a gate: PDF_REQUIRE_RENDER makes a
