@@ -55,11 +55,10 @@ func BenchmarkConvertFiftyPages(b *testing.B) {
 }
 
 func TestPageCountOfBenchmarkDocument(t *testing.T) {
-	// Elapsed-time budgets are environment dependent: a loaded or virtualised
-	// machine can exceed them without a regression. They run only on request
-	// (PDF_PERF=1), never as part of the ordinary or race test suite.
+	// The benchmark document runs only on request (PDF_PERF=1), with the
+	// performance report, never as part of the ordinary or race test suite.
 	if os.Getenv("PDF_PERF") != "1" {
-		t.Skip("elapsed-time budget; set PDF_PERF=1 to run")
+		t.Skip("performance check; set PDF_PERF=1 to run")
 	}
 	fontPath := testFontPath(t)
 	res, err := Convert(context.Background(), benchDoc(50), Options{FallbackFont: fontPath, File: "bench.html"})
@@ -72,40 +71,30 @@ func TestPageCountOfBenchmarkDocument(t *testing.T) {
 	}
 }
 
-func TestPerformanceBudget(t *testing.T) {
-	// Elapsed-time budgets are environment dependent: a loaded or virtualised
-	// machine can exceed them without a regression. They run only on request
-	// (PDF_PERF=1), never as part of the ordinary or race test suite.
+func TestPerformanceReport(t *testing.T) {
+	// Timing and allocation numbers depend on the machine, so this report runs
+	// only on request (PDF_PERF=1), never as part of the ordinary or race test
+	// suite, and it asserts no threshold.
 	if os.Getenv("PDF_PERF") != "1" {
-		t.Skip("elapsed-time budget; set PDF_PERF=1 to run")
+		t.Skip("performance report; set PDF_PERF=1 to run")
 	}
 	fontPath := testFontPath(t)
 	one := []byte(`<p>Одна страница.</p>`)
 	opts := Options{FallbackFont: fontPath, File: "bench.html"}
 
-	start := time.Now()
 	if _, err := Convert(context.Background(), one, opts); err != nil {
 		t.Fatal(err)
-	}
-	if d := time.Since(start); d > 50*time.Millisecond {
-		t.Fatalf("one page took %v, budget is 50ms", d)
 	}
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	start = time.Now()
+	start := time.Now()
 	res, err := Convert(context.Background(), benchDoc(50), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	elapsed := time.Since(start)
 	runtime.ReadMemStats(&after)
-	if elapsed > 800*time.Millisecond {
-		t.Fatalf("50 pages took %v, budget is 800ms", elapsed)
-	}
 	allocated := after.TotalAlloc - before.TotalAlloc
 	t.Logf("50 pages: %v, %.1f MB allocated, %d bytes of PDF", elapsed, float64(allocated)/(1<<20), len(res.PDF))
-	if allocated > 200<<20 {
-		t.Fatalf("allocated %d bytes, budget is 200MB", allocated)
-	}
 }

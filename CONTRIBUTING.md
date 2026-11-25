@@ -152,8 +152,8 @@ On an Apple M2 Pro: one page ≈ 2.5 ms, a 50-page document ≈ 115 ms with abou
 102 MB of total allocations.
 
 `go test ./internal/engine -bench .` reports the current numbers; `PDF_PERF=1`
-enables the elapsed-time budget test. Those budgets are environment dependent
-and run only on request, never as part of the ordinary suite.
+runs an opt-in performance report that logs the timings and allocations. Timing
+is environment dependent, so the suite asserts no elapsed-time budget.
 
 ## Continuous integration
 
