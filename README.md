@@ -106,7 +106,6 @@ first.
 - The complete list of elements, properties and limits is in
   [docs/profile.md](docs/profile.md).
 - Fonts, subsetting and the copyable text layer: [docs/fonts.md](docs/fonts.md).
-- Accepting a browser-oriented template: [docs/browser-import.md](docs/browser-import.md).
 
 ## Input encodings
 

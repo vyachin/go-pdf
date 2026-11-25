@@ -1,10 +1,11 @@
 # Browser certificate fixture
 
-`certificate.html` is the browser-oriented certificate template that the
-browser import (`engine.Options.ImportBrowser`) must accept without edits: it
-uses flexbox, absolute positioning, CSS variables, `rem` units and `data:` URI
-images. The images are embedded in the document, so the fixture is
-self-contained.
+`certificate.html` is a browser-oriented certificate template that uses
+flexbox, absolute positioning, CSS variables, `rem` units and `data:` URI
+images. It was the acceptance fixture for the removed `ImportBrowser`
+compatibility layer.
 
-The acceptance test is `TestBrowserCertificateImport` in
-`internal/engine/browser_import_test.go`.
+The file is kept byte for byte as a **rejection fixture**: converting or
+validating it must fail with ordinary profile diagnostics and produce no PDF.
+The separate profile-compatible certificate remains the supported visual
+fixture.

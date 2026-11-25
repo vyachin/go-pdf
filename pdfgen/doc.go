@@ -26,9 +26,8 @@
 //
 // The package renders a closed CSS profile, not a browser: there is no flexbox
 // or grid layout, no absolute positioning, no JavaScript and no network access.
-// Images, stylesheets and fonts are local files. A browser-oriented template
-// can be lowered to the profile with [Options].ImportBrowser, and every
-// approximation is reported as a warning.
+// Images, stylesheets and fonts are local files. Every document is validated
+// against the closed profile; there is no lowering pass.
 //
 // # Defaults
 //

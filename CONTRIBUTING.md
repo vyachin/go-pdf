@@ -59,10 +59,6 @@ that a module now covers.
 - **PDF syntax** (`internal/pdf`). No Go-project module writes the objects, the
   `Identity-H` font, the `ToUnicode` map or the number formatting the output is
   pinned to.
-- **Browser-lowering case mapping** (`internal/browser`). Locale-aware case
-  mapping behind `text-transform` is a best-effort approximation of a property
-  the profile does not support, and every approximation is reported as a
-  warning.
 
 ## Tests
 

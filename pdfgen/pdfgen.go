@@ -55,11 +55,6 @@ type Options struct {
 	// render with warnings is rejected instead. Callers use it to gate a
 	// template in continuous integration.
 	Strict bool
-	// ImportBrowser enables the browser compatibility layer. A document that
-	// uses browser-only CSS (flexbox, absolute positioning, rem, CSS
-	// variables, data: URIs, screen media rules) is lowered to the profile
-	// before validation, and every approximation is reported as a warning.
-	ImportBrowser bool
 	// Limits bounds the work a single conversion may do. Zero fields mean the
 	// defaults.
 	Limits Limits
@@ -314,19 +309,18 @@ func CharsetSupported(name string) bool {
 
 func (o Options) toEngine() engine.Options {
 	return engine.Options{
-		PageSize:      o.PageSize,
-		Margin:        o.Margin,
-		FontDir:       o.FontDir,
-		BaseDir:       o.BaseDir,
-		Date:          o.Date,
-		Title:         o.Title,
-		RenderPNG:     o.RenderPNG,
-		File:          o.File,
-		FallbackFont:  o.FallbackFont,
-		Charset:       o.Charset,
-		Strict:        o.Strict,
-		ImportBrowser: o.ImportBrowser,
-		Limits:        o.Limits.toEngine(),
+		PageSize:     o.PageSize,
+		Margin:       o.Margin,
+		FontDir:      o.FontDir,
+		BaseDir:      o.BaseDir,
+		Date:         o.Date,
+		Title:        o.Title,
+		RenderPNG:    o.RenderPNG,
+		File:         o.File,
+		FallbackFont: o.FallbackFont,
+		Charset:      o.Charset,
+		Strict:       o.Strict,
+		Limits:       o.Limits.toEngine(),
 	}
 }
 

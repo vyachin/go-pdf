@@ -46,17 +46,15 @@ func caseHTML(dir string, c Case) ([]byte, error) {
 	return out, nil
 }
 
-// options returns the conversion options a browser-authored template gets:
-// browser import on, resources resolved from the sample directory, and no
-// fallback font, so a sample that cannot load its declared font fails instead
-// of silently rendering with a substitute.
+// options returns the conversion options a sample gets: resources resolved
+// from the sample directory and no fallback font, so a sample that cannot load
+// its declared font fails instead of silently rendering with a substitute.
 func options(dir string, c Case) pdfgen.Options {
 	sample := filepath.Join(dir, filepath.FromSlash(c.Dir))
 	return pdfgen.Options{
-		BaseDir:       sample,
-		FontDir:       sample,
-		File:          filepath.Join(sample, filepath.FromSlash(c.HTML)),
-		ImportBrowser: true,
+		BaseDir: sample,
+		FontDir: sample,
+		File:    filepath.Join(sample, filepath.FromSlash(c.HTML)),
 	}
 }
 

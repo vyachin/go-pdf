@@ -170,8 +170,8 @@ with `resource/limit` during parsing, before any walk over the rules.
 
 | Not supported | Reason |
 |---|---|
-| `flex`, `grid` | a different layout engine; blocks and tables are enough for documents. The browser import lowers a single-line flex column to block layout. |
-| `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm. The browser import lowers a full-box cover image to a background. |
+| `flex`, `grid` | a different layout engine; blocks and tables are enough for documents. |
+| `float`, `position: absolute/fixed` | breaks pagination and requires a different algorithm. |
 | gradients, shadows, rounded corners, transparency | not needed in printed documents; they complicate the output |
 | `background-position`, `background-repeat`, `background-size: contain/auto/lengths` | the cover model is one scaling rule with a centered crop; a positioning grammar is a larger surface for a case no document needs yet |
 | `hyphens: auto` | requires hyphenation dictionaries; planned for v2 |

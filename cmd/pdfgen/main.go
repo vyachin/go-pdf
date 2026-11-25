@@ -102,9 +102,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// file, so a document and its assets work from any directory.
 		BaseDir: dir,
 		FontDir: dir,
-		// Browser-oriented templates are the common real input. Accepting them
-		// is this example's policy; the package defaults to the strict profile.
-		ImportBrowser: true,
 		// An explicit -charset wins over the document's own declaration.
 		Charset: *charsetName,
 	})
