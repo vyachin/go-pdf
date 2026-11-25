@@ -28,8 +28,7 @@ func BenchmarkConvertOnePage(b *testing.B) {
 	src := []byte(`<style>p { font-size: 12pt }</style><p>Одна страница текста для проверки производительности.</p>`)
 	opts := Options{FallbackFont: fontPath, File: "bench.html"}
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := Convert(context.Background(), src, opts); err != nil {
 			b.Fatal(err)
 		}
@@ -42,8 +41,7 @@ func BenchmarkConvertFiftyPages(b *testing.B) {
 	opts := Options{FallbackFont: fontPath, File: "bench.html"}
 	b.SetBytes(int64(len(src)))
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		res, err := Convert(context.Background(), src, opts)
 		if err != nil {
 			b.Fatal(err)

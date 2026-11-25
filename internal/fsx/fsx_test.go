@@ -2,6 +2,8 @@ package fsx
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,8 +53,24 @@ func TestReadRejectsEscape(t *testing.T) {
 	if _, err := root.Read(filepath.Join(dir, "..", "x.css")); !errors.Is(err, ErrOutsideRoot) {
 		t.Fatalf("traversal to a missing file: %v", err)
 	}
-	if _, err := root.Read(filepath.Join(dir, "x.css")); !os.IsNotExist(err) {
+	if _, err := root.Read(filepath.Join(dir, "x.css")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a missing file inside the root: %v", err)
+	}
+}
+
+func TestOpenErrorKeepsWrappedNotExist(t *testing.T) {
+	// A caller may wrap the error further; the not-exist cause must stay
+	// detectable instead of being reported as an escape.
+	wrapped := fmt.Errorf("loading styles: %w", fs.ErrNotExist)
+	if got := classifyOpenError(wrapped); got != wrapped {
+		t.Fatalf("classifyOpenError returned %v, want the cause unchanged", got)
+	}
+	if !errors.Is(classifyOpenError(wrapped), fs.ErrNotExist) {
+		t.Fatal("a wrapped fs.ErrNotExist must stay detectable")
+	}
+	escape := errors.New("openat x.css: path escapes from parent")
+	if got := classifyOpenError(escape); !errors.Is(got, ErrOutsideRoot) {
+		t.Fatalf("an escaping path returned %v, want ErrOutsideRoot", got)
 	}
 }
 
