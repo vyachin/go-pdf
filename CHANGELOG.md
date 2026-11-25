@@ -85,6 +85,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A spanning cell covers its rows.** The rows a `rowspan` cell covers now sum
+  to at least the cell's outer height: when the covered rows are shorter, the
+  last one grows by the deficit, so the cell's content cannot paint over the
+  block that follows the table. The measured table height, pagination and the
+  static path inside a cell share one calculation, and a span that already fits
+  keeps its row heights and page count.
 - A character outside the BMP in a `ToUnicode` map extracts as one character.
   It used to extract as two replacement characters, because the surrogate pair
   was read back as two separate code points.
