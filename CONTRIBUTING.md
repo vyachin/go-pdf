@@ -31,9 +31,8 @@ implementation detail that Go hides from other modules. Geometry is integer
 millipoints (1/1000 pt), so results never depend on floating point.
 
 `cmd/pdfgen` is the reference example and must stay one: it imports `pdfgen`
-and the standard library only. CI fails when its direct imports contain an
-`internal/` package, because the command's job is to prove the public API is
-enough.
+and the standard library only, because the command's job is to prove the public
+API is enough.
 
 ## Standard library first
 
@@ -165,7 +164,7 @@ own check:
 
 | Job | Runs | Tools |
 |---|---|---|
-| `unit` | `go vet`, the shuffled suite with `PDF_REQUIRE_VALIDATOR=1`, the reference command's import check, and a build of the package from a module outside this repository | Go, `pdfcpu` |
+| `unit` | `go vet` and the shuffled suite with `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
 | `race` | the shuffled suite with the race detector and `PDF_REQUIRE_VALIDATOR=1` | Go, `pdfcpu` |
 | `golden` | both snapshot layers explicitly (a skipped layer fails the job) with `PDF_REQUIRE_RENDER=1`, and the failure artifacts | Go, poppler, `pdfcpu` |
 | `fuzz` | a short fuzz session per target | Go |
