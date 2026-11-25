@@ -386,7 +386,7 @@ memory within a constant multiple of `N`:
 
 | Stage | One unit is |
 |---|---|
-| HTML parsing | one element or one text node |
+| HTML parsing | one token, plus one text span indexed or looked up while matching a position |
 | CSS tokenizing and parsing | one token, one rule or declaration, one stored problem |
 | Cascade | one compound of a rule's selector, per element |
 | Font parsing | one GiB/1024 of file, one GPOS lookup, subtable, pairing or coverage entry, one charstring instruction or converted glyph |

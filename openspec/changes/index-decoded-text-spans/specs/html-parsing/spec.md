@@ -112,6 +112,12 @@ SHALL keep the range of its own token. The NUL itself MAY lie inside that range.
 #### Scenario: A NUL in body text
 
 - **WHEN** the document contains `<p>a\x00b</p>`
+- **THEN** the text node's data is `ab`
+- **AND** its range covers the token `a\x00b`
+
+#### Scenario: A NUL in foreign content
+
+- **WHEN** the document contains `<svg>a\x00b</svg>`
 - **THEN** the text node's data is `a` U+FFFD `b`
 - **AND** its range covers the token `a\x00b`
 
@@ -137,6 +143,6 @@ text MUST NOT be given the same span.
 #### Scenario: Two foster-parented texts
 
 - **WHEN** the document contains
-  `<table><style>S</style>A<tr><td>Y</td></tr>A</table>`
+  `<table><style>S</style>A<tr><td>Y</td></tr><div></div>A</table>`
 - **THEN** the two foster-parented `A` nodes carry different ranges
 - **AND** the ranges are in document order

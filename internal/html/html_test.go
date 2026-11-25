@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,6 +222,249 @@ func TestReferenceNextToLiteralAmpersand(t *testing.T) {
 	}
 	if first.Start == second.Start {
 		t.Fatal("both text nodes share one span")
+	}
+}
+
+// TestParagraphAndFosteredTextKeepTheirSpans guards the document-order
+// consumption: an out-of-source-order equal text must not reuse the span the
+// fast path already gave to the paragraph.
+func TestParagraphAndFosteredTextKeepTheirSpans(t *testing.T) {
+	src := []byte(`<p>A</p><table><style>S</style>A<tr><td>Y</td></tr></table>`)
+	doc, err := Parse(src, "duplicate.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nodes []*Node
+	walk(doc.Root, func(n *Node) {
+		if n.Type == TextNode && n.Data == "A" {
+			nodes = append(nodes, n)
+		}
+	})
+	if len(nodes) != 2 {
+		t.Fatalf("text nodes %q = %d, want 2", "A", len(nodes))
+	}
+	if nodes[0].Start == nodes[1].Start {
+		t.Fatal("the paragraph and the fostered text share one span")
+	}
+	if nodes[0].Start >= nodes[1].Start {
+		t.Fatalf("ranges are not in document order: %d, %d", nodes[0].Start, nodes[1].Start)
+	}
+	for _, n := range nodes {
+		if got := string(doc.Source()[n.Start:n.End]); got != "A" {
+			t.Fatalf("text range holds %q, want A", got)
+		}
+	}
+}
+
+// TestTwoFosteredTextsKeepTheirSpans guards the per-key cursor: two equal texts
+// looked up through the index take two different occurrences.
+func TestTwoFosteredTextsKeepTheirSpans(t *testing.T) {
+	src := []byte(`<table><style>S</style>A<tr><td>Y</td></tr><div></div>A</table>`)
+	doc, err := Parse(src, "fostered-duplicate.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nodes []*Node
+	walk(doc.Root, func(n *Node) {
+		if n.Type == TextNode && n.Data == "A" {
+			nodes = append(nodes, n)
+		}
+	})
+	if len(nodes) != 2 {
+		t.Fatalf("text nodes %q = %d, want 2", "A", len(nodes))
+	}
+	if nodes[0].Start == nodes[1].Start {
+		t.Fatal("the two fostered texts share one span")
+	}
+	if nodes[0].Start >= nodes[1].Start {
+		t.Fatalf("ranges are not in document order: %d, %d", nodes[0].Start, nodes[1].Start)
+	}
+	for _, n := range nodes {
+		if got := string(doc.Source()[n.Start:n.End]); got != "A" {
+			t.Fatalf("text range holds %q, want A", got)
+		}
+	}
+}
+
+// TestPositionMatchingSpendIsLinear guards that the index keeps the matching work
+// proportional to the token count instead of scanning the document per node.
+func TestPositionMatchingSpendIsLinear(t *testing.T) {
+	const tables = 1000
+	const tokensPerTable = 11
+	var src strings.Builder
+	for i := 0; i < tables; i++ {
+		fmt.Fprintf(&src, "<table><style>c%d</style>x%d<tr><td>y%d</td></tr></table>", i, i, i)
+	}
+	tokens := tables * tokensPerTable
+	guard := budget.New(context.Background(), tokens*4)
+	doc, err := ParseWithOptions([]byte(src.String()), ParseOptions{Budget: guard})
+	if err != nil {
+		t.Fatalf("parse under a %d-unit budget: %v", tokens*4, err)
+	}
+	if doc == nil {
+		t.Fatal("no document")
+	}
+	if used := guard.Used(); used > uint64(tokens*4) {
+		t.Fatalf("matching spent %d units for %d tokens", used, tokens)
+	}
+}
+
+// TestDroppedLeadingNewlineKeepsRange guards the range of a pre, listing or
+// textarea text whose first newline the tree construction drops.
+func TestDroppedLeadingNewlineKeepsRange(t *testing.T) {
+	cases := []struct{ name, src string }{
+		{"lf", "<pre>\nX</pre>"},
+		{"crlf", "<textarea>\r\nX</textarea>"},
+		{"reference", "<pre>&#10;X</pre>"},
+		{"carriage reference", "<pre>&#13;X</pre>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := Parse([]byte(tc.src), "trimmed.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text *Node
+			walk(doc.Root, func(n *Node) {
+				if n.Type == TextNode && n.Data == "X" {
+					text = n
+				}
+			})
+			if text == nil {
+				t.Fatal("no X text node")
+			}
+			if got := string(doc.Source()[text.Start:text.End]); got != "X" {
+				t.Fatalf("range holds %q, want X", got)
+			}
+		})
+	}
+}
+
+// TestFosteredPreDroppedNewlineKeepsRange covers the trim index: the pre is
+// placed out of source order, so the fast path cannot see its text.
+func TestFosteredPreDroppedNewlineKeepsRange(t *testing.T) {
+	src := []byte("<table><style>S</style><pre>\nP</pre><tr><td>Y</td></tr></table>")
+	doc, err := Parse(src, "fostered-pre.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text *Node
+	walk(doc.Root, func(n *Node) {
+		if n.Type == TextNode && n.Data == "P" {
+			text = n
+		}
+	})
+	if text == nil {
+		t.Fatal("no P text node")
+	}
+	if got := string(doc.Source()[text.Start:text.End]); got != "P" {
+		t.Fatalf("range holds %q, want P", got)
+	}
+}
+
+// TestNewlineOutsidePreIsNotTrimmed guards the parent check: a div keeps its
+// leading newline in its range.
+func TestNewlineOutsidePreIsNotTrimmed(t *testing.T) {
+	doc, err := Parse([]byte("<div>\nX</div>"), "div.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text *Node
+	walk(doc.Root, func(n *Node) {
+		if n.Type == TextNode && n.Data == "\nX" {
+			text = n
+		}
+	})
+	if text == nil {
+		t.Fatal("no newline text node")
+	}
+	if got := string(doc.Source()[text.Start:text.End]); got != "\nX" {
+		t.Fatalf("range holds %q, want a newline and X", got)
+	}
+}
+
+// TestNULKeepsItsRange guards the two forms the tree construction produces from
+// a NUL: the replacement character in body content and nothing in table content.
+// The token's range covers the NUL either way.
+func TestNULKeepsItsRange(t *testing.T) {
+	cases := []struct{ name, src, data string }{
+		{"body", "<p>a\x00b</p>", "ab"},
+		{"foreign content", "<svg>a\x00b</svg>", "a\uFFFDb"},
+		{"table", "<table>a\x00b<tr><td>x</td></tr></table>", "ab"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := Parse([]byte(tc.src), "nul.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text *Node
+			walk(doc.Root, func(n *Node) {
+				if n.Type == TextNode && n.Data == tc.data {
+					text = n
+				}
+			})
+			if text == nil {
+				t.Fatalf("no %q text node", tc.data)
+			}
+			if got, want := string(doc.Source()[text.Start:text.End]), "a\x00b"; got != want {
+				t.Fatalf("range holds %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestFosteredNULKeepsItsRange covers the NUL variants of the index: the text is
+// placed out of source order, so the fast path cannot see its token.
+func TestFosteredNULKeepsItsRange(t *testing.T) {
+	src := []byte("<table><style>S</style>a\x00b<tr><td>x</td></tr></table>")
+	doc, err := Parse(src, "fostered-nul.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text *Node
+	walk(doc.Root, func(n *Node) {
+		if n.Type == TextNode && n.Data == "ab" {
+			text = n
+		}
+	})
+	if text == nil {
+		t.Fatal("no ab text node")
+	}
+	if got, want := string(doc.Source()[text.Start:text.End]), "a\x00b"; got != want {
+		t.Fatalf("range holds %q, want %q", got, want)
+	}
+}
+
+// TestPositionMatchingIsCharged guards that the index build and the
+// out-of-source-order lookups spend the shared budget: a budget above the token
+// count but below the matching cost must stop the parse.
+func TestPositionMatchingIsCharged(t *testing.T) {
+	const tables = 1000
+	const tokensPerTable = 11
+	var src strings.Builder
+	for i := 0; i < tables; i++ {
+		fmt.Fprintf(&src, "<table><style>c%d</style>x%d<tr><td>y%d</td></tr></table>", i, i, i)
+	}
+	tokens := tables * tokensPerTable
+	// The token pass spends 11,000 units; the index and the lookups add about
+	// 4,000. A budget of 12,000 lets the tokens through and must stop at the
+	// matching, which an uncharged implementation would accept.
+	guard := budget.New(context.Background(), tokens+1000)
+	_, err := ParseWithOptions([]byte(src.String()), ParseOptions{Budget: guard})
+	if !errors.Is(err, budget.ErrExceeded) {
+		t.Fatalf("parse returned %v, want a work-limit error", err)
+	}
+}
+
+// TestPositionMatchingCancellation guards that a cancelled guard is returned as
+// the context error rather than as a document.
+func TestPositionMatchingCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ParseWithOptions([]byte(`<p>x &amp; y</p>`), ParseOptions{Budget: budget.New(ctx, 0)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("parse returned %v, want context.Canceled", err)
 	}
 }
 

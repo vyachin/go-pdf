@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Text source positions.** A text node written with a character reference
+  (`&amp;`), one whose first newline `pre`/`listing`/`textarea` drops, or one
+  around a NUL now carries its own token's range, so a diagnostic names the text
+  instead of its parent element. Equal out-of-source-order texts keep distinct
+  positions. Matching a text node to its token is indexed and charged to the work
+  budget, so a document of references no longer does uncharged quadratic work.
+
 ## [2.0.0] - 2026-11-25
 
 ### Removed

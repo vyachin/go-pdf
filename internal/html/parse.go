@@ -93,8 +93,19 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	if err := checkTreeDepth(tree, opts); err != nil {
 		return nil, err
 	}
-	b := &builder{doc: d, scan: sc, cursors: map[int32]int{}}
+	b := &builder{
+		doc:      d,
+		scan:     sc,
+		guard:    opts.Budget,
+		cursors:  map[int32]int{},
+		used:     make([]bool, len(sc.spans)),
+		next:     map[string]int{},
+		trimNext: map[string]int{},
+	}
 	b.children(tree, d.Root)
+	if b.failure != nil {
+		return nil, b.failure
+	}
 	attachBudget(d.Root, opts.Budget)
 	return d, nil
 }
@@ -173,10 +184,20 @@ func checkTreeDepth(root *xhtml.Node, opts ParseOptions) error {
 	return nil
 }
 
+// hit is one text span that matches a key, with the start a node takes from it.
+type hit struct {
+	span  int32
+	start int32
+}
+
 // builder converts a standard tree into this package's model.
 type builder struct {
-	doc  *Document
-	scan *scanResult
+	doc   *Document
+	scan  *scanResult
+	guard *budget.Guard
+	// failure is the guard's verdict, kept so the walk stops at the next node
+	// instead of finishing a model that will be discarded.
+	failure error
 	// cursors holds, per interned tag name, the next unconsumed start-tag span.
 	cursors map[int32]int
 	// spanCur is the next span the text lookup may use, and lower is the
@@ -185,15 +206,33 @@ type builder struct {
 	// <html>, so they are skipped instead of being given to the next node.
 	spanCur int
 	lower   int
+	// used records the spans already given to a node, so an equal text found
+	// out of source order takes the next occurrence instead of another node's
+	// span.
+	used []bool
+	// exact maps a decoded text to its occurrences in document order; trim does
+	// the same for a token whose leading newline the tree dropped. Both are
+	// built on the first miss.
+	exact map[string][]hit
+	trim  map[string][]hit
+	// next and trimNext hold the next unconsumed occurrence per key.
+	next     map[string]int
+	trimNext map[string]int
 }
 
 func (b *builder) children(n *xhtml.Node, parent *Node) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if b.failure != nil {
+			return
+		}
 		b.node(c, parent)
 	}
 }
 
 func (b *builder) node(n *xhtml.Node, parent *Node) {
+	if b.failure != nil {
+		return
+	}
 	switch n.Type {
 	case xhtml.ElementNode:
 		el := &Node{Type: ElementNode, Tag: n.Data, Attrs: attrsOf(n)}
@@ -217,7 +256,7 @@ func (b *builder) node(n *xhtml.Node, parent *Node) {
 // there is one, so a run of text between two elements is a single node.
 func (b *builder) textNode(n *xhtml.Node, parent *Node) {
 	data := n.Data
-	start, end, ok := b.textSpanFor(data)
+	start, end, ok := b.textSpanFor(data, parent)
 	// A style or script element holds its source verbatim: the tree's text is
 	// unescaped and has its line endings normalized, which would shift the byte
 	// offsets the CSS parser maps back to the document.
@@ -267,40 +306,234 @@ func (b *builder) startPosition(tag string) (int, int, bool) {
 	return int(s.start), int(s.end), true
 }
 
+// charge records work against the shared guard and keeps its verdict.
+func (b *builder) charge(n uint64) {
+	if b.failure != nil {
+		return
+	}
+	if err := b.guard.Add(n); err != nil {
+		b.failure = err
+	}
+}
+
 // textSpanFor returns the range of the text token whose decoded text is data.
 // Foster parenting reorders the tree, so the next token in tree order is not
 // necessarily this node's content: matching the text keeps the content and its
-// position together instead of giving a node another node's span. When no token
-// matches, the node falls back to its parent's range.
-func (b *builder) textSpanFor(data string) (int, int, bool) {
-	if data == "" {
+// position together instead of giving a node another node's span. A node the
+// fast path cannot place uses the index, which returns the first occurrence no
+// other node holds. When no token matches, the node falls back to its parent's
+// range.
+func (b *builder) textSpanFor(data string, parent *Node) (int, int, bool) {
+	if data == "" || b.failure != nil {
 		return 0, 0, false
 	}
 	for b.spanCur < len(b.scan.spans) {
 		s := b.scan.spans[b.spanCur]
-		if s.kind != spanText || int(s.start) < b.lower {
+		if s.kind != spanText || b.used[b.spanCur] || int(s.start) < b.lower {
 			b.spanCur++
 			continue
 		}
-		if b.scan.textOf(b.doc.text, s) == data {
+		if start, ok := b.matchSpan(s, data, parent); ok {
+			b.used[b.spanCur] = true
 			b.spanCur++
 			b.lower = int(s.end)
-			return int(s.start), int(s.end), true
+			return start, int(s.end), true
 		}
 		break
 	}
-	// A node the tree placed out of source order: its token is behind the
-	// cursor. Search the whole document, which keeps the content and the
-	// position of a fostered node correct.
-	for _, s := range b.scan.spans {
-		if s.kind != spanText {
-			continue
-		}
-		if b.scan.textOf(b.doc.text, s) == data {
-			return int(s.start), int(s.end), true
+	if h, ok := b.lookup(data); ok {
+		return int(h.start), int(b.scan.spans[h.span].end), true
+	}
+	if parent != nil && isPreformatted(parent.Tag) {
+		if h, ok := b.lookupTrim(data); ok {
+			return int(h.start), int(b.scan.spans[h.span].end), true
 		}
 	}
 	return 0, 0, false
+}
+
+// matchSpan reports whether s is the node's token and which start the node takes
+// from it. A pre, listing or textarea text node may have had its first newline
+// dropped by the tree construction, so its data is the token's text without that
+// newline.
+func (b *builder) matchSpan(s span, data string, parent *Node) (int, bool) {
+	text := b.scan.textOf(b.doc.text, s)
+	if text == data {
+		return int(s.start), true
+	}
+	if strings.IndexByte(text, 0) >= 0 {
+		if nulReplaced(text) == data || nulRemoved(text) == data {
+			return int(s.start), true
+		}
+	}
+	if parent != nil && isPreformatted(parent.Tag) {
+		if rest, ok := trimmedText(text); ok {
+			matched := rest == data
+			if !matched && strings.IndexByte(rest, 0) >= 0 {
+				matched = nulReplaced(rest) == data || nulRemoved(rest) == data
+			}
+			if matched {
+				if n, ok := rawNewlineLen(b.doc.text[s.start:s.end]); ok {
+					return int(s.start) + n, true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// isPreformatted reports whether the tree may drop a leading newline from the
+// element's first text token.
+func isPreformatted(tag string) bool {
+	switch tag {
+	case "pre", "listing", "textarea":
+		return true
+	}
+	return false
+}
+
+// trimmedText returns text without its first newline, which is what the tree
+// construction keeps for a pre, listing or textarea first text token. A CR
+// written as a character reference reaches the tree without being normalized, so
+// both line endings count.
+func trimmedText(text string) (string, bool) {
+	if text == "" || (text[0] != '\n' && text[0] != '\r') {
+		return "", false
+	}
+	return text[1:], true
+}
+
+// rawNewlineLen returns the raw byte length that produces the token's first
+// decoded newline. It is one byte for LF or CR, two for CRLF, and the reference's
+// length when the newline was written as a character reference.
+func rawNewlineLen(raw []byte) (int, bool) {
+	best := 0
+	for k := 1; k <= len(raw) && k <= 32; k++ {
+		switch decodeText(raw[:k]) {
+		case "\n", "\r":
+			best = k
+		}
+	}
+	return best, best > 0
+}
+
+// nulReplaced and nulRemoved are the two forms the tree construction produces
+// from a NUL: its replacement character in body content, or nothing in table
+// content.
+func nulReplaced(text string) string { return strings.ReplaceAll(text, "\x00", "\uFFFD") }
+func nulRemoved(text string) string  { return strings.ReplaceAll(text, "\x00", "") }
+
+// decodeText decodes a text prefix the way the tree construction sees it: line
+// endings normalized, then character references.
+func decodeText(raw []byte) string {
+	s := string(raw)
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return xhtml.UnescapeString(s)
+}
+
+// buildIndex records every text span by decoded text. It runs once, on the first
+// node the fast path cannot place, so a document whose tree order matches its
+// source order never pays for it.
+func (b *builder) buildIndex() {
+	if b.exact != nil {
+		return
+	}
+	b.exact = make(map[string][]hit)
+	b.trim = make(map[string][]hit)
+	for i, s := range b.scan.spans {
+		if s.kind != spanText {
+			continue
+		}
+		b.charge(1)
+		if b.failure != nil {
+			return
+		}
+		b.addOccurrence(i, s)
+	}
+}
+
+// addOccurrence indexes one text span under every key a node's data can take
+// from it.
+func (b *builder) addOccurrence(i int, s span) {
+	text := b.scan.textOf(b.doc.text, s)
+	h := hit{span: int32(i), start: s.start}
+	b.exact[text] = append(b.exact[text], h)
+	if strings.IndexByte(text, 0) >= 0 {
+		replaced, removed := nulReplaced(text), nulRemoved(text)
+		b.exact[replaced] = append(b.exact[replaced], h)
+		b.exact[removed] = append(b.exact[removed], h)
+	}
+	if rest, ok := trimmedText(text); ok {
+		if n, ok := rawNewlineLen(b.doc.text[s.start:s.end]); ok {
+			trimmed := hit{span: int32(i), start: s.start + int32(n)}
+			b.trim[rest] = append(b.trim[rest], trimmed)
+			if strings.IndexByte(rest, 0) >= 0 {
+				replaced, removed := nulReplaced(rest), nulRemoved(rest)
+				b.trim[replaced] = append(b.trim[replaced], trimmed)
+				b.trim[removed] = append(b.trim[removed], trimmed)
+			}
+		}
+	}
+}
+
+// lookup returns the first occurrence of data that no node holds yet.
+func (b *builder) lookup(data string) (hit, bool) {
+	b.charge(1)
+	if b.failure != nil {
+		return hit{}, false
+	}
+	b.buildIndex()
+	if b.failure != nil {
+		return hit{}, false
+	}
+	list := b.exact[data]
+	if len(list) == 0 {
+		return hit{}, false
+	}
+	i := b.next[data]
+	for i < len(list) {
+		h := list[i]
+		i++
+		if b.used[h.span] {
+			continue
+		}
+		b.next[data] = i
+		b.used[h.span] = true
+		return h, true
+	}
+	b.next[data] = i
+	return hit{}, false
+}
+
+// lookupTrim returns the first occurrence of data whose token had a newline
+// dropped from its start.
+func (b *builder) lookupTrim(data string) (hit, bool) {
+	b.charge(1)
+	if b.failure != nil {
+		return hit{}, false
+	}
+	b.buildIndex()
+	if b.failure != nil {
+		return hit{}, false
+	}
+	list := b.trim[data]
+	if len(list) == 0 {
+		return hit{}, false
+	}
+	i := b.trimNext[data]
+	for i < len(list) {
+		h := list[i]
+		i++
+		if b.used[h.span] {
+			continue
+		}
+		b.trimNext[data] = i
+		b.used[h.span] = true
+		return h, true
+	}
+	b.trimNext[data] = i
+	return hit{}, false
 }
 
 // lastChild returns the last child of n, or nil.

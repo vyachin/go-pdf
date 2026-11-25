@@ -257,6 +257,35 @@ func adversarialCases() []adversarialCase {
 				return Options{File: "grid.html", Limits: Limits{MaxTableCells: 4}}
 			},
 		},
+		{
+			ID:      "P1-entity-fragments",
+			Fixture: "p1-entity-fragments.html",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{BaseDir: dir, File: "entity-fragments.html", FallbackFont: testFontPath(t)}
+			},
+			Check: func(t *testing.T, res Result) {
+				if !bytes.HasPrefix(res.PDF, []byte("%PDF-")) {
+					t.Fatal("no PDF produced")
+				}
+				for _, d := range res.Diagnostics {
+					if d.Code == "resource/limit" {
+						t.Fatalf("the entity fragments were limited: %s", d.String())
+					}
+				}
+			},
+		},
+		{
+			ID:      "P1-fostered-texts",
+			Fixture: "p1-fostered-texts.html",
+			Want:    "resource/limit",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					BaseDir: dir,
+					File:    "fostered-texts.html",
+					Limits:  Limits{MaxOperations: 13_000},
+				}
+			},
+		},
 	}
 }
 
