@@ -63,10 +63,10 @@ a caller decision that none of the existing examples demonstrates.
 
 ### Requirement: Contributor material has its own entry point
 
-Architecture, test layers, golden snapshots, the mPDF corpus, formatting,
-linting, performance measurement and the release procedure SHALL be documented
-under `CONTRIBUTING.md`, directly or through links, and MUST NOT be required
-reading for a consumer.
+Architecture, test layers, golden snapshots, the mPDF corpus, the WeasyPrint
+samples corpus, formatting, linting, performance measurement and the release
+procedure SHALL be documented under `CONTRIBUTING.md`, directly or through
+links, and MUST NOT be required reading for a consumer.
 
 #### Scenario: A maintainer finds every workflow
 
