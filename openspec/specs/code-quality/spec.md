@@ -408,6 +408,28 @@ The automated test suite MUST NOT fail because a wall-clock measurement exceeded
 - **WHEN** a compared font table, a decoded position or a generated page diverges
 - **THEN** the test fails as before, regardless of how long it took
 
+### Requirement: Hostile-template fixtures run in the required gate
+
+The unit and race jobs SHALL run the adversarial fixtures. The gate MUST fail when a
+fixture is missing, skipped or ends without its expected diagnostic. The fixtures MUST
+use the work budget and context cancellation as their pass criterion, consistent with
+the ban on elapsed-time thresholds.
+
+#### Scenario: A missing fixture fails the gate
+
+- **WHEN** a fixture listed by the adversarial corpus is absent
+- **THEN** the coverage test fails and names it
+
+#### Scenario: A skipped fixture fails the gate
+
+- **WHEN** a fixture skips because a tool is missing
+- **THEN** the gate fails, as with the existing golden job
+
+#### Scenario: The budget, not the clock
+
+- **WHEN** a fixture runs on a slow machine
+- **THEN** it still passes or fails on its diagnostic, not on elapsed time
+
 ### Requirement: Rendering jobs share the pinned image
 
 A job that rasterizes pages for a golden comparison SHALL run on the pinned runner image with the pinned poppler package, and MUST NOT use a floating image label. Moving either pin MUST regenerate the goldens in the same change.
