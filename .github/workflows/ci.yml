@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  # One run per change: a commit on the integration branch, and every pull
+  # request. A push to a feature branch is covered by its pull request, so it
+  # does not start a second, identical run; tags start none.
   push:
+    branches: [main]
   pull_request:
 
 permissions:

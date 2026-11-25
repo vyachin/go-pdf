@@ -1692,3 +1692,27 @@ func TestTruncatedPNGFailsValidation(t *testing.T) {
 		t.Fatalf("Validate reported %q, Convert reported %q", got, want)
 	}
 }
+
+// TestTruncatedDocumentFailsWithDiagnostic covers the parse rule for input that
+// ends inside a tag: the standard tree construction would drop the incomplete
+// tag, which must not turn into a PDF that silently lacks its content.
+func TestTruncatedDocumentFailsWithDiagnostic(t *testing.T) {
+	src := []byte("<p>Оплата</p>\n<div class=\"x\"")
+	res, err := Convert(context.Background(), src, Options{File: "cut.html"})
+	if err == nil {
+		t.Fatal("a document ending inside a tag converted")
+	}
+	if len(res.PDF) != 0 {
+		t.Fatalf("a rejected document produced %d PDF bytes", len(res.PDF))
+	}
+	for _, d := range res.Diagnostics {
+		if d.Code != "html/truncated" {
+			continue
+		}
+		if d.Pos.File != "cut.html" || d.Pos.Line != 2 || d.Pos.Col != 1 {
+			t.Fatalf("html/truncated position = %+v, want cut.html:2:1", d.Pos)
+		}
+		return
+	}
+	t.Fatalf("no html/truncated diagnostic: %v", res.Diagnostics.Lines())
+}

@@ -25,8 +25,8 @@ formatting differs from `gofmt` output MUST fail the quality gate.
 ### Requirement: Static analysis gate
 
 The repository SHALL keep a committed linter configuration and run it over all
-packages on every push and pull request. The gate MUST fail when the linter
-reports an issue.
+packages on every push to `main` and on every pull request. The gate MUST fail
+when the linter reports an issue.
 
 #### Scenario: New lint issue
 
@@ -55,7 +55,7 @@ and every suppression directive MUST name the affected check and the reason.
 - **WHEN** the lint configuration is reviewed
 - **THEN** it contains no preset, path or linter exclusions
 
-### Requirement: Pinned, development-only toolchain
+### Requirement: Pinned linter toolchain
 
 The linter version SHALL be pinned to one version in CI and in the documented
 local setup. The linter MUST remain a development tool: it MUST NOT be added to
@@ -66,25 +66,45 @@ the module requirements, and no `go.sum` SHALL be introduced for it.
 - **WHEN** CI runs the lint job
 - **THEN** it uses the pinned linter version
 
-#### Scenario: Module stays dependency-free
+### Requirement: Dependency allowlist
 
-- **WHEN** a change lands that does not deliberately move the `go` directive
-- **THEN** `go.mod` gains no requirements and the repository still has no `go.sum`
+A module requirement SHALL be allowed only for a module maintained by the Go
+project (`golang.org/x/...`); the standard library needs no requirement. An
+allowed module MUST be pinned to a released version, and its checksum MUST be
+committed in `go.sum`. A dependency maintained outside the Go project MUST
+change this capability before it lands.
+
+#### Scenario: A Go-project module is required
+
+- **WHEN** a change makes the module depend on a `golang.org/x/...` package
+- **THEN** `go.mod` names a released version and `go.sum` carries its checksum
+
+#### Scenario: A dependency outside the Go project
+
+- **WHEN** a change proposes a module the Go project does not maintain
+- **THEN** that change modifies this capability, and the dependency lands in a
+  later change
+
+#### Scenario: A requirement is removed
+
+- **WHEN** the last import of a required module disappears
+- **THEN** the same change drops it from `go.mod` and `go.sum`
 
 #### Scenario: The directive moves on purpose
 
 - **WHEN** the `go` directive in `go.mod` differs from the previous revision
-- **THEN** the same change states the new minimum wherever the workflow and the README record it, and no requirement or `go.sum` entry appears
+- **THEN** the same change states the new minimum wherever the workflow and the
+  README record it
 
 ### Requirement: Separate CI quality job
 
 Continuous integration SHALL run formatting and linting in a job separate from
-the test job, on every push and pull request. The test job MUST NOT install or
-invoke the linter.
+the test job, on every push to `main` and on every pull request. The test job
+MUST NOT install or invoke the linter.
 
 #### Scenario: Parallel feedback
 
-- **WHEN** a push or pull request triggers the workflow
+- **WHEN** a push to `main` or a pull request triggers the workflow
 - **THEN** the lint job runs independently of the test job and reports its own
   result
 
@@ -92,6 +112,47 @@ invoke the linter.
 
 - **WHEN** the lint job fails on a pull request
 - **THEN** the pull request shows a failing check for code quality
+
+### Requirement: One workflow run per change
+
+A change covered by a pull request SHALL be verified by that pull request's run
+alone: a push to a branch other than `main` MUST NOT start a workflow run of its
+own. A commit that lands on `main` MUST start exactly one run.
+
+#### Scenario: A push to a feature branch
+
+- **WHEN** a commit is pushed to a branch that has an open pull request
+- **THEN** only the pull request run starts, and no `push` run appears for that
+  commit
+
+#### Scenario: A commit on the integration branch
+
+- **WHEN** a commit lands on `main`, whether pushed directly or as a merged pull
+  request
+- **THEN** exactly one run starts for that commit
+
+#### Scenario: A pull request against another base
+
+- **WHEN** a pull request targets a branch other than `main`
+- **THEN** its run still starts, because every pull request is verified
+
+### Requirement: Trigger configuration is the only schedule
+
+The workflow SHALL NOT start on a tag, a schedule or any event other than the
+push to `main` and the pull request events, so that the set of runs matches the
+set of changes under review or just landed.
+
+#### Scenario: A tag is pushed
+
+- **WHEN** a release tag is pushed to the repository
+- **THEN** the workflow does not start; the commit it points at was already
+  verified on `main`
+
+#### Scenario: The configuration is read
+
+- **WHEN** a maintainer reads the `on:` block of `.github/workflows/ci.yml`
+- **THEN** it lists exactly the `push` restricted to `main` and the
+  `pull_request` event
 
 ### Requirement: Documented local workflow
 

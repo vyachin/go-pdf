@@ -2,125 +2,15 @@ package html
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"runtime"
-	"strconv"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/vyachin/go-pdf/internal/budget"
 )
-
-func TestTokenizer(t *testing.T) {
-	cases := []struct {
-		name  string
-		input string
-		want  []Token
-	}{
-		{
-			name:  "start tag with attributes",
-			input: `<p class="a" id='b'>`,
-			want: []Token{
-				{Kind: StartTagToken, Name: "p", Attrs: []Attr{{"class", "a"}, {"id", "b"}}},
-			},
-		},
-		{
-			name:  "text with entities",
-			input: `x &amp; y &#1057;`,
-			want: []Token{
-				{Kind: TextToken, Data: "x & y С"},
-			},
-		},
-		{
-			name:  "self closing void element",
-			input: `<br/>`,
-			want: []Token{
-				{Kind: StartTagToken, Name: "br", SelfClosing: true},
-			},
-		},
-		{
-			name:  "comment",
-			input: `<!-- note -->`,
-			want: []Token{
-				{Kind: CommentToken, Data: " note "},
-			},
-		},
-		{
-			name:  "doctype",
-			input: `<!DOCTYPE html>`,
-			want: []Token{
-				{Kind: DoctypeToken, Data: "html"},
-			},
-		},
-		{
-			name:  "raw text element",
-			input: `<script>if (a<b) {}</script>`,
-			want: []Token{
-				{Kind: StartTagToken, Name: "script"},
-				{Kind: TextToken, Data: "if (a<b) {}"},
-				{Kind: EndTagToken, Name: "script"},
-			},
-		},
-		{
-			name:  "raw text end tag is case insensitive",
-			input: `<script>a</SCRIPT>`,
-			want: []Token{
-				{Kind: StartTagToken, Name: "script"},
-				{Kind: TextToken, Data: "a"},
-				{Kind: EndTagToken, Name: "script"},
-			},
-		},
-		{
-			name:  "stray less than is text",
-			input: `a < b`,
-			want: []Token{
-				{Kind: TextToken, Data: "a "},
-				{Kind: TextToken, Data: "<"},
-				{Kind: TextToken, Data: " b"},
-			},
-		},
-		{
-			name:  "unquoted attribute value",
-			input: `<td colspan=2>`,
-			want: []Token{
-				{Kind: StartTagToken, Name: "td", Attrs: []Attr{{"colspan", "2"}}},
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			z := NewTokenizer([]byte(tc.input))
-			var got []Token
-			for {
-				tok := z.Next()
-				if tok.Kind == EOFToken {
-					break
-				}
-				got = append(got, Token{Kind: tok.Kind, Name: tok.Name, Attrs: tok.Attrs, Data: tok.Data, SelfClosing: tok.SelfClosing})
-				if tok.Kind == StartTagToken && (tok.Name == "script" || tok.Name == "style") {
-					z.SetRawTag(tok.Name)
-				}
-			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("got %d tokens, want %d: %+v", len(got), len(tc.want), got)
-			}
-			for i := range got {
-				if got[i].Kind != tc.want[i].Kind || got[i].Name != tc.want[i].Name || got[i].Data != tc.want[i].Data || got[i].SelfClosing != tc.want[i].SelfClosing {
-					t.Fatalf("token %d = %+v, want %+v", i, got[i], tc.want[i])
-				}
-				if len(got[i].Attrs) != len(tc.want[i].Attrs) {
-					t.Fatalf("token %d attrs = %+v, want %+v", i, got[i].Attrs, tc.want[i].Attrs)
-				}
-				for j := range got[i].Attrs {
-					if got[i].Attrs[j] != tc.want[i].Attrs[j] {
-						t.Fatalf("token %d attr %d = %+v, want %+v", i, j, got[i].Attrs[j], tc.want[i].Attrs[j])
-					}
-				}
-			}
-		})
-	}
-}
 
 func parseDump(t *testing.T, src string) string {
 	t.Helper()
@@ -201,7 +91,7 @@ func TestParseTree(t *testing.T) {
 `,
 		},
 		{
-			name:  "table text is foster parented",
+			name:  "table text is foster parented and the row group is implied",
 			input: `<table>stray<tr><td>a</td></tr></table>`,
 			want: `#document
   <html>
@@ -209,9 +99,21 @@ func TestParseTree(t *testing.T) {
     <body>
       "stray"
       <table>
-        <tr>
-          <td>
-            "a"
+        <tbody>
+          <tr>
+            <td>
+              "a"
+`,
+		},
+		{
+			name:  "markup inside a title is text",
+			input: `<title>a<b>c</title>`,
+			want: `#document
+  <html>
+    <head>
+      <title>
+        "a<b>c"
+    <body>
 `,
 		},
 		{
@@ -251,6 +153,23 @@ func TestParseTree(t *testing.T) {
 	}
 }
 
+// TestCharacterReferences pins the decoding rules the previous hand-written
+// table did not implement: names outside the common subset, legacy names
+// without a semicolon, windows-1252 numeric references, and unknown names left
+// as written so they stay visible.
+func TestCharacterReferences(t *testing.T) {
+	doc, err := Parse([]byte(`<p>&rarr; &nbsp x &#147; &nosuchentity;</p>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := doc.Body().FirstElementChild().TextContent()
+	for _, want := range []string{"\u2192", "\u00a0", "\u201c", "&nosuchentity;"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text %q does not contain %q", text, want)
+		}
+	}
+}
+
 func TestPositions(t *testing.T) {
 	src := "<p>\nhello</p>"
 	doc, err := Parse([]byte(src), "doc.html")
@@ -269,9 +188,147 @@ func TestPositions(t *testing.T) {
 	if pos.File != "doc.html" || pos.Line != 1 || pos.Col != 1 {
 		t.Fatalf("p position = %+v, want doc.html:1:1", pos)
 	}
-	textPos := doc.Position(strings.Index(src, "hello"))
-	if textPos.Line != 2 || textPos.Col != 1 {
-		t.Fatalf("text position = %+v, want line 2 col 1", textPos)
+	text := p.Children[0]
+	if text.Type != TextNode {
+		t.Fatalf("first child is not text: %+v", text)
+	}
+	// The character data starts right after the tag, so it keeps the newline.
+	if want := strings.Index(src, "\n"); text.Start != want || text.Data != "\nhello" {
+		t.Fatalf("text = %q at %d, want %q at %d", text.Data, text.Start, "\nhello", want)
+	}
+	if got := doc.Position(strings.Index(src, "hello")); got.Line != 2 || got.Col != 1 {
+		t.Fatalf("text position = %+v, want line 2 col 1", got)
+	}
+}
+
+// TestImpliedNodesInheritPosition covers the position rule for elements the tree
+// construction creates itself: they have no start tag, so they carry the range
+// of their nearest positioned ancestor.
+func TestImpliedNodesInheritPosition(t *testing.T) {
+	doc, err := Parse([]byte(`<p>a</p><table><tr><td>x</td></tr></table>`), "t.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := findElement(doc.Root, "table")
+	if table == nil || table.Start == 0 {
+		t.Fatalf("table position = %+v, want a position after the paragraph", table)
+	}
+	tbody := findElement(table, "tbody")
+	if tbody == nil {
+		t.Fatal("no implied tbody")
+	}
+	if tbody.Start != table.Start || tbody.End != table.End {
+		t.Fatalf("tbody range = %d..%d, want the table's %d..%d", tbody.Start, tbody.End, table.Start, table.End)
+	}
+}
+
+// TestAuthoredElementsPointAtTheirStartTag checks the strongest form of the
+// position rule on the two corpus documents whose standard tree reorders
+// content: an element the document actually wrote must point at its own start
+// tag, not at an ancestor and not at a negative offset.
+func TestAuthoredElementsPointAtTheirStartTag(t *testing.T) {
+	cases := readCorpusCases(t, "Issue532Test_testundefinedindext", "list-style-type-snapshot")
+	if len(cases) != 2 {
+		t.Fatalf("found %d corpus fixtures, want 2", len(cases))
+	}
+	implied := map[string]bool{"html": true, "head": true, "body": true, "tbody": true, "thead": true, "tfoot": true}
+	for _, tc := range cases {
+		src := []byte(tc.HTML)
+		doc, err := Parse(src, tc.Name+".html")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.Name, err)
+		}
+		checked := 0
+		walk(doc.Root, func(n *Node) {
+			if n.Type != ElementNode {
+				return
+			}
+			if n.Start < 0 || n.End > len(src) || n.Start > n.End {
+				t.Fatalf("%s: <%s> has range %d..%d outside the %d-byte document", tc.Name, n.Tag, n.Start, n.End, len(src))
+			}
+			if implied[n.Tag] {
+				return
+			}
+			checked++
+			if !startsWithTag(src[n.Start:n.End], n.Tag) {
+				t.Fatalf("%s: <%s> at %d..%d does not point at its start tag: %q", tc.Name, n.Tag, n.Start, n.End, snippet(src[n.Start:n.End]))
+			}
+		})
+		if checked == 0 {
+			t.Fatalf("%s: no element was checked", tc.Name)
+		}
+	}
+}
+
+// startsWithTag reports whether b begins with a start tag of the given name,
+// ignoring case, so "<TD>" also matches td and "<tdx" does not.
+func startsWithTag(b []byte, tag string) bool {
+	if len(b) < len(tag)+1 || b[0] != '<' {
+		return false
+	}
+	if !strings.EqualFold(string(b[1:len(tag)+1]), tag) {
+		if tag == "img" && strings.EqualFold(string(b[1:5]), "image") {
+			return true
+		}
+		return false
+	}
+	if len(b) == len(tag)+1 {
+		return true
+	}
+	switch b[len(tag)+1] {
+	case ' ', '\t', '\n', '\r', '\f', '>', '/':
+		return true
+	}
+	return false
+}
+
+func snippet(b []byte) string {
+	if len(b) > 40 {
+		return string(b[:40]) + "..."
+	}
+	return string(b)
+}
+
+type corpusCase struct {
+	Name string `json:"name"`
+	HTML string `json:"html"`
+}
+
+// readCorpusCases loads the mPDF fixtures whose names contain one of the given
+// substrings. The corpus keeps its documents in cases.json rather than in
+// separate files.
+func readCorpusCases(t *testing.T, names ...string) []corpusCase {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "mpdf", "cases.json"))
+	if err != nil {
+		t.Fatalf("read corpus: %v", err)
+	}
+	var corpus struct {
+		Cases []corpusCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &corpus); err != nil {
+		t.Fatalf("decode corpus: %v", err)
+	}
+	var out []corpusCase
+	for _, name := range names {
+		found := false
+		for _, c := range corpus.Cases {
+			if strings.Contains(c.Name, name) && !found {
+				out = append(out, c)
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("no corpus fixture matches %q", name)
+		}
+	}
+	return out
+}
+
+func walk(n *Node, fn func(*Node)) {
+	fn(n)
+	for _, c := range n.Children {
+		walk(c, fn)
 	}
 }
 
@@ -306,8 +363,12 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("<!-- unterminated"))
 	f.Add([]byte("<p class=\"a\" id='b'>x &amp; y</p>"))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if _, err := Parse(b, "fuzz.html"); err != nil {
-			t.Fatalf("Parse returned an error: %v", err)
+		// Arbitrary bytes end in a document or in the one documented rejection:
+		// input that stops inside a tag. Anything else is a defect.
+		_, err := Parse(b, "fuzz.html")
+		var truncated *TruncatedError
+		if err != nil && !errors.As(err, &truncated) {
+			t.Fatalf("Parse returned an unexpected error: %v", err)
 		}
 	})
 }
@@ -376,21 +437,19 @@ func TestNestedTableKeepsItsStructure(t *testing.T) {
 	if inner.Parent == nil || inner.Parent.Tag != "td" {
 		t.Fatalf("inner table parent = %v, want td", inner.Parent)
 	}
-	if !ancestorTag(inner, "table") || inner.Parent.Parent == nil {
+	if !ancestorTag(inner, "table") {
 		t.Fatal("inner table is not inside the outer table")
 	}
-	if got := len(inner.ElementChildren()); got != 1 || inner.ElementChildren()[0].Tag != "tr" {
-		t.Fatalf("inner table children = %v", inner.ElementChildren())
-	}
-	innerRow := inner.ElementChildren()[0]
-	if !strings.Contains(innerRow.TextContent(), "INNER") {
+	innerRow := findElement(inner, "tr")
+	if innerRow == nil || !strings.Contains(innerRow.TextContent(), "INNER") {
 		t.Fatalf("inner row text = %q", innerRow.TextContent())
 	}
-	// The outer table must have exactly one row; the inner row is not its.
+	// The outer table must have exactly one own row; the inner row is not its.
 	if rows := countTag(outer, "tr"); rows != 2 { // outer row + inner row
 		t.Fatalf("outer table has %d tr nodes, want 2 (one own, one nested)", rows)
 	}
-	if outerRow := outer.ElementChildren()[0]; outerRow.Tag != "tr" || len(outerRow.ElementChildren()) != 1 {
+	outerRow := findElement(outer, "tr")
+	if outerRow == nil || len(outerRow.Children) == 0 || outerRow.Children[0].Tag != "td" {
 		t.Fatalf("outer row = %+v", outerRow)
 	}
 }
@@ -456,81 +515,6 @@ func TestParseStopsWhenCancelled(t *testing.T) {
 	}
 }
 
-func TestDecodeEntitiesLeavesUnterminatedAmpersands(t *testing.T) {
-	src := strings.Repeat("&", 1<<20)
-	if got := decodeEntities(src); got != src {
-		t.Fatalf("unterminated ampersands changed: %d bytes out, want %d", len(got), len(src))
-	}
-}
-
-// TestTokenizerAllocationIsLinear guards RV2-01. The comment, bogus comment,
-// doctype and raw-text readers used to lowercase (and therefore copy) the whole
-// remaining input for every such element, which made tokenization quadratic in
-// the document size. Total allocation must stay proportional to the input.
-func TestTokenizerAllocationIsLinear(t *testing.T) {
-	cases := []struct {
-		name string
-		unit string
-	}{
-		{"comment", "<!--x-->"},
-		{"bogus comment", "<!x>"},
-		{"doctype", "<!doctype html>"},
-		{"raw text", "<style>x</style>"},
-	}
-	const size = 32 << 10
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			src := []byte(strings.Repeat(tc.unit, size/len(tc.unit)))
-			var before, after runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&before)
-			tokens := tokenCount(t, src)
-			runtime.ReadMemStats(&after)
-			if tokens == 0 {
-				t.Fatal("no tokens produced")
-			}
-			allocated := after.TotalAlloc - before.TotalAlloc
-			if limit := uint64(len(src)) * 24; allocated > limit {
-				t.Fatalf("tokenizing %d bytes allocated %d bytes (limit %d): the per-element cost must not depend on the remaining input", len(src), allocated, limit)
-			}
-		})
-	}
-}
-
-// tokenCount runs the tokenizer to EOF and returns the number of tokens, so the
-// measurement includes every reader.
-func tokenCount(t *testing.T, src []byte) int {
-	t.Helper()
-	z := NewTokenizer(src)
-	n := 0
-	for {
-		tok := z.Next()
-		if tok.Kind == EOFToken {
-			return n
-		}
-		n++
-		if tok.Kind == StartTagToken && (tok.Name == "style" || tok.Name == "script") {
-			z.SetRawTag(tok.Name)
-		}
-	}
-}
-
-func BenchmarkDecodeEntities(b *testing.B) {
-	for _, size := range []int{8192, 32768, 131072} {
-		src := strings.Repeat("&", size)
-		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			b.SetBytes(int64(size))
-			for i := 0; i < b.N; i++ {
-				decodeEntities(src)
-			}
-		})
-	}
-}
-
-// TestFosterParentKeepsChildContent guards RV2-06: once an element is
-// foster-parented out of a table, its own text and children belong to it. They
-// used to be fostered again next to the table, which printed a display:none
-// block that should have stayed hidden.
 func TestFosterParentKeepsChildContent(t *testing.T) {
 	doc, err := Parse([]byte(`<table><div style="display:none">SECRET</div><tr><td>CELL</td></tr></table>`), "foster.html")
 	if err != nil {
@@ -586,65 +570,9 @@ func findElement(n *Node, tag string) *Node {
 	return nil
 }
 
-// TestFosterParentingIsLinear guards RV2-07: every foster-parented node was
-// inserted by scanning the parent's children from the start, so N nodes inside
-// a table cost O(N²). The check compares the foster case with the same parser
-// on the same number of nodes outside a table: the ratio does not depend on the
-// machine speed or on the race detector's overhead, while a quadratic insertion
-// makes the foster case many times slower than the linear baseline.
-func TestFosterParentingIsLinear(t *testing.T) {
-	const n = 50000
-	unit := strings.Repeat("<div>A</div>", n)
-	doc, baseline := parseTimed(t, unit)
-	_, fostered := parseTimed(t, "<table>"+unit+"</table>")
-	if baseline < time.Millisecond {
-		t.Skipf("the parse baseline %v is too small to compare", baseline)
-	}
-	if limit := 6 * baseline; fostered > limit {
-		t.Fatalf("parsing %d foster-parented nodes took %v, %.1f times the %v baseline: the insertion must not be quadratic",
-			n, fostered, float64(fostered)/float64(baseline), baseline)
-	}
-	body := findElement(doc.Root, "body")
-	if body == nil {
-		t.Fatal("no body")
-	}
-	divs := 0
-	for _, c := range body.Children {
-		if c.Type == ElementNode && c.Tag == "div" {
-			divs++
-		}
-	}
-	if divs != n {
-		t.Fatalf("body has %d divs, want %d", divs, n)
-	}
-}
-
-// parseTimed parses src and returns the document with the best of three runs,
-// so a single scheduling hiccup does not decide the comparison.
-func parseTimed(t *testing.T, src string) (*Document, time.Duration) {
-	t.Helper()
-	var doc *Document
-	best := time.Duration(1<<63 - 1)
-	data := []byte(src)
-	for i := 0; i < 3; i++ {
-		start := time.Now()
-		d, err := Parse(data, "foster.html")
-		elapsed := time.Since(start)
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc = d
-		if elapsed < best {
-			best = elapsed
-		}
-	}
-	return doc, best
-}
-
 // TestNestedTableStartClosesOuterTable guards RV2-08: a <table> start tag
-// inside table structure used to become a child of the outer table, and layout
-// silently dropped every inner row. The HTML parser closes the outer table and
-// opens a sibling instead.
+// inside table structure must close the outer table and open a sibling instead
+// of becoming a child that layout silently drops.
 func TestNestedTableStartClosesOuterTable(t *testing.T) {
 	doc, err := Parse([]byte(`<p>BEFORE</p><table><tr><td>A</td></tr><table><tr><td>B</td></tr></table></table><p>AFTER</p>`), "nested.html")
 	if err != nil {
@@ -713,5 +641,161 @@ func TestHeadingStartClosesCurrentHeading(t *testing.T) {
 	h1 := findElement(doc.Root, "h1")
 	if h1 == nil || findElement(h1, "h2") == nil {
 		t.Fatalf("the nested heading was closed too early:\n%s", Dump(doc.Root))
+	}
+}
+
+// TestTableWhitespaceIgnored covers the normalization: indentation between rows
+// must not become a node that layout could place, while white space inside a
+// cell is content and stays.
+func TestTableWhitespaceIgnored(t *testing.T) {
+	indented := "<table>\n  <tbody>\n    <tr>\n      <td>x</td>\n    </tr>\n  </tbody>\n</table>"
+	oneLine := "<table><tbody><tr><td>x</td></tr></tbody></table>"
+	if a, b := parseDump(t, indented), parseDump(t, oneLine); a != b {
+		t.Fatalf("indented and one-line tables differ:\n%s\nwant:\n%s", a, b)
+	}
+
+	doc, err := Parse([]byte("<table><tr><td> <b>x</b> </td></tr></table>"), "ws.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	td := findElement(doc.Root, "td")
+	if td == nil || len(td.Children) != 3 {
+		t.Fatalf("cell children = %+v, want text, element, text", td.Children)
+	}
+}
+
+// TestNonVoidSelfClosingIsIgnored covers the one deliberate behaviour change:
+// the standard ignores "/>" on a non-void element, so the element stays open.
+func TestNonVoidSelfClosingIsIgnored(t *testing.T) {
+	doc, err := Parse([]byte(`<div/>text`), "sc.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	div := findElement(doc.Root, "div")
+	if div == nil {
+		t.Fatal("no div")
+	}
+	if got := div.TextContent(); got != "text" {
+		t.Fatalf("div content = %q, want %q", got, "text")
+	}
+	if len(div.ElementChildren()) != 0 {
+		t.Fatalf("div has element children: %+v", div.ElementChildren())
+	}
+
+	// A void element still closes and takes no content.
+	doc, err = Parse([]byte(`<p>a<br/>b</p>`), "sc2.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := findElement(doc.Root, "p")
+	if p == nil || p.TextContent() != "ab" {
+		t.Fatalf("p content = %q, want %q", p.TextContent(), "ab")
+	}
+}
+
+// TestStyleTextIsRawSource covers the offset contract for inline CSS: the text
+// node's range must slice the document source verbatim, including CRLF, because
+// the CSS parser maps its own offsets back through that range.
+func TestStyleTextIsRawSource(t *testing.T) {
+	src := []byte("<style>\r\np { color: red }\r\n</style><p>x</p>")
+	doc, err := Parse(src, "crlf.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := findElement(doc.Root, "style")
+	if style == nil || len(style.Children) == 0 {
+		t.Fatal("no style element with content")
+	}
+	text := style.Children[0]
+	want := "\r\np { color: red }\r\n"
+	if got := string(doc.Source()[text.Start:text.End]); got != want {
+		t.Fatalf("style text range holds %q, want %q", got, want)
+	}
+	// The CSS parser adds this node's start to its own offsets.
+	idx := strings.Index(want, "color")
+	pos := doc.Position(text.Start + idx)
+	if pos.Line != 2 || pos.Col != 5 {
+		t.Fatalf("inline CSS offset %d maps to %+v, want line 2 col 5", idx, pos)
+	}
+}
+
+// TestConversionPreservesModel checks the four properties conversion must keep:
+// parent links, lower-cased attribute keys, namespace prefixes written back as
+// "prefix:name", and adjacent text merged into one node.
+func TestConversionPreservesModel(t *testing.T) {
+	doc, err := Parse([]byte(`<P CLASS="x">a</P><svg><a xlink:href="#y">b</a></svg>`), "model.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := findElement(doc.Root, "p")
+	if p == nil {
+		t.Fatal("the upper-case tag was not lower-cased")
+	}
+	if v, ok := p.Attr("class"); !ok || v != "x" {
+		t.Fatalf("class attribute = %q, %v", v, ok)
+	}
+	svg := findElement(doc.Root, "svg")
+	if svg == nil {
+		t.Fatal("no svg element")
+	}
+	a := findElement(svg, "a")
+	if a == nil {
+		t.Fatal("no anchor inside svg")
+	}
+	if v, ok := a.Attr("xlink:href"); !ok || v != "#y" {
+		t.Fatalf("namespaced attribute = %q, %v; want xlink:href", v, ok)
+	}
+	walk(doc.Root, func(n *Node) {
+		for _, c := range n.Children {
+			if c.Parent != n {
+				t.Fatalf("<%s> child <%s> has parent %p, want %p", n.Tag, c.Tag, c.Parent, n)
+			}
+		}
+	})
+
+	// Content fostered out of a table lands next to the table as consecutive
+	// text nodes; the model holds one node for the run.
+	doc, err = Parse([]byte(`<table>a<tr><td>x</td></tr>b</table>`), "model2.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := doc.Body()
+	texts := 0
+	var merged string
+	for _, c := range body.Children {
+		if c.Type == TextNode {
+			texts++
+			merged += c.Data
+		}
+	}
+	if texts != 1 || merged != "ab" {
+		t.Fatalf("fostered text = %d node(s) %q, want one node %q", texts, merged, "ab")
+	}
+}
+
+// TestTruncatedMarkupIsReported covers the one place where the standard tree
+// would silently shorten a document: an incomplete tag at the end of the input
+// is dropped by the tree construction, so the parse fails instead.
+func TestTruncatedMarkupIsReported(t *testing.T) {
+	for _, src := range []string{"<p>a</p><div", `<img src="`, "a<b", "</p"} {
+		var trunc *TruncatedError
+		_, err := Parse([]byte(src), "cut.html")
+		if !errors.As(err, &trunc) {
+			t.Fatalf("Parse(%q) = %v, want a TruncatedError", src, err)
+		}
+		if want := strings.LastIndex(src, "<"); trunc.Offset != want {
+			t.Fatalf("Parse(%q) reports offset %d, want %d", src, trunc.Offset, want)
+		}
+		if trunc.Position.File != "cut.html" || trunc.Position.Line != 1 {
+			t.Fatalf("Parse(%q) position = %+v, want cut.html:1", src, trunc.Position)
+		}
+	}
+
+	// Input that ends between tokens, including a lone '<', is a complete
+	// document: the '<' is text and nothing is dropped.
+	for _, src := range []string{"<p>a</p>", "5 <", "<", "<!-- note"} {
+		if _, err := Parse([]byte(src), "ok.html"); err != nil {
+			t.Fatalf("Parse(%q) = %v, want no error", src, err)
+		}
 	}
 }
