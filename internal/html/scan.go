@@ -34,27 +34,35 @@ type span struct {
 	start int32
 	end   int32
 	kind  spanKind
-	name  uint16
+	name  int32
 }
 
 // scanResult is the token pass: every token's range in document order, plus the
 // start tags indexed by name so conversion can find an element's position.
 type scanResult struct {
 	spans []span
-	index map[string]uint16
+	index map[string]int32
 	// startSpans holds, per interned name, the span indices of its start tags in
 	// document order.
-	startSpans map[uint16][]int
+	startSpans map[int32][]int
 	// truncated is the offset where an incomplete tag begins, or -1 when the
 	// input ends between tokens.
 	truncated int
 }
 
-// voidElements never have children and therefore never deepen the open stack.
-var voidElements = map[string]bool{
-	"area": true, "base": true, "br": true, "col": true, "embed": true,
-	"hr": true, "img": true, "input": true, "keygen": true, "link": true,
-	"meta": true, "param": true, "source": true, "track": true, "wbr": true,
+// neverImplicitlyClosed are elements a following start tag cannot close
+// implicitly in the standard tree: a run of them is a lower bound on nesting.
+var neverImplicitlyClosed = map[string]bool{
+	"div": true, "ul": true, "ol": true, "span": true,
+	"b": true, "strong": true, "em": true, "i": true,
+}
+
+// earlyDepthOff are constructs whose implied elements or foreign content make
+// the token-stream run an unreliable lower bound, so the early rule gives up.
+var earlyDepthOff = map[string]bool{
+	"table": true, "tbody": true, "thead": true, "tfoot": true, "tr": true,
+	"td": true, "th": true, "svg": true, "math": true, "select": true,
+	"template": true,
 }
 
 // scan tokenizes src once, recording one span per token, charging one work unit
@@ -62,10 +70,13 @@ var voidElements = map[string]bool{
 // before the tree is built, so a document over a limit fails without the tree
 // being allocated.
 func scan(src []byte, opts ParseOptions) (*scanResult, error) {
-	res := &scanResult{index: map[string]uint16{}, startSpans: map[uint16][]int{}, truncated: -1}
+	res := &scanResult{index: map[string]int32{}, startSpans: map[int32][]int{}, truncated: -1}
 	z := html.NewTokenizer(bytes.NewReader(src))
-	var stack []uint16
-	sawHTML, sawBody := false, false
+	// earlyRun counts the current run of never-implicitly-closed start tags.
+	// It is a lower bound on the tree depth, so exceeding MaxDepth proves the
+	// document over the limit without building the tree; it never over-rejects.
+	earlyRun := 0
+	earlyDepth := true
 	off := int32(0)
 	for {
 		tt := z.Next()
@@ -97,52 +108,28 @@ func scan(src []byte, opts ParseOptions) (*scanResult, error) {
 			idx := res.intern(tag)
 			res.spans = append(res.spans, span{start: start, end: off, kind: spanStart, name: idx})
 			res.startSpans[idx] = append(res.startSpans[idx], len(res.spans)-1)
-			if tag == "html" {
-				sawHTML = true
-			}
-			if tag == "body" {
-				sawBody = true
-			}
-			if voidElements[tag] {
-				continue
-			}
-			stack = append(stack, idx)
-			if opts.MaxDepth > 0 && len(stack)+implicitDepth(sawHTML, sawBody) > opts.MaxDepth {
-				return nil, fmt.Errorf("%w: element nesting exceeds %d levels", budget.ErrExceeded, opts.MaxDepth)
+			if earlyDepth {
+				switch {
+				case earlyDepthOff[tag]:
+					earlyDepth = false
+				case neverImplicitlyClosed[tag]:
+					earlyRun++
+					if opts.MaxDepth > 0 && earlyRun > opts.MaxDepth {
+						return nil, fmt.Errorf("%w: element nesting exceeds %d levels", budget.ErrExceeded, opts.MaxDepth)
+					}
+				}
 			}
 		case html.EndTagToken:
 			res.spans = append(res.spans, span{start: start, end: off, kind: spanOther})
-			name, _ := z.TagName()
-			idx, ok := res.index[normalTagName(string(name))]
-			if !ok {
-				continue
-			}
-			for i := len(stack) - 1; i >= 0; i-- {
-				if stack[i] == idx {
-					stack = stack[:i]
-					break
-				}
-			}
+			// Any end tag can close one of the open elements, so the proven run
+			// starts again from zero.
+			earlyRun = 0
 		default:
 			// Comments, doctypes and processing instructions: recorded so the
 			// ranges stay a partition, never matched against the tree.
 			res.spans = append(res.spans, span{start: start, end: off, kind: spanOther})
 		}
 	}
-}
-
-// implicitDepth is how many of html and body the tree will hold without the
-// document spelling them out. The tree always has both, so the nesting limit
-// counts them even when the stack does not.
-func implicitDepth(sawHTML, sawBody bool) int {
-	n := 0
-	if !sawHTML {
-		n++
-	}
-	if !sawBody {
-		n++
-	}
-	return n
 }
 
 // normalTagName maps the deprecated HTML aliases the tree construction rewrites,
@@ -156,17 +143,14 @@ func normalTagName(name string) string {
 	return name
 }
 
-// intern returns the index of name, adding it on first use.
-func (s *scanResult) intern(name string) uint16 {
+// intern returns the index of name, adding it on first use. The table grows
+// with the document: a flat document may use more than 65,536 distinct names,
+// and a shared zero index would append a start tag to the wrong span.
+func (s *scanResult) intern(name string) int32 {
 	if i, ok := s.index[name]; ok {
 		return i
 	}
-	if len(s.index) > 0xffff {
-		// Unreachable for a document under MaxInputBytes; a distinct name needs
-		// at least two bytes of input.
-		return 0
-	}
-	i := uint16(len(s.index))
+	i := int32(len(s.index))
 	s.index[name] = i
 	return i
 }

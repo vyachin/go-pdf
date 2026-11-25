@@ -541,50 +541,70 @@ func parseBorderShorthand(toks []Token) (Value, error) {
 	}
 	side := BorderSide{Style: BorderNone, Color: Color{R: 0, G: 0, B: 0, Set: true}}
 	var widthSet bool
-	for _, t := range f {
-		switch t.Kind {
-		case IdentToken:
+	for i := 0; i < len(f); i++ {
+		t := f[i]
+		if t.Kind == IdentToken {
 			switch strings.ToLower(t.Text) {
 			case "solid":
 				side.Style = BorderSolid
+				continue
 			case "none":
 				side.Style = BorderNone
+				continue
 			case "thin":
 				side.Width, widthSet = 750, true
+				continue
 			case "medium":
 				side.Width, widthSet = 2250, true
+				continue
 			case "thick":
 				side.Width, widthSet = 3750, true
-			default:
-				c, err := ParseColor([]Token{t})
+				continue
+			case "rgb":
+				// rgb() spans several tokens; hand the whole function to the
+				// same colour parser the color property uses.
+				end, ok := closingParen(f, i+1)
+				if !ok {
+					return Value{}, fmt.Errorf("malformed rgb() in border")
+				}
+				c, err := ParseColor(f[i : end+1])
 				if err != nil {
-					return Value{}, fmt.Errorf("unsupported border value %q", t.Text)
+					return Value{}, err
 				}
 				side.Color = c
+				i = end
+				continue
 			}
-		case HashToken:
+			c, err := ParseColor([]Token{t})
+			if err != nil {
+				return Value{}, fmt.Errorf("unsupported border value %q", t.Text)
+			}
+			side.Color = c
+			continue
+		}
+		if t.Kind == HashToken {
 			c, err := ParseColor([]Token{t})
 			if err != nil {
 				return Value{}, err
 			}
 			side.Color = c
-		default:
-			l, err := ParseLengthToken(t)
-			if err != nil {
-				return Value{}, err
-			}
-			if l.Kind == Percent || l.Kind == Auto {
-				return Value{}, fmt.Errorf("border width must be a length, not a percentage or auto")
-			}
-			if l.Value < 0 {
-				return Value{}, fmt.Errorf("border width must not be negative")
-			}
-			// Keep the unit: an em width must be resolved against the
-			// element font size, not treated as absolute millipoints.
-			side.WidthLen = l
-			side.Width = l.Value
-			widthSet = true
+			continue
 		}
+		l, err := ParseLengthToken(t)
+		if err != nil {
+			return Value{}, err
+		}
+		if l.Kind == Percent || l.Kind == Auto {
+			return Value{}, fmt.Errorf("border width must be a length, not a percentage or auto")
+		}
+		if l.Value < 0 {
+			return Value{}, fmt.Errorf("border width must not be negative")
+		}
+		// Keep the unit: an em width must be resolved against the element
+		// font size, not treated as absolute millipoints.
+		side.WidthLen = l
+		side.Width = l.Value
+		widthSet = true
 	}
 	if side.Style == BorderNone {
 		side.Width = 0
@@ -592,6 +612,27 @@ func parseBorderShorthand(toks []Token) (Value, error) {
 		side.Width = 2250
 	}
 	return Value{Kind: "borders", Borders: [4]BorderSide{side, side, side, side}}, nil
+}
+
+// closingParen returns the index of the ')' that closes the group opened at
+// open, or false when the group is unterminated.
+func closingParen(toks []Token, open int) (int, bool) {
+	if open >= len(toks) || toks[open].Kind != LParenToken {
+		return 0, false
+	}
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Kind {
+		case LParenToken:
+			depth++
+		case RParenToken:
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func parseFontFamily(toks []Token) (Value, error) {

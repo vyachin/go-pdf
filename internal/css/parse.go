@@ -542,8 +542,23 @@ func splitTopLevelComma(s string) []string {
 	var parts []string
 	depth := 0
 	start := 0
+	var quote byte
 	for i := 0; i < len(s); i++ {
-		switch s[i] {
+		c := s[i]
+		if quote != 0 {
+			// A comma or a bracket inside a string is data, not syntax.
+			if c == '\\' && i+1 < len(s) {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
 		case '(', '[':
 			depth++
 		case ')', ']':

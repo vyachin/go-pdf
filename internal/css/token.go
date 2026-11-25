@@ -3,6 +3,7 @@ package css
 import (
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // TokenKind classifies CSS tokens.
@@ -299,20 +300,81 @@ func stringify(toks []Token) string {
 	return strings.TrimSpace(b.String())
 }
 
-// unquote strips surrounding quotes and processes the escapes we support.
+// unquote strips surrounding quotes and decodes the CSS escapes inside them.
 func unquote(s string) string {
 	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		inner := s[1 : len(s)-1]
-		var b strings.Builder
-		for i := 0; i < len(inner); i++ {
-			if inner[i] == '\\' && i+1 < len(inner) {
-				i++
-				b.WriteByte(inner[i])
-				continue
-			}
-			b.WriteByte(inner[i])
-		}
-		return b.String()
+		return decodeEscapes(s[1 : len(s)-1])
 	}
 	return s
+}
+
+// decodeEscapes decodes CSS backslash escapes: one to six hexadecimal digits
+// followed by an optional whitespace, a backslash-newline continuation, or a
+// backslash before any other character, which stands for that character. The
+// tokenizer keeps the raw spelling, so values decode here before they reach the
+// renderer.
+func decodeEscapes(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\\' || i+1 >= len(s) {
+			b.WriteByte(c)
+			continue
+		}
+		i++
+		switch s[i] {
+		case '\n':
+			// An escaped newline is a continuation: it produces nothing.
+		case '\r':
+			if i+1 < len(s) && s[i+1] == '\n' {
+				i++
+			}
+		case '\f':
+		default:
+			if isHexDigit(s[i]) {
+				v := 0
+				n := 0
+				for n < 6 && i+n < len(s) && isHexDigit(s[i+n]) {
+					v = v*16 + hexValue(s[i+n])
+					n++
+				}
+				i += n - 1
+				// One whitespace after the digits is part of the escape.
+				if i+1 < len(s) && isSpace(s[i+1]) {
+					if s[i+1] == '\r' && i+2 < len(s) && s[i+2] == '\n' {
+						i++
+					}
+					i++
+				}
+				switch {
+				case v == 0 || v > unicode.MaxRune:
+					b.WriteRune(unicode.ReplacementChar)
+				default:
+					b.WriteRune(rune(v))
+				}
+				continue
+			}
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+func hexValue(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	default:
+		return int(c-'A') + 10
+	}
 }

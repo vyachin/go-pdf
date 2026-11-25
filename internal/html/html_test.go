@@ -404,6 +404,12 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("<table><tr><td>x</table>"))
 	f.Add([]byte("<!-- unterminated"))
 	f.Add([]byte("<p class=\"a\" id='b'>x &amp; y</p>"))
+	// Implied end tags, implied tbody, merged structural elements, foster
+	// parenting and the standard parser's open-stack limit.
+	f.Add([]byte(strings.Repeat("<p><div></p>", 5)))
+	f.Add([]byte("<table><b>x</b><tr><td>y"))
+	f.Add([]byte("<html><html><body><body><main><main>x"))
+	f.Add([]byte(strings.Repeat("<b><div></b>", 600)))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		// Arbitrary bytes end in a document or in one of the two documented
 		// rejections: input that stops inside a tag, and bytes that are not a
@@ -411,7 +417,9 @@ func FuzzParse(f *testing.F) {
 		_, err := Parse(b, "fuzz.html")
 		var truncated *TruncatedError
 		var encoding *charset.Error
-		if err != nil && !errors.As(err, &truncated) && !errors.As(err, &encoding) {
+		var parseErr *ParseError
+		if err != nil && !errors.As(err, &truncated) && !errors.As(err, &encoding) &&
+			!errors.As(err, &parseErr) && !errors.Is(err, budget.ErrExceeded) {
 			t.Fatalf("Parse returned an unexpected error: %v", err)
 		}
 	})

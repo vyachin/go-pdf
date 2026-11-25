@@ -2,6 +2,7 @@ package html
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	xhtml "golang.org/x/net/html"
@@ -85,11 +86,14 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	if sc.truncated >= 0 {
 		return nil, &TruncatedError{Offset: sc.truncated, Position: d.Position(sc.truncated)}
 	}
-	tree, err := xhtml.Parse(bytes.NewReader(dec.Text))
+	tree, err := parseStandardTree(dec.Text)
 	if err != nil {
 		return nil, err
 	}
-	b := &builder{doc: d, scan: sc, cursors: map[uint16]int{}}
+	if err := checkTreeDepth(tree, opts); err != nil {
+		return nil, err
+	}
+	b := &builder{doc: d, scan: sc, cursors: map[int32]int{}}
 	b.children(tree, d.Root)
 	attachBudget(d.Root, opts.Budget)
 	return d, nil
@@ -105,12 +109,76 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
+// ParseError reports a failure of the standard tree construction that has no
+// token position of its own. Code is the diagnostic code the engine reports.
+type ParseError struct {
+	Code string
+	Err  error
+}
+
+func (e *ParseError) Error() string { return fmt.Sprintf("%s: %v", e.Code, e.Err) }
+
+func (e *ParseError) Unwrap() error { return e.Err }
+
+// parseStandardTree runs the standard tree construction. Its open-stack limit is
+// reported as a resource limit; any other failure becomes a coded parse error,
+// and a panic in a third-party parser is turned into an error as well, so no
+// input can take the host process down.
+func parseStandardTree(text []byte) (tree *xhtml.Node, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			tree, err = nil, &ParseError{Code: "html/parse", Err: fmt.Errorf("tree construction failed: %v", r)}
+		}
+	}()
+	tree, err = xhtml.Parse(bytes.NewReader(text))
+	if err != nil {
+		if strings.Contains(err.Error(), "open stack of elements exceeds") {
+			return nil, fmt.Errorf("%w: %v", budget.ErrExceeded, err)
+		}
+		return nil, &ParseError{Code: "html/parse", Err: err}
+	}
+	return tree, nil
+}
+
+// checkTreeDepth measures element nesting on the tree the standard construction
+// algorithm produced, after implied elements and implied end tags, and charges
+// one unit per element visited. It runs before the conversion model, so an
+// over-limit document fails before layout allocates.
+func checkTreeDepth(root *xhtml.Node, opts ParseOptions) error {
+	if opts.MaxDepth <= 0 {
+		return nil
+	}
+	type item struct {
+		node  *xhtml.Node
+		depth int
+	}
+	stack := []item{{root, 0}}
+	for len(stack) > 0 {
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		depth := it.depth
+		if it.node.Type == xhtml.ElementNode {
+			depth++
+			if err := opts.Budget.Add(1); err != nil {
+				return err
+			}
+			if depth > opts.MaxDepth {
+				return fmt.Errorf("%w: element nesting exceeds %d levels", budget.ErrExceeded, opts.MaxDepth)
+			}
+		}
+		for child := it.node.FirstChild; child != nil; child = child.NextSibling {
+			stack = append(stack, item{node: child, depth: depth})
+		}
+	}
+	return nil
+}
+
 // builder converts a standard tree into this package's model.
 type builder struct {
 	doc  *Document
 	scan *scanResult
 	// cursors holds, per interned tag name, the next unconsumed start-tag span.
-	cursors map[uint16]int
+	cursors map[int32]int
 	// spanCur is the next span the text lookup may use, and lower is the
 	// smallest offset an unvisited node can start at. Spans below lower belong
 	// to content the tree construction dropped, such as white space before
