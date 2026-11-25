@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+// MaxAtRuleNesting bounds how deeply at-rules may nest inside one another:
+// @media inside @media, a margin box inside @page, and every other nested
+// at-rule. The parser rejects a stylesheet that goes one level deeper than the
+// limit, before the body of the offending at-rule is parsed, so no later walk
+// over the rules can recurse without a bound.
+const MaxAtRuleNesting = 64
+
 // RuleKind classifies a parsed rule.
 type RuleKind int
 
@@ -38,23 +45,35 @@ type Declaration struct {
 // selector, all sharing the same declarations.
 // RulesForPrint returns the rules that apply to print, descending into @media
 // blocks whose query is empty, "all" or "print". Document order is preserved.
+// It walks with an explicit stack: the parser bounds at-rule nesting, but a
+// walk that recursed could still be handed a deeper tree constructed by a
+// caller or a future parser change.
 func RulesForPrint(sheets []*Stylesheet) []Rule {
 	var out []Rule
-	var walk func([]Rule)
-	walk = func(rules []Rule) {
-		for _, r := range rules {
+	type frame struct {
+		rules []Rule
+		next  int
+	}
+	for _, sh := range sheets {
+		if sh == nil {
+			continue
+		}
+		stack := []frame{{rules: sh.Rules}}
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			if top.next >= len(top.rules) {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			r := top.rules[top.next]
+			top.next++
 			if r.Kind == MediaRule {
 				if mediaAppliesToPrint(r.Name) {
-					walk(r.Rules)
+					stack = append(stack, frame{rules: r.Rules})
 				}
 				continue
 			}
 			out = append(out, r)
-		}
-	}
-	for _, sh := range sheets {
-		if sh != nil {
-			walk(sh.Rules)
 		}
 	}
 	return out
@@ -87,6 +106,10 @@ type Rule struct {
 type Problem struct {
 	Message string
 	Offset  int
+	// Code is the diagnostic code. It is empty for a plain syntax problem,
+	// which validation reports as css/syntax, and set when the parser hits a
+	// resource limit.
+	Code string
 }
 
 // Position is a location inside a stylesheet.
@@ -157,6 +180,13 @@ type parser struct {
 	toks  []Token
 	pos   int
 	sheet *Stylesheet
+	// depth is the current at-rule nesting level, so the parser can reject a
+	// stylesheet before it builds a tree no later walk could handle.
+	depth int
+	// limit records that the nesting limit was reported. Parsing stops there:
+	// the stylesheet is rejected, and the EOF that follows must not add one
+	// "unclosed block" problem per enclosing level.
+	limit bool
 }
 
 // Parse parses CSS from src with positions relative to the stylesheet itself.
@@ -213,6 +243,9 @@ func (p *parser) parseRules(nested bool) ([]Rule, []Problem) {
 	var problems []Problem
 	for {
 		p.skipTrivia()
+		if p.limit {
+			return rules, problems
+		}
 		t := p.peek()
 		if t.Kind == EOFToken {
 			if nested {
@@ -259,6 +292,20 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		return nil, []Problem{{Message: "malformed @" + name, Offset: at.Offset}}
 	}
 	p.next() // {
+	// Reject the level that would exceed the limit before its body is parsed:
+	// the returned tree then never nests deeper than MaxAtRuleNesting, so the
+	// walks in this package and in profile stay bounded.
+	if p.depth >= MaxAtRuleNesting {
+		p.limit = true
+		p.skipBlockBody()
+		return nil, []Problem{{
+			Code:    "resource/limit",
+			Message: fmt.Sprintf("at-rules are nested deeper than %d levels", MaxAtRuleNesting),
+			Offset:  at.Offset,
+		}}
+	}
+	p.depth++
+	defer func() { p.depth-- }()
 	switch name {
 	case "page":
 		decls, nestedRules, probs := p.parseBlockContents()
@@ -351,6 +398,9 @@ func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 	var probs []Problem
 	for {
 		p.skipTrivia()
+		if p.limit {
+			return decls, nested, probs
+		}
 		t := p.peek()
 		if t.Kind == EOFToken {
 			probs = append(probs, Problem{Message: "unclosed block", Offset: t.Offset})

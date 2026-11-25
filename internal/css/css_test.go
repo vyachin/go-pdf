@@ -366,6 +366,10 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte(`@font-face { font-family: "x"; src: url(a.ttf) }`))
 	f.Add([]byte(`a::after { content: target-counter(attr(href), page) }`))
 	f.Add([]byte(`@media print { td { border: 1pt solid red } }`))
+	// Nested at-rules exercise the depth limit: within the limit and past it,
+	// balanced and unclosed.
+	f.Add([]byte(strings.Repeat("@media { ", MaxAtRuleNesting) + "p { color: #000 }" + strings.Repeat(" }", MaxAtRuleNesting)))
+	f.Add([]byte(strings.Repeat("@media {", MaxAtRuleNesting+1)))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		sh := Parse(b)
 		for _, r := range sh.Rules {

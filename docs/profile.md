@@ -147,6 +147,10 @@ Inside `a::after` only the `content` property is allowed, with strings, `counter
 Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right`.
 `content` values: quoted strings, `counter(page)`, `counter(pages)`, `target-counter(attr(href), page)`.
 
+At-rules may nest at most 64 levels deep — `@media` inside `@media`, a margin box
+inside `@page`, and every other nested at-rule. A deeper stylesheet is rejected
+with `resource/limit` during parsing, before any walk over the rules.
+
 ## What is missing and why
 
 | Not supported | Reason |
@@ -188,7 +192,7 @@ Every error contains the file, line, column and element path:
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `text/glyph`, `layout/overflow`.
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `text/glyph`, `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
 
 An option error, such as `options/charset` or `options/page-size`, names no
 position: it is about the call, not the document.
