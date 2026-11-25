@@ -1,5 +1,7 @@
 package charset
 
+import "bytes"
+
 // Decoded is a source decoded to UTF-8 together with what a Mapper needs to
 // translate a decoded offset back to the bytes it came from.
 type Decoded struct {
@@ -25,18 +27,25 @@ func Decode(enc *Encoding, src []byte) (*Decoded, error) {
 	if enc == nil || enc.utf8 {
 		return decodeUTF8(src)
 	}
-	text := make([]byte, 0, len(src)+len(src)/4)
+	// An explicit legacy encoding must not turn a UTF-8 byte order mark into
+	// visible "п»ї" text: the mark is not part of the document.
+	skip := 0
+	if bytes.HasPrefix(src, []byte{0xEF, 0xBB, 0xBF}) {
+		skip = 3
+	}
+	body := src[skip:]
+	text := make([]byte, 0, len(body)+len(body)/4)
 	widths := make([]uint8, len(src))
-	for i := 0; i < len(src); i++ {
-		b := src[i]
+	for i := 0; i < len(body); i++ {
+		b := body[i]
 		r := enc.table[b]
 		if r == nil {
-			return nil, newError(src, 0, i, "byte %#02x is not defined in %s", b, enc.name)
+			return nil, newError(src, skip, skip+i, "byte %#02x is not defined in %s", b, enc.name)
 		}
 		text = append(text, r...)
-		widths[i] = uint8(len(r))
+		widths[skip+i] = uint8(len(r))
 	}
-	return &Decoded{Text: text, Widths: widths}, nil
+	return &Decoded{Text: text, Widths: widths, Skip: skip}, nil
 }
 
 // decodeUTF8 validates src and removes a leading byte order mark.

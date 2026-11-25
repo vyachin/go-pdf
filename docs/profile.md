@@ -93,6 +93,13 @@ The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does 
 
 `auto` is allowed only for `width` and `height`. For `margin`, `padding`, `text-indent` and `line-height` it is a profile error: `margin: 0 auto` does not centre the block, whereas it used to silently align it to the left.
 
+Quoted CSS strings decode backslash escapes: one to six hexadecimal digits followed by
+an optional space, a backslash-newline continuation, and a backslash before any other
+character. `content` and `font-family` see the decoded text, so `"\2014"` is an em
+dash. The `border` shorthand accepts every colour form `color` accepts, including
+`rgb()` and hexadecimal values; a `transparent` border keeps its layout width but paints
+no pixels.
+
 A background image is painted behind the box's content, scaled to cover the box and clipped to it. The same `data:` URI forms as for `<img src>` are accepted; remote URLs are not. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
 
 ## Pagination
@@ -184,6 +191,23 @@ with `resource/limit` during parsing, before any walk over the rules.
 - the cascade order is the document order, so `<style>`, `<link>`, `<style>` apply in exactly that sequence;
 - an error inside an included file names the file, the line and the column in it.
 
+## Nesting depth
+
+`Options.Limits.MaxDOMDepth` (256 by default) bounds element nesting. The depth is
+measured on the tree the HTML standard's construction algorithm produces, so implied
+elements (`html`, `body`, an implied `tbody`) and implied end tags count, and 300
+sibling paragraphs with omitted end tags stay a shallow tree. A document whose deepest
+element is over the limit fails with `resource/limit` before the conversion model or
+layout allocates.
+
+The token pass may reject a document even earlier when it can prove the limit is
+exceeded without the tree: a run of start tags that never close implicitly (`div`,
+`ul`, `ol`, `span`, `b`, `strong`, `em`, `i`) and is not interrupted by an end tag or
+by table or foreign content. The rule is a lower bound, so a document it does not
+reject is decided on the tree rather than on an approximation. A failure of the
+standard tree construction is reported as `resource/limit` for its open-stack limit and
+as `html/parse` otherwise; neither escapes as a raw error or a panic.
+
 ## Diagnostics
 
 Every error contains the file, line, column and element path:
@@ -192,7 +216,7 @@ Every error contains the file, line, column and element path:
 invoice.html:12:5: error[css/unsupported-value]: display: unsupported display value "flex" (at body > div.invoice > p)
 ```
 
-Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `text/glyph`, `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
+Codes: `css/unsupported-property`, `css/unsupported-value`, `css/unsupported-selector`, `css/unsupported-at-rule`, `css/unsupported-media`, `css/unsupported-margin-box`, `css/incomplete-font-face`, `css/link-encoding`, `html/unsupported-element`, `html/truncated`, `html/ignored-script`, `html/invalid-span`, `html/encoding`, `html/parse`, `text/glyph`, `layout/overflow`, `resource/limit` (a work or resource bound, such as at-rule nesting).
 
 ## Work budget
 

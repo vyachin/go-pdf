@@ -44,7 +44,7 @@ already sits inside the profile is rendered unchanged.
 | `@media` that cannot apply to print | dropped |
 | `background: <colour>` | `background-color` |
 | `text-transform: uppercase`, `lowercase`, `capitalize` | applied to the text |
-| `box-sizing: border-box` with an explicit width or height | padding and border are subtracted from the content size, so the border box keeps its declared size |
+| `box-sizing: border-box` with an explicit width or height | padding and border are subtracted from the content size, so the border box keeps its declared size; an `em` border is resolved against the element's `font-size` first |
 | cosmetic properties (`box-shadow`, `isolation`, `overflow`, `z-index`, `aspect-ratio`, `min-height`, `print-color-adjust`, `color-scheme`) | dropped |
 
 `<main>` is part of the profile, and `:root` and the adjacent sibling selector
@@ -53,9 +53,15 @@ already sits inside the profile is rendered unchanged.
 ## Diagnostics
 
 Every transformation is a warning on the declaration that caused it:
-`browser/flex`, `browser/background`, `browser/dropped-property`,
-`browser/box-sizing`, `browser/text-transform`, `browser/media`. The CLI prints
-them next to the input path, so a reviewer can see exactly what changed.
+`browser/flex`, `browser/flex-margin`, `browser/background`,
+`browser/dropped-property`, `browser/box-sizing`, `browser/text-transform`,
+`browser/media`. The CLI prints them next to the input path, so a reviewer can see
+exactly what changed.
+
+A flex item's vertical margins become wrapper padding. An `auto` or negative margin
+cannot be represented as padding, so the import reports it with `browser/flex-margin`
+instead of dropping it silently; the vertical part that can be represented is still
+lowered.
 
 Constructs that cannot be lowered are errors and stop the conversion:
 

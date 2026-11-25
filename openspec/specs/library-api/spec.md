@@ -55,7 +55,8 @@ invalid images, malformed fonts and deeply nested markup.
 #### Scenario: An over-limit document is rejected
 
 - **WHEN** a document exceeds a configured limit, such as nesting depth or page count
-- **THEN** the call returns a `resource/limit` diagnostic before the expensive allocation
+- **THEN** the call returns a `resource/limit` diagnostic before the conversion model
+  or layout allocates
 
 ### Requirement: The work budget covers every conversion stage
 

@@ -77,6 +77,11 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 			diags.Errorf("html/truncated", truncated.Position, "", "%v", err)
 			return nil, diags, nil
 		}
+		var parseErr *html.ParseError
+		if errors.As(err, &parseErr) {
+			diags.Errorf(parseErr.Code, diag.Position{}, "", "%v", parseErr.Err)
+			return nil, diags, nil
+		}
 		// A document that cannot be decoded is reported at the offending byte
 		// of the original file, not as a font or glyph problem further down.
 		var encErr *charset.Error

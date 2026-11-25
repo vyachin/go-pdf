@@ -352,3 +352,28 @@ func TestByteOrderMark(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeExplicitEncodingStripsUTF8BOM guards that a caller-named legacy
+// encoding does not render a UTF-8 byte order mark as "п»ї".
+func TestDecodeExplicitEncodingStripsUTF8BOM(t *testing.T) {
+	enc, err := Validate(Windows1251)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("<p>text</p>")
+	src := append([]byte{0xEF, 0xBB, 0xBF}, body...)
+	dec, err := Decode(enc, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(dec.Text) != string(body) || dec.Skip != 3 {
+		t.Fatalf("text = %q, skip = %d", dec.Text, dec.Skip)
+	}
+	if len(dec.Widths) != len(src) {
+		t.Fatalf("widths = %d bytes, want %d", len(dec.Widths), len(src))
+	}
+	m := NewMapper(src, dec.Text, dec.Widths, dec.Skip)
+	if line, col := m.Position(0); line != 1 || col != 1 {
+		t.Fatalf("position 0 = %d:%d, want 1:1", line, col)
+	}
+}

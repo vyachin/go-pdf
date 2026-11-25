@@ -565,7 +565,10 @@ func lowerFlex(doc *html.Document, n *html.Node, raw map[string]css.Declaration,
 		if st := styles[child]; st != nil {
 			fontSize = st.FontSize
 		}
-		top, bottom, ok := margins(childRaw, fontSize)
+		top, bottom, ok, marginWarnings := margins(childRaw, fontSize)
+		for _, warning := range marginWarnings {
+			res.Diagnostics.Warnf("browser/flex-margin", doc.Pos(child), child.Path(), "%s", warning)
+		}
 		if !ok {
 			res.Diagnostics.Errorf("browser/unsupported-flex", doc.Pos(child), child.Path(),
 				"a percentage margin on a flex item is not supported")
@@ -701,7 +704,7 @@ func lowerBorderBox(n *html.Node, raw map[string]css.Declaration, styles map[*ht
 	}
 	if st.Height.Kind == css.MP {
 		reduce := st.Padding[0].Resolve(st.FontSize) + st.Padding[2].Resolve(st.FontSize) +
-			borderWidth(st.Border[0]) + borderWidth(st.Border[2])
+			borderWidth(st.Border[0], st.FontSize) + borderWidth(st.Border[2], st.FontSize)
 		if reduce > 0 && st.Height.Value > reduce {
 			appendStyle(n, "height:"+formatMP(st.Height.Value-reduce))
 			changed = true
@@ -709,7 +712,7 @@ func lowerBorderBox(n *html.Node, raw map[string]css.Declaration, styles map[*ht
 	}
 	if st.Width.Kind == css.MP {
 		reduce := st.Padding[3].Resolve(st.FontSize) + st.Padding[1].Resolve(st.FontSize) +
-			borderWidth(st.Border[3]) + borderWidth(st.Border[1])
+			borderWidth(st.Border[3], st.FontSize) + borderWidth(st.Border[1], st.FontSize)
 		if reduce > 0 && st.Width.Value > reduce {
 			appendStyle(n, "width:"+formatMP(st.Width.Value-reduce))
 			changed = true
@@ -718,37 +721,102 @@ func lowerBorderBox(n *html.Node, raw map[string]css.Declaration, styles map[*ht
 	return changed
 }
 
-func borderWidth(side css.BorderSide) int32 {
+// borderWidth resolves one side against the element's font size: an em border
+// is stored as a length and must not be subtracted as an unresolved count.
+func borderWidth(side css.BorderSide, fontSize int32) int32 {
 	if side.Style == css.BorderNone {
 		return 0
+	}
+	if side.WidthLen.Kind == css.Em {
+		return side.WidthLen.Resolve(fontSize)
 	}
 	return side.Width
 }
 
-// margins returns the resolved top and bottom margins of a flex item.
-func margins(raw map[string]css.Declaration, fontSize int32) (int32, int32, bool) {
+// margins returns the resolved top and bottom margins of a flex item, together
+// with every value the lowering had to drop: an auto or negative margin cannot
+// become padding, and silently removing it would change the spacing.
+func margins(raw map[string]css.Declaration, fontSize int32) (top, bottom int32, ok bool, warnings []string) {
 	st := css.DefaultStyle()
 	st.FontSize = fontSize
-	for _, prop := range []string{"margin", "margin-top", "margin-right", "margin-bottom", "margin-left"} {
+	// The shorthand is applied first; when the profile rejects it (auto or a
+	// percentage), its components still describe the authored values, so they
+	// are parsed here instead of being lost.
+	if d, ok := raw["margin"]; ok {
+		if err := css.ApplyDecl(st, "margin", d.Value, fontSize); err != nil {
+			if box, parsed := marginLengths(d.Value); parsed {
+				st.Margin = box
+			}
+		}
+	}
+	for _, prop := range []string{"margin-top", "margin-right", "margin-bottom", "margin-left"} {
 		if d, ok := raw[prop]; ok {
 			_ = css.ApplyDecl(st, prop, d.Value, fontSize)
 		}
 	}
-	top, okTop := resolveMargin(st.Margin[0], fontSize)
-	bottom, okBottom := resolveMargin(st.Margin[2], fontSize)
-	return top, bottom, okTop && okBottom
+	top, okTop, warnTop := marginSide(st.Margin[0], fontSize, "top")
+	bottom, okBottom, warnBottom := marginSide(st.Margin[2], fontSize, "bottom")
+	warnings = append(warnings, warnTop...)
+	warnings = append(warnings, warnBottom...)
+	for _, side := range []struct {
+		name string
+		v    css.Length
+	}{{"left", st.Margin[3]}, {"right", st.Margin[1]}} {
+		switch {
+		case side.v.Kind == css.Auto:
+			warnings = append(warnings, "margin "+side.name+": auto cannot be represented as padding and was dropped")
+		case side.v.Value < 0:
+			warnings = append(warnings, "negative margin "+side.name+" cannot be represented as padding and was dropped")
+		}
+	}
+	return top, bottom, okTop && okBottom, warnings
 }
 
-func resolveMargin(l css.Length, fontSize int32) (int32, bool) {
+// marginLengths parses a margin shorthand value that the profile rejected.
+func marginLengths(toks []css.Token) ([4]css.Length, bool) {
+	var parts []css.Length
+	for _, t := range toks {
+		if t.Kind == css.WhitespaceToken || t.Kind == css.EOFToken {
+			continue
+		}
+		l, err := css.ParseLengthToken(t)
+		if err != nil {
+			return [4]css.Length{}, false
+		}
+		parts = append(parts, l)
+	}
+	switch len(parts) {
+	case 1:
+		return [4]css.Length{parts[0], parts[0], parts[0], parts[0]}, true
+	case 2:
+		return [4]css.Length{parts[0], parts[1], parts[0], parts[1]}, true
+	case 3:
+		return [4]css.Length{parts[0], parts[1], parts[2], parts[1]}, true
+	case 4:
+		return [4]css.Length{parts[0], parts[1], parts[2], parts[3]}, true
+	}
+	return [4]css.Length{}, false
+}
+
+// marginSide resolves one vertical margin and reports the values that padding
+// cannot represent. A percentage is not representable at all.
+func marginSide(l css.Length, fontSize int32, name string) (int32, bool, []string) {
 	switch l.Kind {
 	case css.MP:
-		return l.Value, true
+		if l.Value < 0 {
+			return 0, true, []string{"negative margin-" + name + " cannot be represented as padding and was dropped"}
+		}
+		return l.Value, true, nil
 	case css.Em:
-		return l.Resolve(fontSize), true
+		v := l.Resolve(fontSize)
+		if v < 0 {
+			return 0, true, []string{"negative margin-" + name + " cannot be represented as padding and was dropped"}
+		}
+		return v, true, nil
 	case css.Auto:
-		return 0, true
+		return 0, true, []string{"margin-" + name + ": auto cannot be represented as padding and was dropped"}
 	default:
-		return 0, false
+		return 0, false, nil
 	}
 }
 

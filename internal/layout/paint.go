@@ -51,7 +51,7 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 	paintBorder := func(side int, rect Rect) {
 		border := b.Style.Border[side]
 		w := visibleWidth(border)
-		if w <= 0 || rect.W <= 0 || rect.H <= 0 {
+		if w <= 0 || border.Color.Transparent || rect.W <= 0 || rect.H <= 0 {
 			return
 		}
 		color := border.Color

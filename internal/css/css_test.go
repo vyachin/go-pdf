@@ -365,6 +365,10 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte(`@page { size: A4; @bottom-center { content: counter(page) } }`))
 	f.Add([]byte(`@font-face { font-family: "x"; src: url(a.ttf) }`))
 	f.Add([]byte(`a::after { content: target-counter(attr(href), page) }`))
+	// Decoded escapes, a quoted bracket in a selector list and the border
+	// colour grammar.
+	f.Add([]byte(`a::after { content: "\2014 A\20 B" }`))
+	f.Add([]byte(`p[title="("], div { border: 1px solid rgb(255, 0, 0) }`))
 	f.Add([]byte(`@media print { td { border: 1pt solid red } }`))
 	// Nested at-rules exercise the depth limit: within the limit and past it,
 	// balanced and unclosed.

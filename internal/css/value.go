@@ -308,7 +308,9 @@ type BorderSide struct {
 }
 
 // IsVisible reports whether the side should be drawn.
-func (b BorderSide) IsVisible() bool { return b.Style != BorderNone && b.Width > 0 }
+func (b BorderSide) IsVisible() bool {
+	return b.Style != BorderNone && b.Width > 0 && !b.Color.Transparent
+}
 
 // Display is the computed value of the display property.
 type Display int
