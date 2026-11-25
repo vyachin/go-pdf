@@ -154,7 +154,8 @@ func TestCoverageFormat2ExpansionIsBounded(t *testing.T) {
 		ranges[i] = [2]uint16{0, 65535}
 	}
 	coverage := coverageFormat2Test(ranges)
-	if _, ok := parseCoverage(coverage, 0, maxKerningGlyphs); ok {
+	k := &kerning{}
+	if _, ok, err := k.parseCoverage(coverage, 0, maxKerningGlyphs); ok || err != nil {
 		t.Fatal("overlapping repeated ranges were accepted")
 	}
 }
@@ -167,7 +168,8 @@ func TestCoverageRejectsUnsortedAndOverlappingRanges(t *testing.T) {
 	}
 	for name, ranges := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, ok := parseCoverage(coverageFormat2Test(ranges), 0, maxKerningGlyphs); ok {
+			k := &kerning{}
+			if _, ok, err := k.parseCoverage(coverageFormat2Test(ranges), 0, maxKerningGlyphs); ok || err != nil {
 				t.Fatalf("%s ranges were accepted", name)
 			}
 		})

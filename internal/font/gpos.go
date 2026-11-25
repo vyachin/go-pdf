@@ -1,6 +1,12 @@
 package font
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+
+	"github.com/vyachin/go-pdf/internal/budget"
+)
 
 // kerning holds horizontal pair adjustments from the GPOS table. Adjustments
 // are kept per lookup: every lookup of the feature applies in order and their
@@ -13,6 +19,52 @@ type kerning struct {
 	// coverGlyphs counts the glyph ids expanded from every Coverage of the
 	// table, so repeated lookups and subtables share one budget.
 	coverGlyphs int
+	// scannedRanges counts the coverage entries examined across the whole
+	// table, so a corrupt font cannot make one file buy unbounded work.
+	scannedRanges int
+	// guard bounds the work and carries cancellation. Nil means no limit.
+	guard *budget.Guard
+}
+
+// Parsing bounds that are independent of the counts a font declares. Real
+// fonts are far below them: DejaVu Sans has two lookups.
+const (
+	maxGPOSLookups   = 4096
+	maxGPOSSubtables = 4096
+	maxScannedRanges = 1_000_000
+)
+
+// limitf reports a font that crossed one of the parsing bounds above.
+func limitf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrLimit, fmt.Sprintf(format, args...))
+}
+
+// charge records parsing work. A nil guard is unlimited work.
+func (k *kerning) charge(n uint64) error {
+	if k.guard == nil {
+		return nil
+	}
+	if err := k.guard.Add(n); err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			return limitf("GPOS parsing exceeded the work budget")
+		}
+		return err
+	}
+	return nil
+}
+
+// check reports a cancelled conversion promptly between lookups.
+func (k *kerning) check() error {
+	if k.guard == nil {
+		return nil
+	}
+	if err := k.guard.Err(); err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			return limitf("GPOS parsing exceeded the work budget")
+		}
+		return err
+	}
+	return nil
 }
 
 // pairLookup holds the positioning data of one PairPos lookup.
@@ -43,24 +95,33 @@ type classRange struct {
 	class      uint16
 }
 
-func (f *Font) parseGPOS() {
+func (f *Font) parseGPOS() error {
 	gpos, ok := f.tables["GPOS"]
 	if !ok || len(gpos) < 10 {
-		return
+		return nil
 	}
 	lookupList := int(binary.BigEndian.Uint16(gpos[8:10]))
-	if lookupList == 0 || lookupList+2 > len(gpos) {
-		return
+	if lookupList == 0 || !fits(lookupList, 0, 2, len(gpos)) {
+		return nil
 	}
-	k := &kerning{}
+	k := &kerning{guard: f.guard}
 	count := int(binary.BigEndian.Uint16(gpos[lookupList : lookupList+2]))
+	if count > maxGPOSLookups {
+		return limitf("GPOS declares %d lookups, the limit is %d", count, maxGPOSLookups)
+	}
 	for i := 0; i < count; i++ {
+		if err := k.check(); err != nil {
+			return err
+		}
+		if err := k.charge(1); err != nil {
+			return err
+		}
 		offPos := lookupList + 2 + i*2
-		if offPos+2 > len(gpos) {
+		if !fits(offPos, 0, 2, len(gpos)) {
 			break
 		}
 		off := lookupList + int(binary.BigEndian.Uint16(gpos[offPos:offPos+2]))
-		if off+6 > len(gpos) {
+		if !fits(off, 0, 6, len(gpos)) {
 			continue
 		}
 		lookupType := binary.BigEndian.Uint16(gpos[off : off+2])
@@ -68,10 +129,16 @@ func (f *Font) parseGPOS() {
 			continue
 		}
 		subCount := int(binary.BigEndian.Uint16(gpos[off+4 : off+6]))
+		if subCount > maxGPOSSubtables {
+			return limitf("GPOS lookup %d declares %d subtables, the limit is %d", i, subCount, maxGPOSSubtables)
+		}
 		lookup := &pairLookup{pairs: map[uint32]int16{}}
 		for j := 0; j < subCount; j++ {
+			if err := k.charge(1); err != nil {
+				return err
+			}
 			subOffPos := off + 6 + j*2
-			if subOffPos+2 > len(gpos) {
+			if !fits(subOffPos, 0, 2, len(gpos)) {
 				break
 			}
 			subOff := off + int(binary.BigEndian.Uint16(gpos[subOffPos:subOffPos+2]))
@@ -84,7 +151,9 @@ func (f *Font) parseGPOS() {
 					continue
 				}
 			}
-			lookup.parsePairPos(k, gpos, subOff)
+			if err := lookup.parsePairPos(k, gpos, subOff); err != nil {
+				return err
+			}
 		}
 		if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
 			k.lookups = append(k.lookups, lookup)
@@ -93,6 +162,7 @@ func (f *Font) parseGPOS() {
 	if len(k.lookups) > 0 {
 		f.gpos = k
 	}
+	return nil
 }
 
 // extensionSubtable resolves an ExtensionPos (lookup type 9) subtable to the
@@ -106,31 +176,34 @@ func extensionSubtable(data []byte, off int) (int, bool) {
 	if format != 1 || lookupType != 2 {
 		return 0, false
 	}
-	delta := int(binary.BigEndian.Uint32(data[off+4 : off+8]))
-	if delta <= 0 || delta > len(data)-off {
+	delta, ok := readU32(data, off+4)
+	if !ok || delta == 0 || delta > uint64(len(data))-uint64(off) {
 		return 0, false
 	}
-	target := off + delta
-	if target+8 > len(data) {
+	target := uint64(off) + delta
+	if target+8 > uint64(len(data)) {
 		return 0, false
 	}
-	return target, true
+	return int(target), true
 }
 
 // parsePairPos parses one subtable into a lookup of its own. It is the entry
 // point for tests of a single subtable; the table parser groups the subtables
 // of a lookup itself.
-func (k *kerning) parsePairPos(data []byte, off int) {
+func (k *kerning) parsePairPos(data []byte, off int) error {
 	lookup := &pairLookup{pairs: map[uint32]int16{}}
-	lookup.parsePairPos(k, data, off)
+	if err := lookup.parsePairPos(k, data, off); err != nil {
+		return err
+	}
 	if len(lookup.pairs) > 0 || len(lookup.classes) > 0 {
 		k.lookups = append(k.lookups, lookup)
 	}
+	return nil
 }
 
-func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
-	if off+10 > len(data) {
-		return
+func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) error {
+	if !fits(off, 0, 10, len(data)) {
+		return nil
 	}
 	format := binary.BigEndian.Uint16(data[off : off+2])
 	coverageOff := off + int(binary.BigEndian.Uint16(data[off+2:off+4]))
@@ -138,34 +211,34 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 	valueFormat2 := binary.BigEndian.Uint16(data[off+6 : off+8])
 	remaining := maxKerningGlyphs - k.coverGlyphs
 	if remaining <= 0 {
-		return
+		return nil
 	}
-	cover, ok := parseCoverage(data, coverageOff, remaining)
+	cover, ok, err := k.parseCoverage(data, coverageOff, remaining)
+	if err != nil {
+		return err
+	}
 	if !ok {
-		return
+		return nil
 	}
 	k.coverGlyphs += len(cover)
 	switch format {
 	case 1:
-		if off+10 > len(data) {
-			return
-		}
 		pairSetCount := int(binary.BigEndian.Uint16(data[off+8 : off+10]))
 		recordSize := valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2)
 		for i := 0; i < pairSetCount && i < len(cover); i++ {
 			setPos := off + 10 + i*2
-			if setPos+2 > len(data) {
-				return
+			if !fits(setPos, 0, 2, len(data)) {
+				return nil
 			}
 			setOff := off + int(binary.BigEndian.Uint16(data[setPos:setPos+2]))
-			if setOff+2 > len(data) {
+			if !fits(setOff, 0, 2, len(data)) {
 				continue
 			}
 			n := int(binary.BigEndian.Uint16(data[setOff : setOff+2]))
 			cursor := setOff + 2
 			for j := 0; j < n; j++ {
-				if cursor+2+recordSize > len(data) {
-					return
+				if !fits(cursor, 0, uint64(2+recordSize), len(data)) {
+					return nil
 				}
 				second := binary.BigEndian.Uint16(data[cursor : cursor+2])
 				cursor += 2
@@ -177,8 +250,8 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 			}
 		}
 	case 2:
-		if off+16 > len(data) {
-			return
+		if !fits(off, 0, 16, len(data)) {
+			return nil
 		}
 		classDef1Off := off + int(binary.BigEndian.Uint16(data[off+8:off+10]))
 		classDef2Off := off + int(binary.BigEndian.Uint16(data[off+10:off+12]))
@@ -186,7 +259,7 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 		class2Count := int(binary.BigEndian.Uint16(data[off+14 : off+16]))
 		classes1, ok := parseClassDef(data, classDef1Off)
 		if !ok {
-			return
+			return nil
 		}
 		sub := &classSubtable{class1: map[uint16]uint16{}, covered: make(map[uint16]bool, len(cover))}
 		if c2, ok := parseClassDef(data, classDef2Off); ok {
@@ -194,22 +267,24 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 		}
 		recordSize := valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2)
 		if recordSize == 0 {
-			return
+			return nil
 		}
-		if class1Count*class2Count*recordSize+off+16 > len(data) {
-			return
+		// Three font-declared counts multiply here; the product is compared in
+		// 64-bit so a 32-bit build cannot wrap it into a negative bound.
+		if !fits(off+16, 0, uint64(class1Count)*uint64(class2Count)*uint64(recordSize), len(data)) {
+			return nil
 		}
 		// A corrupt table can describe ranges covering the whole glyph space;
 		// expanding them into a map is bounded instead.
 		expanded := 0
 		for _, r := range classes1 {
 			if r.end < r.start {
-				return
+				return nil
 			}
 			expanded += int(r.end-r.start) + 1
 		}
 		if expanded > maxKerningGlyphs {
-			return
+			return nil
 		}
 		sub.records = make([][]int16, class1Count)
 		for _, gid := range cover {
@@ -224,8 +299,8 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 		for c1 := 0; c1 < class1Count; c1++ {
 			row := make([]int16, class2Count)
 			for c2 := 0; c2 < class2Count; c2++ {
-				if cursor+recordSize > len(data) {
-					return
+				if !fits(cursor, 0, uint64(recordSize), len(data)) {
+					return nil
 				}
 				adv, _ := xAdvance(data[cursor:cursor+valueRecordSize(valueFormat1)], valueFormat1)
 				row[c2] = adv
@@ -235,6 +310,7 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) {
 		}
 		l.classes = append(l.classes, sub)
 	}
+	return nil
 }
 
 func valueRecordSize(vf uint16) int {
@@ -269,45 +345,64 @@ func xAdvance(record []byte, vf uint16) (int16, bool) {
 // parseCoverage reads a Coverage table, expanding format 2 ranges. limit is
 // the number of glyph ids the caller can still accept; ranges are counted
 // before anything is appended, so a tiny table cannot request a huge slice.
-func parseCoverage(data []byte, off int, limit int) ([]uint16, bool) {
-	if off+4 > len(data) || limit <= 0 {
-		return nil, false
+// Every examined range is charged to the work guard, including a range that
+// fails its bounds check.
+func (k *kerning) parseCoverage(data []byte, off, limit int) ([]uint16, bool, error) {
+	if !fits(off, 0, 4, len(data)) || limit <= 0 {
+		return nil, false, nil
+	}
+	if err := k.charge(1); err != nil {
+		return nil, false, err
 	}
 	format := binary.BigEndian.Uint16(data[off : off+2])
 	switch format {
 	case 1:
 		n := int(binary.BigEndian.Uint16(data[off+2 : off+4]))
-		if n > limit || off+4+n*2 > len(data) {
-			return nil, false
+		if n > limit || !fits(off, 4, uint64(n)*2, len(data)) {
+			return nil, false, nil
+		}
+		if err := k.charge(uint64(n)); err != nil {
+			return nil, false, err
+		}
+		k.scannedRanges += n
+		if k.scannedRanges > maxScannedRanges {
+			return nil, false, limitf("a font scans more than %d coverage entries", maxScannedRanges)
 		}
 		out := make([]uint16, n)
 		for i := 0; i < n; i++ {
 			out[i] = binary.BigEndian.Uint16(data[off+4+i*2 : off+6+i*2])
 			// The format requires strictly increasing glyph ids.
 			if i > 0 && out[i] <= out[i-1] {
-				return nil, false
+				return nil, false, nil
 			}
 		}
-		return out, true
+		return out, true, nil
 	case 2:
 		n := int(binary.BigEndian.Uint16(data[off+2 : off+4]))
-		if off+4+n*6 > len(data) {
-			return nil, false
+		if !fits(off, 4, uint64(n)*6, len(data)) {
+			return nil, false, nil
 		}
 		// Count the expansion first: a repeated 0..65535 range would otherwise
 		// append 65536 entries per six bytes.
 		total := 0
 		prevEnd := -1
 		for i := 0; i < n; i++ {
+			if err := k.charge(1); err != nil {
+				return nil, false, err
+			}
+			k.scannedRanges++
+			if k.scannedRanges > maxScannedRanges {
+				return nil, false, limitf("a font scans more than %d coverage ranges", maxScannedRanges)
+			}
 			base := off + 4 + i*6
 			start := int(binary.BigEndian.Uint16(data[base : base+2]))
 			end := int(binary.BigEndian.Uint16(data[base+2 : base+4]))
 			if end < start || start <= prevEnd {
-				return nil, false
+				return nil, false, nil
 			}
 			total += end - start + 1
 			if total > limit {
-				return nil, false
+				return nil, false, nil
 			}
 			prevEnd = end
 		}
@@ -320,9 +415,9 @@ func parseCoverage(data []byte, off int, limit int) ([]uint16, bool) {
 				out = append(out, uint16(g))
 			}
 		}
-		return out, true
+		return out, true, nil
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 func parseClassDef(data []byte, off int) ([]classRange, bool) {
