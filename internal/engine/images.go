@@ -105,19 +105,19 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 // loadDataURI decodes an image embedded in the document as a data: URI. Only
 // base64-encoded PNG and JPEG are supported, matching the file loader.
 func (l *imageLoader) loadDataURI(src string) (*layout.ImageData, error) {
-	comma := strings.IndexByte(src, ',')
-	if comma < 0 {
+	head, payload, ok := strings.Cut(src, ",")
+	if !ok {
 		return nil, fmt.Errorf("malformed data: URI image: missing ','")
 	}
-	header := strings.ToLower(strings.TrimSpace(src[len("data:"):comma]))
-	payload := src[comma+1:]
-	if !strings.HasSuffix(header, ";base64") {
+	// Load matched the "data:" scheme case-insensitively before calling.
+	header := strings.ToLower(strings.TrimSpace(head[len("data:"):]))
+	media, ok := strings.CutSuffix(header, ";base64")
+	if !ok {
 		return nil, fmt.Errorf("data: URI images must be base64-encoded")
 	}
-	mime := strings.TrimSuffix(header, ";base64")
-	if i := strings.IndexByte(mime, ';'); i >= 0 {
-		mime = mime[:i]
-	}
+	// A parameter list follows the media type; the type ends at the first
+	// semicolon.
+	mime, _, _ := strings.Cut(media, ";")
 	payload = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' || r == ' ' {
 			return -1

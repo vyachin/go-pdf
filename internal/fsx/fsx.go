@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,14 +143,20 @@ func (r *Root) open(path string) (*os.File, error) {
 	}
 	f, err := r.handle.Open(rel)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, err
-		}
-		if strings.Contains(err.Error(), "escapes") {
-			return nil, ErrOutsideRoot
-		}
-		// Permission and other failures keep their cause.
-		return nil, err
+		return nil, classifyOpenError(err)
 	}
 	return f, nil
+}
+
+// classifyOpenError keeps the cause of a failed open: a missing file keeps its
+// error, and only a path that os.Root reports as escaping becomes ErrOutsideRoot.
+// Permission and other failures keep their cause as well.
+func classifyOpenError(err error) error {
+	if errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if strings.Contains(err.Error(), "escapes") {
+		return ErrOutsideRoot
+	}
+	return err
 }

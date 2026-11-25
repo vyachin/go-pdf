@@ -57,10 +57,11 @@ jobs:
           fi
       - name: Test
         # The render tests need poppler, which only the golden job installs;
-        # they skip here and golden owns them.
+        # they skip here and golden owns them. The shuffle makes an order
+        # dependence fail here instead of staying a latent assumption.
         env:
           PDF_REQUIRE_VALIDATOR: "1"
-        run: go test ./...
+        run: go test -shuffle=on ./...
       - name: Public API from another module
         # The package must be importable by a module outside this repository.
         run: |
@@ -104,7 +105,7 @@ jobs:
         # The render tests skip here: only the golden job installs poppler.
         env:
           PDF_REQUIRE_VALIDATOR: "1"
-        run: go test -race ./...
+        run: go test -shuffle=on -race ./...
 
   golden:
     # The render goldens are produced with the poppler of this image. The
