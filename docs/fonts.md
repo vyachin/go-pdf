@@ -21,9 +21,28 @@ For an integrator this means: the service that embeds the engine decides for its
 
 The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@font-face` resolve through step 2 or 3.
 
+## Embedded assets and `Options.Source`
+
+`pdfgen.Options.Source` accepts any `fs.FS` — `embed.FS`, `os.DirFS`,
+`fstest.MapFS` or a subtree made with `fs.Sub` — and replaces the host filesystem
+for the whole conversion. Every image, stylesheet and `@font-face` source is read
+through it; `BaseDir` and `FontDir` name directories inside it and default to its
+root, and `FallbackFont` is a path inside it, read from the source root. The two
+authorities are never mixed: with `Source` set, the host filesystem and the
+system font list from `DefaultFallbackFonts` are not consulted, so ship the font
+in the source and declare it with `@font-face` or set `FallbackFont`. A source
+path is slash-separated, relative and must stay inside the source; an absolute
+or escaping reference fails with the asset's load diagnostic. With a nil
+`Source` (the default) fonts resolve from the host filesystem exactly as
+described above, and step 3 of the resolution order applies.
+
 ## File requirements
 
-- **TrueType** (`.ttf`) and **OpenType with CFF outlines** (`.otf`) are accepted, from a local file only. WOFF and WOFF2 are rejected with a diagnostic naming the format, because they are compressed containers the engine does not decode; CFF2, variable fonts and font collections are rejected for the same reason.
+- **TrueType** (`.ttf`) and **OpenType with CFF outlines** (`.otf`) are accepted,
+  from a local file or from a file in `Options.Source`. WOFF and WOFF2 are
+  rejected with a diagnostic naming the format, because they are compressed
+  containers the engine does not decode; CFF2, variable fonts and font
+  collections are rejected for the same reason.
 - Cyrillic is mandatory: a character without a glyph is the error `text/glyph`, not a silent replacement.
 - `@font-face` accepts only a local `url(...)`; `format()` and remote URLs are rejected.
 

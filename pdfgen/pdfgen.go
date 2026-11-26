@@ -3,6 +3,7 @@ package pdfgen
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -27,11 +28,29 @@ type Options struct {
 	// FontDir confines the fonts the document may load: a path or symlink that
 	// leaves it is rejected. A configured directory that cannot be opened is
 	// reported as options/asset-root before any font is read.
+	//
+	// When Source is set, FontDir is a directory inside that source and
+	// defaults to its root (BaseDir is not consulted); an absolute src is
+	// rejected instead of being read as written.
 	FontDir string
 	// BaseDir is the directory used to resolve relative image paths. When it
 	// is set, reads are confined to that directory: a path or symlink that
 	// leaves it is rejected with a diagnostic.
+	//
+	// When Source is set, BaseDir is a directory inside that source and
+	// defaults to its root, and the same confinement applies to the source
+	// namespace.
 	BaseDir string
+	// Source is a caller-supplied file system that replaces the host filesystem
+	// for the conversion. When it is non-nil, every document-referenced image,
+	// stylesheet and @font-face source, and FallbackFont, is read through it;
+	// BaseDir and FontDir name directories inside it and default to its root,
+	// and FallbackFont is a path inside it, read from its root. No host file is
+	// read and the system font list is not consulted. Source paths are
+	// slash-separated and relative: an absolute or escaping reference is
+	// rejected with the asset's load diagnostic. A nil Source keeps the
+	// filesystem behaviour unchanged.
+	Source fs.FS
 	// Date replaces the PDF creation date. The zero value selects a fixed
 	// constant so that repeated runs stay byte identical; set it for documents
 	// that must carry the real date.
@@ -47,6 +66,9 @@ type Options struct {
 	// with @font-face. When empty a small list of system fonts is tried; a
 	// document whose font cannot be found fails with a diagnostic instead of
 	// silently replacing glyphs.
+	//
+	// When Source is set, FallbackFont is a path inside that source, read from
+	// its root, and the system font list is not consulted.
 	FallbackFont string
 	// Charset names the input encoding explicitly and wins over the document's
 	// own declaration and its byte order mark. Empty means detect: a byte
@@ -341,6 +363,7 @@ func (o Options) toEngine() engine.Options {
 		Margin:       o.Margin,
 		FontDir:      o.FontDir,
 		BaseDir:      o.BaseDir,
+		Source:       o.Source,
 		Date:         o.Date,
 		Title:        o.Title,
 		RenderPNG:    o.RenderPNG,

@@ -9,6 +9,7 @@ package engine
 
 import (
 	"context"
+	"io/fs"
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/diag"
@@ -25,6 +26,12 @@ type Options struct {
 	FontDir string
 	// BaseDir is the directory used to resolve relative image paths.
 	BaseDir string
+	// Source, when non-nil, is a caller-supplied file system that replaces the
+	// host filesystem for the conversion: every image, stylesheet and font is
+	// read through it. BaseDir and FontDir are then directories inside it and
+	// default to its root, and FallbackFont is a path inside it. A nil Source
+	// keeps the host filesystem behaviour unchanged.
+	Source fs.FS
 	// Date replaces the PDF creation date. The zero value selects a fixed
 	// constant so that repeated runs stay byte identical.
 	Date time.Time

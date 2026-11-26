@@ -60,6 +60,11 @@ func prepare(ctx context.Context, src []byte, opts Options) (*prepared, diag.Lis
 	limits := opts.Limits.resolved()
 	guard := budget.New(ctx, limits.MaxOperations)
 	reg := assets.New(guard)
+	if opts.Source != nil {
+		// The source replaces the host filesystem for the whole conversion:
+		// the registry reads every asset through it and opens no host root.
+		reg = assets.NewWithSource(guard, opts.Source)
+	}
 	p, diags, err := prepareDocument(ctx, src, opts, guard, reg)
 	if p == nil {
 		_ = reg.Close()
@@ -177,9 +182,19 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 	}
 	// A configured asset root must be usable. Opening it here means a missing
 	// BaseDir or FontDir fails with its own code before any stylesheet or font
-	// is read, instead of surfacing as a link error or reading unbounded.
+	// is read, instead of surfacing as a link error or reading unbounded. A
+	// source root is a directory inside the caller's fs.FS, so it is checked
+	// the same way without opening a host directory.
 	for _, dir := range []string{opts.BaseDir, opts.FontDir} {
 		if dir == "" {
+			continue
+		}
+		if reg.IsSource() {
+			if _, sourceErr := assets.SourceDir(opts.Source, dir); sourceErr != nil {
+				diags.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the asset directory %q: %v", dir, sourceErr)
+				diags.Sort()
+				return nil, diags, nil
+			}
 			continue
 		}
 		// The registry keeps the opened root for the conversion, so the check
@@ -292,6 +307,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
 	images := &imageLoader{
 		baseDir:        opts.BaseDir,
+		source:         opts.Source,
 		maxPixels:      limits.MaxImagePixels,
 		maxBytes:       limits.MaxImageBytes,
 		maxTotalBytes:  limits.MaxTotalImageBytes,

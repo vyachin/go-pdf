@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io/fs"
 	"math"
 	"strings"
 	"sync"
@@ -22,7 +23,9 @@ import (
 // imageLoader resolves <img src> to decoded image data. Decoded images are
 // cached for the conversion so that a repeated source is read and embedded once.
 type imageLoader struct {
-	baseDir   string
+	baseDir string
+	// source replaces the host filesystem for every read when it is set.
+	source    fs.FS
 	maxPixels int
 	maxBytes  int
 	// Aggregate caps for one conversion: encoded bytes and decoded pixels of
@@ -48,7 +51,7 @@ func (l *imageLoader) assets() *assets.Registry {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.reg == nil {
-		l.reg = assets.New(l.guard)
+		l.reg = assets.NewWithSource(l.guard, l.source)
 		l.ownRegistry = true
 	}
 	return l.reg

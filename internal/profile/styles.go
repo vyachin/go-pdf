@@ -60,7 +60,11 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 		reg = assets.New(opts.Budget)
 		defer func() { _ = reg.Close() }()
 	}
-	if _, rootErr := reg.Root(opts.BaseDir); rootErr != nil {
+	if reg.IsSource() {
+		// A source root is a directory inside the caller's fs.FS, not a host
+		// directory: there is no handle to open here, and a reference outside
+		// it is rejected by the read that follows.
+	} else if _, rootErr := reg.Root(opts.BaseDir); rootErr != nil {
 		// A configured root that cannot be opened is a configuration error.
 		// Continuing with a nil root would mean "no boundary" and read an
 		// absolute link outside the directory the caller named.
@@ -222,7 +226,7 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 		return nil, "", nil
 	}
 	href, _ := n.Attr("href")
-	if _, err := resolveStylesheetPath(href, opts.BaseDir); err != nil {
+	if _, err := resolveStylesheetPath(href, opts.BaseDir, reg.IsSource()); err != nil {
 		// The resolver's failures carry the link codes (remote, data:, empty);
 		// its path is not needed because the registry resolves the reference.
 		return nil, "", err
@@ -375,8 +379,10 @@ func isCSSSpace(b byte) bool {
 // resolveStylesheetPath turns an href into a readable local path. Remote and
 // data: URLs are rejected here; whether the path stays inside the base
 // directory is decided by the caller when it reads through fsx.Root, the same
-// rule the image loader uses.
-func resolveStylesheetPath(href, baseDir string) (string, error) {
+// rule the image loader uses. When source is true the path is a name inside the
+// caller's fs.FS, so no host filesystem rule is applied to it: the registry
+// validates and resolves it on the read.
+func resolveStylesheetPath(href, baseDir string, source bool) (string, error) {
 	href = strings.TrimSpace(href)
 	if href == "" {
 		return "", &linkError{code: diag.CSSLinkLoad, msg: "stylesheet link has no href"}
@@ -392,6 +398,9 @@ func resolveStylesheetPath(href, baseDir string) (string, error) {
 		return "", &linkError{code: diag.CSSLinkRemote, msg: fmt.Sprintf("remote stylesheets are not supported: %s", href)}
 	case ref.Data:
 		return "", &linkError{code: diag.CSSLinkUnsupported, msg: "data: stylesheets are not supported"}
+	}
+	if source {
+		return ref.Path, nil
 	}
 	path := ref.Path
 	if !filepath.IsAbs(path) {

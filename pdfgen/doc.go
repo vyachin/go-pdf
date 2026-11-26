@@ -18,7 +18,8 @@
 //     keeps its stylesheets and images immutable.
 //   - No writes. [Convert] and [Validate] create, modify and delete no files.
 //     They read only the assets the document references, inside the configured
-//     roots, and the PDF is returned to the caller, who decides where it goes.
+//     roots or the caller-supplied [Options].Source, and the PDF is returned to
+//     the caller, who decides where it goes.
 //   - No panics. Any byte sequence is answered with a result or an error, never
 //     with a crash.
 //   - Concurrency. The package keeps no mutable global state, so independent
@@ -31,8 +32,9 @@
 //
 // The package renders a closed CSS profile, not a browser: there is no flexbox
 // or grid layout, no absolute positioning, no JavaScript and no network access.
-// Images, stylesheets and fonts are local files. Every document is validated
-// against the closed profile; there is no lowering pass.
+// Images, stylesheets and fonts are local files or, when [Options].Source is
+// set, objects in that file system. Every document is validated against the
+// closed profile; there is no lowering pass.
 //
 // # Defaults
 //
@@ -40,6 +42,18 @@
 // creation date and the default limits. Relative image and font paths resolve
 // against [Options].BaseDir and [Options].FontDir; when both are empty, the
 // process working directory is used.
+//
+// # Asset sources
+//
+// [Options].Source accepts any fs.FS — an embed.FS, an os.DirFS, a
+// fstest.MapFS or a subtree made with fs.Sub. When it is set, it replaces the
+// host filesystem for the whole conversion: every document-referenced image,
+// stylesheet and @font-face source, and [Options].FallbackFont, is read through
+// it. [Options].BaseDir and [Options].FontDir then name directories inside the
+// source and default to its root, and the host system font list is not
+// consulted. The two authorities are never mixed: a source path is relative,
+// must stay inside the source and is rejected with the asset's load diagnostic
+// otherwise. A nil Source reads from the host filesystem exactly as before.
 //
 // # Diagnostics
 //

@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -70,12 +71,14 @@ type Request struct {
 	Kind Kind
 	// Reference is the reference as the document or the caller wrote it.
 	Reference string
-	// Dir is the root that confines a document reference. An empty Dir means no
-	// boundary (the working directory), like fsx.Open("").
+	// Dir is the root that confines a document reference. On the host
+	// filesystem an empty Dir means no boundary (the working directory), like
+	// fsx.Open(""); on a source it means the source root.
 	Dir string
 	// Explicit marks a caller-selected path: it is read as an operating-system
 	// path, outside the document roots, because the caller named the file
-	// itself. The reference is not resolved as a URL.
+	// itself. On a source the path is read from the source root instead and is
+	// still confined to the source. The reference is not resolved as a URL.
 	Explicit bool
 	// MaxBytes bounds one file; zero means unlimited.
 	MaxBytes int
@@ -95,11 +98,14 @@ type Record struct {
 	// Key is the identity: kind, the canonical file identity or content digest,
 	// and the decoding inputs.
 	Key string
-	// Path is the local path the reference named, as it was joined with the
-	// root. It is what a diagnostic should name.
+	// Path is the path the reference named, joined with the root: the local
+	// path on the host filesystem, or the validated source path. It is what a
+	// diagnostic should name.
 	Path string
-	// Canonical is the resolved absolute path, empty for a data: URI. It is the
-	// identity of a file: two spellings of one path resolve to the same string.
+	// Canonical is the resolved absolute path on the host filesystem, or the
+	// validated source path when the conversion reads from a source. It is
+	// empty for a data: URI. It is the identity of a file: two spellings of one
+	// path resolve to the same string.
 	Canonical string
 	// Bytes are the file's contents.
 	Bytes []byte
@@ -116,6 +122,9 @@ type Record struct {
 // call it from several goroutines.
 type Registry struct {
 	guard *budget.Guard
+	// source, when set, is the caller-supplied file system every read uses
+	// instead of the host filesystem. The registry never closes it.
+	source fs.FS
 
 	mu     sync.Mutex
 	roots  map[string]*fsx.Root
@@ -136,6 +145,21 @@ func New(guard *budget.Guard) *Registry {
 		totals: map[Kind]int64{},
 		reads:  map[Kind]int{},
 	}
+}
+
+// NewWithSource returns a registry for one conversion that reads every asset
+// through source instead of the host filesystem. The registry does not take
+// ownership of source: it never closes it, and the caller owns its lifetime.
+func NewWithSource(guard *budget.Guard, source fs.FS) *Registry {
+	r := New(guard)
+	r.source = source
+	return r
+}
+
+// IsSource reports whether the registry reads assets from a caller-supplied
+// fs.FS rather than from the host filesystem.
+func (r *Registry) IsSource() bool {
+	return r != nil && r.source != nil
 }
 
 // Close releases every root the registry opened. It is idempotent, so a caller
@@ -174,7 +198,13 @@ func (r *Registry) Closed() bool {
 // Root returns the confined reader of one directory, opening it on first use.
 // Two spellings of one directory share one handle. An empty dir returns a root
 // without a boundary, the same way fsx.Open("") does.
+//
+// A source-backed registry has no host directory: Root reports an error instead
+// of opening one, so no code path can mix a source with host reads.
 func (r *Registry) Root(dir string) (*fsx.Root, error) {
+	if r != nil && r.source != nil {
+		return nil, errors.New("a source-backed asset registry has no host directory")
+	}
 	if r == nil {
 		return fsx.Open(dir)
 	}
@@ -232,6 +262,9 @@ func (r *Registry) Reads(kind Kind) int {
 // cannot use them, so a failed parse does not consume the total a later valid
 // asset needs.
 func (r *Registry) Read(req Request) (*Record, error) {
+	if r != nil && r.source != nil {
+		return r.readSource(req)
+	}
 	path, canonical, explicit, err := r.locate(req)
 	if err != nil {
 		return nil, err
