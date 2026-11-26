@@ -206,8 +206,11 @@ func TestAggregateLimitDefaults(t *testing.T) {
 	if l.MaxTotalImageBytes != 64<<20 || l.MaxTotalImagePixels != 80_000_000 || l.MaxTotalFontBytes != 32<<20 {
 		t.Fatalf("defaults = %d/%d/%d", l.MaxTotalImageBytes, l.MaxTotalImagePixels, l.MaxTotalFontBytes)
 	}
-	l = Limits{MaxTotalImageBytes: 1, MaxTotalImagePixels: 2, MaxTotalFontBytes: 3}.resolved()
-	if l.MaxTotalImageBytes != 1 || l.MaxTotalImagePixels != 2 || l.MaxTotalFontBytes != 3 {
-		t.Fatalf("caller values were overwritten: %d/%d/%d", l.MaxTotalImageBytes, l.MaxTotalImagePixels, l.MaxTotalFontBytes)
+	if l.MaxTotalStylesheetBytes != 16<<20 {
+		t.Fatalf("MaxTotalStylesheetBytes default = %d, want 16777216", l.MaxTotalStylesheetBytes)
+	}
+	l = Limits{MaxTotalImageBytes: 1, MaxTotalImagePixels: 2, MaxTotalFontBytes: 3, MaxTotalStylesheetBytes: 4}.resolved()
+	if l.MaxTotalImageBytes != 1 || l.MaxTotalImagePixels != 2 || l.MaxTotalFontBytes != 3 || l.MaxTotalStylesheetBytes != 4 {
+		t.Fatalf("caller values were overwritten: %d/%d/%d/%d", l.MaxTotalImageBytes, l.MaxTotalImagePixels, l.MaxTotalFontBytes, l.MaxTotalStylesheetBytes)
 	}
 }

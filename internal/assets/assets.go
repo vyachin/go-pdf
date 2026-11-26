@@ -260,7 +260,9 @@ func (r *Registry) Reads(kind Kind) int {
 //
 // The bytes are reserved, not committed: the adapter calls Discard when it
 // cannot use them, so a failed parse does not consume the total a later valid
-// asset needs.
+// asset needs. Before the bytes are read, the work of materialising them is
+// charged to the conversion's guard in proportion to the size, so a budget
+// that cannot pay for the read refuses it instead of allocating the file.
 func (r *Registry) Read(req Request) (*Record, error) {
 	if r != nil && r.source != nil {
 		return r.readSource(req)
@@ -282,6 +284,10 @@ func (r *Registry) Read(req Request) (*Record, error) {
 			Err: fmt.Errorf("%w: the file is %d bytes, the limit is %d", ErrTooLarge, size, req.MaxBytes)}
 	}
 	if err := r.reserve(req.Kind, size, req.MaxTotalBytes); err != nil {
+		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
+	}
+	if err := r.guard.ChargeBytes(int(size)); err != nil {
+		r.refund(req.Kind, size)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
 	bytes, err := r.readBytes(req, canonical, explicit)

@@ -401,15 +401,23 @@ memory within a constant multiple of `N`:
 | Stage | One unit is |
 |---|---|
 | HTML parsing | one token, plus one text span indexed or looked up while matching a position |
+| Line indexing | one stored line start (at most 65,536 per source), or one byte scanned past the capped index |
+| Input decoding | 4 KiB of decoded data the encoding materialises |
 | Source positions | one byte scanned since the previous position query on the same line |
 | CSS tokenizing and parsing | one token, one rule or declaration, one stored problem |
 | Cascade | one compound of a rule's selector, per element |
 | Font parsing | one GiB/1024 of file, one GPOS lookup, subtable, pairing or coverage entry, one charstring instruction or converted glyph |
-| Text shaping and line building | one rune, one built line |
+| Text shaping and line building | one rune, one built line, one copied glyph when a run needs mark offsets |
 | Image decoding | one image plus one unit per 64 KiB of pixels |
 | Layout | one box, one placed line, one drawing operation, one table grid slot |
 | Diagnostics | one byte of a diagnostic element path |
 | PDF writing | one written glyph, CID, page operation, or 4 KiB of serialised bytes |
+
+The budget is byte-aware as well as unit-aware. A stage whose memory grows with
+the input charges `ceil(n / 4096) + 1` units before it allocates, so one unit
+stands for at most 4096 bytes of input-proportional memory. Line indexing,
+decoded text, asset reads and copied glyphs follow that rule; the invariant test
+reports the stage that crosses the bound.
 
 The first stage to exhaust the budget stops with `resource/limit`, and a
 cancelled context is returned as `context.Canceled` from that stage instead of
@@ -425,8 +433,12 @@ of proportion to its budget. The default is 20,000,000 operations.
 `MaxFontBytes` (16 MiB) bounds one font;
 `MaxTotalImageBytes` (64 MiB) and `MaxTotalImagePixels` (80,000,000) cap every
 image one conversion reads; `MaxTotalFontBytes` (32 MiB) caps every font it
-parses. A document that would cross a total fails with `resource/limit` before
-the offending asset is opened or its pixels are decoded.
+parses. `MaxTotalStylesheetBytes` (16 MiB) caps the encoded bytes of every
+linked stylesheet one conversion reads, in addition to `MaxStylesheetBytes`
+(8 MiB) per file: a document that would cross the total fails with
+`resource/limit` before the next stylesheet is read. A document that would cross
+any total fails with `resource/limit` before the offending asset is opened or
+its pixels are decoded.
 
 An image is identified by its canonical resolved path after symlinks, or by the
 SHA-256 of its decoded bytes for a `data:` URI. Every spelling of one file and

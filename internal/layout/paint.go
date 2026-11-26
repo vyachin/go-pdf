@@ -153,12 +153,26 @@ func inlineBaseline(line *Line, it LineItem) int32 {
 // extraction do not change. Every painted shaped run — body text, margin boxes
 // and list markers — goes through here, so a positioning fix has one home.
 func (l *layouter) paintShapedRun(page *Page, face *FontFace, color css.Color, run text.Run, x, baseline int32) {
-	emit := func(glyphs []Glyph, gx, gy int32) {
-		if len(glyphs) == 0 {
+	glyphs := run.Glyphs
+	if hasGlyphOffset(glyphs) {
+		// A shaped run that needs mark offsets cannot be painted from the
+		// cached slice: the offset glyphs become their own painted segments.
+		// The copy is exact-sized and charged one unit per glyph before it is
+		// allocated, so a budget that refuses it paints nothing.
+		if err := l.ctx.Budget.Add(uint64(len(glyphs))); err != nil {
+			_ = l.stopReason()
+			return
+		}
+		copied := make([]Glyph, len(glyphs))
+		copy(copied, glyphs)
+		glyphs = copied
+	}
+	emit := func(part []Glyph, gx, gy int32) {
+		if len(part) == 0 {
 			return
 		}
 		var width int32
-		for _, g := range glyphs {
+		for _, g := range part {
 			width = satAdd(width, g.Advance)
 		}
 		l.ops++
@@ -168,31 +182,41 @@ func (l *layouter) paintShapedRun(page *Page, face *FontFace, color css.Color, r
 				X:     gx,
 				Y:     gy,
 				Face:  face,
-				Run:   TextRun{Glyphs: glyphs, Width: width},
+				Run:   TextRun{Glyphs: part, Width: width},
 				Color: color,
 			},
 		})
 	}
-	pen, segStart := x, x
-	var seg []Glyph
-	flush := func() {
-		emit(seg, segStart, baseline)
-		seg = nil
+	// Consecutive glyphs without an offset share one pen and one painted
+	// segment; an offset glyph is flushed as its own segment at the shaper's
+	// position. Both are subslices of glyphs, so the splitting allocates
+	// nothing.
+	pen, segStart, segBegin := x, x, 0
+	flush := func(end int) {
+		emit(glyphs[segBegin:end], segStart, baseline)
+		segBegin = end
 	}
-	for _, g := range run.Glyphs {
+	for i, g := range glyphs {
 		if g.XOffset != 0 || g.YOffset != 0 {
-			flush()
-			emit([]Glyph{{GID: g.GID, Advance: g.Advance, Rune: g.Rune}},
-				satAdd(pen, g.XOffset), satSub(baseline, g.YOffset))
-		} else {
-			if len(seg) == 0 {
-				segStart = pen
-			}
-			seg = append(seg, Glyph{GID: g.GID, Advance: g.Advance, Rune: g.Rune})
+			flush(i)
+			emit(glyphs[i:i+1], satAdd(pen, g.XOffset), satSub(baseline, g.YOffset))
+			segBegin = i + 1
+		} else if i == segBegin {
+			segStart = pen
 		}
 		pen = satAdd(pen, g.Advance)
 	}
-	flush()
+	flush(len(glyphs))
+}
+
+// hasGlyphOffset reports whether any glyph of the run carries a mark offset.
+func hasGlyphOffset(glyphs []text.Glyph) bool {
+	for _, g := range glyphs {
+		if g.XOffset != 0 || g.YOffset != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, unstretched bool) {

@@ -2,7 +2,6 @@ package html
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -299,9 +298,11 @@ func (x *Node) writePath(b *strings.Builder, s string) bool {
 
 // Document is a parsed HTML document together with its source mapping.
 type Document struct {
-	Root  *Node
-	File  string
-	lines []int
+	Root *Node
+	File string
+	// lines is the bounded line index of the decoded text, so a document made
+	// of newlines cannot allocate one index entry per line.
+	lines *budget.Lines
 	// src is the file as it was read, and text is the decoded text the node
 	// offsets refer to. They are the same slice when no decoding was needed.
 	src  []byte
@@ -348,14 +349,10 @@ func (d *Document) Position(offset int) diag.Position {
 	if offset > len(d.text) {
 		offset = len(d.text)
 	}
-	// Largest line start <= offset.
-	i, _ := slices.BinarySearch(d.lines, offset+1)
-	i--
-	if i < 0 {
-		i = 0
-	}
+	// Largest line start <= offset, scanned past the stored part when the
+	// index is capped.
+	i, start := d.lines.Resolve(offset)
 	line := i + 1
-	start := d.lines[i]
 	colByte := offset - start
 	if !d.posValid || d.posLine != i || colByte < d.posCol {
 		d.posLine, d.posCol, d.posRunes, d.posValid = i, 0, 0, true

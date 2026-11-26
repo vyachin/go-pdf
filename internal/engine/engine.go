@@ -64,6 +64,11 @@ type Limits struct {
 	MaxInputBytes int
 	// MaxStylesheetBytes bounds one external stylesheet.
 	MaxStylesheetBytes int
+	// MaxTotalStylesheetBytes bounds the encoded bytes of every linked
+	// stylesheet one conversion reads, in addition to MaxStylesheetBytes per
+	// file. A stylesheet that would cross it is rejected before it is read.
+	// Default 16 MiB.
+	MaxTotalStylesheetBytes int
 	// MaxPages is the largest number of pages a document may produce.
 	MaxPages int
 	// MaxImagePixels bounds width*height of a decoded image, checked before
@@ -109,6 +114,9 @@ func (l Limits) resolved() Limits {
 	}
 	if l.MaxStylesheetBytes <= 0 {
 		l.MaxStylesheetBytes = 8 << 20
+	}
+	if l.MaxTotalStylesheetBytes <= 0 {
+		l.MaxTotalStylesheetBytes = 16 << 20
 	}
 	if l.MaxPages <= 0 {
 		l.MaxPages = 5000

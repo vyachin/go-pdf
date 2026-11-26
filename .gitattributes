@@ -10,3 +10,8 @@ testdata/fixtures/cp1251-invoice.html -text
 testdata/fixtures/cp1251-styles.css -text
 testdata/fixtures/koi8r-invoice.html -text
 testdata/fixtures/utf8-bom-invoice.html -text
+
+# The byte-budget fixtures are large by design: the newline stylesheet and the
+# 8 MiB text must keep their exact byte count, so git must not normalise them.
+testdata/adversarial/p3-newline-stylesheet.css -text
+testdata/adversarial/p3-huge-text.html -text

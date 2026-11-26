@@ -30,6 +30,9 @@ type Options struct {
 	Budget *budget.Guard
 	// MaxStylesheetBytes bounds one external stylesheet. Zero means unlimited.
 	MaxStylesheetBytes int
+	// MaxTotalStylesheetBytes bounds the encoded bytes of every linked
+	// stylesheet one conversion reads. Zero means unlimited.
+	MaxTotalStylesheetBytes int
 	// Assets is the conversion's asset registry. A nil registry makes the
 	// profile create and close its own, which is what a standalone validation
 	// does.
@@ -238,11 +241,12 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 		decoding = enc.Name()
 	}
 	rec, err := reg.Read(assets.Request{
-		Kind:      assets.Stylesheet,
-		Reference: href,
-		Dir:       opts.BaseDir,
-		MaxBytes:  opts.MaxStylesheetBytes,
-		Decoding:  decoding,
+		Kind:          assets.Stylesheet,
+		Reference:     href,
+		Dir:           opts.BaseDir,
+		MaxBytes:      opts.MaxStylesheetBytes,
+		MaxTotalBytes: int64(opts.MaxTotalStylesheetBytes),
+		Decoding:      decoding,
 	})
 	if err != nil {
 		return nil, "", stylesheetReadError(err, href)
@@ -250,7 +254,7 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 	path := rec.Path
 	// A linked sheet is read with the document's encoding: CSS 2.1 gives a
 	// sheet without its own @charset the encoding of the referring document.
-	text, mapper, err := decodeSheet(doc.Charset(), path, rec.Bytes)
+	text, mapper, err := decodeSheet(doc.Charset(), path, rec.Bytes, opts.Budget)
 	if err != nil {
 		reg.Discard(rec)
 		return nil, "", err
@@ -277,6 +281,14 @@ func stylesheetReadError(err error, href string) error {
 			return &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", href)}
 		case errors.Is(assetErr.Err, assets.ErrTooLarge):
 			return fmt.Errorf("%w: stylesheet %q exceeds the limit", budget.ErrExceeded, href)
+		case errors.Is(assetErr.Err, budget.ErrExceeded):
+			// The aggregate total or the byte charge refused the read: report
+			// the limit itself, not a malformed link.
+			return fmt.Errorf("%w: stylesheet %q: %v", budget.ErrExceeded, href, assetErr.Err)
+		case errors.Is(assetErr.Err, context.Canceled), errors.Is(assetErr.Err, context.DeadlineExceeded):
+			// Cancellation ends the conversion; a link diagnostic would
+			// misdescribe a read the caller stopped.
+			return assetErr.Err
 		}
 		if assetErr.Path != "" {
 			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err)}
@@ -290,8 +302,8 @@ func stylesheetReadError(err error, href string) error {
 // that the parser sees whitespace where the rule was and every later offset
 // stays where it was; a rule that names another encoding is an error. The
 // returned mapper is nil when the decoded text is the source byte for byte.
-func decodeSheet(enc *charset.Encoding, path string, data []byte) ([]byte, *charset.Mapper, error) {
-	dec, err := charset.Decode(enc, data)
+func decodeSheet(enc *charset.Encoding, path string, data []byte, guard *budget.Guard) ([]byte, *charset.Mapper, error) {
+	dec, err := charset.DecodeWithGuard(enc, data, guard)
 	if err != nil {
 		var encErr *charset.Error
 		if errors.As(err, &encErr) {
@@ -334,7 +346,7 @@ func decodeSheet(enc *charset.Encoding, path string, data []byte) ([]byte, *char
 		// point into the file the author edits.
 		return text, nil, nil
 	}
-	return text, charset.NewMapper(data, text, dec.Widths, dec.Skip), nil
+	return text, charset.NewMapperWithGuard(data, text, dec.Widths, dec.Skip, guard), nil
 }
 
 // charsetRule returns the encoding label of a @charset rule at the very start

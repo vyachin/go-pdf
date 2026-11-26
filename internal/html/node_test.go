@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,12 +26,8 @@ func referencePosition(d *Document, offset int) (line, col int) {
 	if offset > len(d.text) {
 		offset = len(d.text)
 	}
-	i, _ := slices.BinarySearch(d.lines, offset+1)
-	i--
-	if i < 0 {
-		i = 0
-	}
-	return i + 1, utf8.RuneCount(d.text[d.lines[i]:offset]) + 1
+	i, start := d.lines.Resolve(offset)
+	return i + 1, utf8.RuneCount(d.text[start:offset]) + 1
 }
 
 // TestPositionCursorMatchesFromLineStart covers the UTF-8 no-BOM path, which

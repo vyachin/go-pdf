@@ -3,7 +3,6 @@ package css
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/budget"
@@ -141,8 +140,11 @@ type Stylesheet struct {
 	// File is the name of the stylesheet source, empty for an inline <style>.
 	File string
 
-	src    []byte
-	lines  []int
+	src []byte
+	// lines is the bounded line index of an external stylesheet. It is nil
+	// when locate answers positions, because an inline sheet uses the HTML
+	// document's index and must not build a second one.
+	lines  *budget.Lines
 	locate func(offset int) Position
 }
 
@@ -174,23 +176,8 @@ func (s *Stylesheet) Position(offset int) Position {
 	if offset > len(s.src) {
 		offset = len(s.src)
 	}
-	// The largest line start that is not after the offset.
-	i, _ := slices.BinarySearch(s.lines, offset+1)
-	i--
-	if i < 0 {
-		i = 0
-	}
-	return Position{File: s.File, Line: i + 1, Col: offset - s.lines[i] + 1}
-}
-
-func lineStarts(src []byte) []int {
-	starts := []int{0}
-	for i, b := range src {
-		if b == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
+	line, start := s.lines.Resolve(offset)
+	return Position{File: s.File, Line: line + 1, Col: offset - start + 1}
 }
 
 // tokenReader supplies the parser's tokens. The lexer path reads the source on
@@ -276,7 +263,25 @@ func Parse(src []byte) *Stylesheet { return ParseSheet(SheetOptions{}, src) }
 
 // ParseSheet parses CSS and remembers how to map offsets to positions.
 func ParseSheet(opts SheetOptions, src []byte) *Stylesheet {
-	sh := &Stylesheet{File: opts.File, src: src, lines: lineStarts(src), locate: opts.Locate}
+	sh := &Stylesheet{File: opts.File, src: src, locate: opts.Locate}
+	if opts.Locate == nil {
+		// An external sheet maps its own offsets to positions, so it needs a
+		// bounded index. The index is charged before it grows and stops at
+		// MaxLineStarts, which rejects a sheet made of newlines instead of
+		// allocating one int per line.
+		lines, err := budget.NewLines(src, opts.Guard)
+		sh.lines = lines
+		if err == nil && lines.Capped() {
+			// A stylesheet with more lines than the bounded index stores is a
+			// resource limit: rejecting it avoids the hundreds of megabytes an
+			// entry per input newline would allocate.
+			err = fmt.Errorf("%w: the stylesheet has more than %d lines", budget.ErrExceeded, budget.MaxLineStarts)
+		}
+		if err != nil {
+			sh.Problems = guardProblem(err)
+			return sh
+		}
+	}
 	p := &parser{
 		reader: &lexerReader{lex: &lexer{src: src, base: opts.Base, guard: opts.Guard}},
 		sheet:  sh,

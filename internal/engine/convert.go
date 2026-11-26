@@ -160,11 +160,12 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		return nil, diags, err
 	}
 	profileOpts := profile.Options{
-		BaseDir:            opts.BaseDir,
-		Strict:             opts.Strict,
-		Budget:             guard,
-		MaxStylesheetBytes: limits.MaxStylesheetBytes,
-		Assets:             reg,
+		BaseDir:                 opts.BaseDir,
+		Strict:                  opts.Strict,
+		Budget:                  guard,
+		MaxStylesheetBytes:      limits.MaxStylesheetBytes,
+		MaxTotalStylesheetBytes: limits.MaxTotalStylesheetBytes,
+		Assets:                  reg,
 	}
 	if optionInvalid {
 		// The options are already wrong, but the document is still validated so
