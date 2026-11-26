@@ -245,3 +245,28 @@ func TestConvertToPreviewFailureWritesNothing(t *testing.T) {
 		t.Fatalf("a failed preview wrote %d bytes before the first byte contract", dst.Len())
 	}
 }
+
+// TestConvertToMatchesConvertWithSource guards the rebased Options.Source
+// plumbing: a streamed conversion reads its image and @font-face through the
+// caller's file system and still matches Convert byte for byte.
+func TestConvertToMatchesConvertWithSource(t *testing.T) {
+	opts := pdfgen.Options{File: "source-stream.html", Source: embeddedSourceFS(t)}
+	want, err := pdfgen.Convert(context.Background(), []byte(sourceDocument), opts)
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(want.Diagnostics.Lines(), "\n"))
+	}
+	var dst bytes.Buffer
+	got, err := pdfgen.ConvertTo(context.Background(), &dst, []byte(sourceDocument), opts)
+	if err != nil {
+		t.Fatalf("ConvertTo: %v\n%s", err, strings.Join(got.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Equal(dst.Bytes(), want.PDF) {
+		t.Fatalf("ConvertTo with Source wrote %d bytes, Convert returned %d", dst.Len(), len(want.PDF))
+	}
+	if got.PDF != nil {
+		t.Fatalf("ConvertTo with Source returned a %d-byte Result.PDF", len(got.PDF))
+	}
+	if !slices.Equal(got.Diagnostics, want.Diagnostics) {
+		t.Fatalf("diagnostics differ:\nConvertTo: %v\nConvert:   %v", got.Diagnostics.Lines(), want.Diagnostics.Lines())
+	}
+}
