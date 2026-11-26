@@ -111,9 +111,13 @@ func graySamples(bits, width, height int, img image.Image) (colorBytes, alpha []
 		colorBytes = make([]byte, 0, width*height*2)
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
-				g := color.Gray16Model.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray16)
-				colorBytes = append(colorBytes, byte(g.Y>>8), byte(g.Y))
-				alpha = append(alpha, byte(alphaOf(img, b.Min.X+x, b.Min.Y+y)))
+				// RGBA returns premultiplied samples; gray+alpha sources store
+				// the source gray in place of all three channels, so one channel
+				// is unassociated back to the source value.
+				r, _, _, a := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+				v := unpremultiply16(r, a)
+				colorBytes = append(colorBytes, byte(v>>8), byte(v))
+				alpha = append(alpha, byte(a>>8))
 			}
 		}
 		return colorBytes, opaqueMask(alpha)
@@ -124,11 +128,11 @@ func graySamples(bits, width, height int, img image.Image) (colorBytes, alpha []
 	for y := 0; y < height; y++ {
 		row := make([]byte, rowBytes)
 		for x := 0; x < width; x++ {
-			g := color.GrayModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)).(color.Gray)
-			v := int(g.Y) * maxV / 255
+			r, _, _, a := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			v := int(unpremultiply8(r, a)) * maxV / 255
 			bit := x * bits
 			row[bit/8] |= byte(v << uint(8-bits-bit%8))
-			alpha = append(alpha, byte(alphaOf(img, b.Min.X+x, b.Min.Y+y)))
+			alpha = append(alpha, byte(a>>8))
 		}
 		colorBytes = append(colorBytes, row...)
 	}
@@ -159,8 +163,12 @@ func rgbSamples(bits, width, height int, img image.Image) (colorBytes, alpha []b
 				off := m.PixOffset(b.Min.X, b.Min.Y+y)
 				for x := 0; x < width; x++ {
 					c := m.Palette[m.Pix[off]]
+					// A palette entry with tRNS alpha is premultiplied by
+					// color.Color.RGBA. PDF carries the source colour and the
+					// alpha in a separate soft mask, so the channels are
+					// unassociated before they are written.
 					r, g, bb, a := c.RGBA()
-					colorBytes = append(colorBytes, byte(r>>8), byte(g>>8), byte(bb>>8))
+					colorBytes = append(colorBytes, unpremultiply8(r, a), unpremultiply8(g, a), unpremultiply8(bb, a))
 					alpha = append(alpha, byte(a>>8))
 					off++
 				}
@@ -207,28 +215,28 @@ func rgbSamples(bits, width, height int, img image.Image) (colorBytes, alpha []b
 	return colorBytes, opaqueMask(alpha)
 }
 
-// alphaOf returns the alpha of one pixel as an 8-bit value.
-func alphaOf(img image.Image, x, y int) uint8 {
-	switch m := img.(type) {
-	case *image.NRGBA:
-		return m.NRGBAAt(x, y).A
-	case *image.RGBA:
-		return m.RGBAAt(x, y).A
-	case *image.NRGBA64:
-		return uint8(m.NRGBA64At(x, y).A >> 8)
-	case *image.RGBA64:
-		return uint8(m.RGBA64At(x, y).A >> 8)
-	case *image.Gray:
-		return 0xFF
-	case *image.Gray16:
-		return 0xFF
-	case *image.Paletted:
-		_, _, _, a := m.At(x, y).RGBA()
-		return uint8(a >> 8)
-	default:
-		_, _, _, a := img.At(x, y).RGBA()
-		return uint8(a >> 8)
+// unpremultiply16 returns the unassociated value of one premultiplied 16-bit
+// colour channel. color.Color.RGBA returns premultiplied samples by contract,
+// while PDF stores the source colour and takes the alpha from the separate soft
+// mask. A zero alpha carries no recoverable colour, so it yields zero.
+func unpremultiply16(v, a uint32) uint32 {
+	if a == 0 || v == 0 {
+		return 0
 	}
+	if v > a {
+		// A premultiplied channel is never brighter than its alpha. A custom
+		// color.RGBA can break that contract, so the result is clamped instead
+		// of wrapping past white.
+		v = a
+	}
+	return v * 0xffff / a
+}
+
+// unpremultiply8 rounds an unassociated 16-bit channel to eight bits. Rounding
+// rather than truncating keeps a partially transparent source from losing its
+// least significant colour bit.
+func unpremultiply8(v, a uint32) byte {
+	return byte((unpremultiply16(v, a)*0xff + 0x7fff) / 0xffff)
 }
 
 // opaqueMask drops the alpha channel when every pixel is opaque, so a PNG

@@ -247,16 +247,7 @@ func (s *streamWriter) emitStream(id int, data []byte) error {
 	if err := s.charge(len(data)); err != nil {
 		return err
 	}
-	wire := data
-	compressed := false
-	var buf bytes.Buffer
-	zw := zlib.NewWriter(&buf)
-	if _, err := zw.Write(data); err == nil {
-		_ = zw.Close()
-		if buf.Len() < len(data) {
-			wire, compressed = buf.Bytes(), true
-		}
-	}
+	wire, compressed := compressedBody(data, newZlibWriter)
 	filter := ""
 	if compressed {
 		filter = " /Filter /FlateDecode"
@@ -591,6 +582,13 @@ func (d *Doc) WriteTo(w io.Writer) (int64, error) {
 		if err != nil {
 			return sw.written, err
 		}
+		// The descriptor's /Flags and /ItalicAngle must agree: a consumer that
+		// reads either one has to reach the same conclusion about the face.
+		italicAngle := fe.font.ItalicAngle()
+		flags := 4
+		if italicAngle != 0 {
+			flags |= 64
+		}
 
 		bodies := []struct {
 			id   int
@@ -603,11 +601,11 @@ func (d *Doc) WriteTo(w io.Writer) (int64, error) {
 				"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap %d 0 R >>",
 				baseName, descID, widths, cidMapID))},
 			{descID, []byte(fmt.Sprintf(
-				"<< /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [%d %d %d %d] /ItalicAngle %s /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
-				baseName,
+				"<< /Type /FontDescriptor /FontName /%s /Flags %d /FontBBox [%d %d %d %d] /ItalicAngle %s /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
+				baseName, flags,
 				int32(float64(bbox[0])*scale), int32(float64(bbox[1])*scale),
 				int32(float64(bbox[2])*scale), int32(float64(bbox[3])*scale),
-				numFloat(fe.font.ItalicAngle()),
+				numFloat(italicAngle),
 				int32(float64(fe.font.Ascent())*scale),
 				int32(float64(fe.font.Descent())*scale),
 				int32(float64(fe.font.CapHeight())*scale),
@@ -791,14 +789,12 @@ func (fe *fontEntry) widthArray(guard *budget.Guard) (string, error) {
 }
 
 func (fe *fontEntry) toUnicodeCMap(guard *budget.Guard) ([]byte, error) {
-	var cids []int
-	for cid, r := range fe.cidRune {
-		if r != 0 {
-			cids = append(cids, cid)
-		}
-	}
+	// Every emitted CID gets an entry. A glyph whose source rune is U+0000 is
+	// mapped to <0000> rather than skipped, so the text layer covers the whole
+	// run and the entry count matches the number of emitted CIDs.
+	count := len(fe.cidRune)
 	// One unit per entry in the map before it is written.
-	if err := guard.Add(uint64(len(cids)) + 1); err != nil {
+	if err := guard.Add(uint64(count) + 1); err != nil {
 		return nil, err
 	}
 	var b strings.Builder
@@ -806,13 +802,13 @@ func (fe *fontEntry) toUnicodeCMap(guard *budget.Guard) ([]byte, error) {
 	b.WriteString("/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n")
 	b.WriteString("/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
 	b.WriteString("1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
-	for start := 0; start < len(cids); start += 100 {
+	for start := 0; start < count; start += 100 {
 		end := start + 100
-		if end > len(cids) {
-			end = len(cids)
+		if end > count {
+			end = count
 		}
 		fmt.Fprintf(&b, "%d beginbfchar\n", end-start)
-		for _, cid := range cids[start:end] {
+		for cid := start; cid < end; cid++ {
 			fmt.Fprintf(&b, "<%04X> <%s>\n", cid, utf16Hex(fe.cidRune[cid]))
 		}
 		b.WriteString("endbfchar\n")
@@ -953,19 +949,44 @@ func advanceAdjustment(f *font.Font, size int32, g Glyph) int32 {
 	return int32(math.Round(diff * 1000 / float64(size)))
 }
 
+// compressorFunc creates a compressor stream. It is a parameter of the
+// package-private streamObjectWith so a test can inject a failing writer without
+// a mutable global on the conversion path.
+type compressorFunc func(io.Writer) io.WriteCloser
+
+// newZlibWriter is the compressor every stream uses in production.
+func newZlibWriter(w io.Writer) io.WriteCloser { return zlib.NewWriter(w) }
+
+// compressedBody returns the bytes to embed and whether they are Flate
+// compressed. The compressor is closed exactly once on every path and its error
+// is handled: a write or close failure, or a result that does not shrink the
+// data, falls back to the original bytes. Compression is a size optimisation,
+// so a failure must not truncate a stream or lose the object.
+func compressedBody(data []byte, newWriter compressorFunc) (wire []byte, compressed bool) {
+	var buf bytes.Buffer
+	zw := newWriter(&buf)
+	_, writeErr := zw.Write(data)
+	closeErr := zw.Close()
+	if writeErr != nil || closeErr != nil || buf.Len() >= len(data) {
+		return data, false
+	}
+	return buf.Bytes(), true
+}
+
 // streamObject wraps data in a stream object, optionally compressing it.
 func streamObject(data []byte, compress bool) []byte {
+	return streamObjectWith(data, compress, newZlibWriter)
+}
+
+// streamObjectWith is streamObject with the compressor injectable for tests.
+func streamObjectWith(data []byte, compress bool, newWriter compressorFunc) []byte {
+	wire, filter := data, ""
 	if compress {
-		var buf bytes.Buffer
-		zw := zlib.NewWriter(&buf)
-		if _, err := zw.Write(data); err == nil {
-			_ = zw.Close()
-			if buf.Len() < len(data) {
-				return []byte(fmt.Sprintf("<< /Length %d /Filter /FlateDecode >>\nstream\n%s\nendstream", buf.Len(), buf.Bytes()))
-			}
+		if compressed, ok := compressedBody(data, newWriter); ok {
+			wire, filter = compressed, " /Filter /FlateDecode"
 		}
 	}
-	return []byte(fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(data), data))
+	return []byte(fmt.Sprintf("<< /Length %d%s >>\nstream\n%s\nendstream", len(wire), filter, wire))
 }
 
 // imageObject returns the image XObject. alloc, when not nil, registers the
