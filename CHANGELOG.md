@@ -109,6 +109,15 @@ needs no change.
 
 ### Fixed
 
+- **Charged GDEF parsing.** GDEF class ranges are now charged to the
+  conversion's shared work budget before their mark map grows: one unit per
+  class-3 range plus one per entry written, with a guard check between ranges
+  and mark-set coverages, so a cancelled context stops a hostile table instead
+  of returning a font after the whole parse. Expanded mark entries are capped at
+  200,000 writes per font, GDEF mark-set coverages share the existing
+  200,000-glyph coverage cap, and a coverage `resource/limit` is propagated
+  instead of being swallowed. A truncated GDEF still degrades to "no mark
+  data"; fonts within the bounds load byte-identically.
 - **Table layout defects.** A table's declared column widths are now summed in
   64 bits and scaled against the true total, then clamped so the last column's
   right edge stays inside the content box; the single `layout/overflow` warning

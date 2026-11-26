@@ -168,11 +168,23 @@ operator is legal and loads with no local subroutines.
 
 A font file is untrusted input even when it comes from the document. Parsing
 charges the conversion's shared work budget for every GPOS lookup, subtable and
-coverage entry it examines, and stops with `resource/limit` when the budget is
-exhausted. Independent caps bound the counts a font may declare: 4,096 lookups
-per font, 4,096 subtables per lookup, 200,000 expanded coverage glyph ids per
-font and 1,000,000 scanned coverage entries. Real fonts are far below these
-numbers — DejaVu Sans declares two lookups.
+coverage entry it examines, and for every GDEF class range and mark entry it
+expands, and stops with `resource/limit` when the budget is exhausted.
+Independent caps bound the counts a font may declare: 4,096 lookups per font,
+4,096 subtables per lookup, 200,000 expanded coverage glyph ids per font,
+200,000 expanded mark entries per font and 1,000,000 scanned coverage entries.
+Real fonts are far below these numbers — DejaVu Sans declares two lookups and
+marks fewer than two hundred glyphs.
+
+GDEF class ranges expand into a mark map and need not be sorted or disjoint, so
+they are charged before the map grows: one unit per class-3 range plus one unit
+per entry written. An overlapping range pays for every write, not only for a
+glyph it newly marks, and a range covering the whole glyph space costs its
+65,536 entries rather than the six bytes it occupies. The work guard is checked
+between class ranges and between mark-set coverages, so a cancelled context
+stops the parse promptly and returns the context error. The expanded mark
+entries are capped at 200,000 writes per font, and GDEF mark-set coverages share
+the 200,000-glyph coverage cap with GPOS rather than widening it.
 
 Only the `kern`, `mark` and `mkmk` features referenced by the ordinary scripts
 apply. The ordinary scripts are `DFLT`, `latn`, `cyrl`, `grek` and `hebr`; a
@@ -184,8 +196,12 @@ single-script table without a list still applies.
 
 Crossing the coverage cap is `resource/limit`: the parser aborts instead of
 keeping the lookups it managed to read, so a font cannot silently lose kerning
-by declaring more coverage than the cap. Truncated or inconsistent optional
-data is not a cap crossing; it keeps the "no lookups, font loads" behaviour.
+by declaring more coverage than the cap. The same rule applies to GDEF: a budget
+refusal, the expanded-mark cap or the shared coverage cap is `resource/limit`
+and aborts the font load, and a refused expansion never returns a partial mark
+map. Truncated or inconsistent optional data is not a cap crossing; it keeps the
+"no lookups, font loads" behaviour for GPOS and the "no marks, font loads"
+behaviour for GDEF.
 
 Offsets, lengths and counts are evaluated in 64-bit arithmetic before any slice,
 so a value that does not fit an `int` on a 32-bit build is rejected instead of

@@ -16,11 +16,13 @@ import (
 // with an empty class table followed it.
 type kerning struct {
 	lookups []*pairLookup
-	// coverGlyphs counts the glyph ids expanded from every Coverage of the
-	// table, so repeated lookups and subtables share one budget.
+	// coverGlyphs counts the glyph ids expanded from every GPOS Coverage and
+	// every GDEF mark-set Coverage, so repeated lookups and sets share one
+	// budget.
 	coverGlyphs int
 	// scannedRanges counts the coverage entries examined across the whole
-	// table, so a corrupt font cannot make one file buy unbounded work.
+	// font, including GDEF mark sets, so a corrupt file cannot buy unbounded
+	// work.
 	scannedRanges int
 	// declaredPairs counts the explicit pairs the format 1 subtables of the
 	// whole table declare, so repeated PairSet offsets cannot expand one file
@@ -123,6 +125,13 @@ type classSubtable struct {
 // whole glyph space, so the count must be checked before the allocation.
 const maxKerningGlyphs = 200000
 
+// maxMarkGlyphs bounds the mark entries a corrupt GDEF class definition may
+// expand into a map. A class range costs six bytes but may cover the whole
+// glyph space, and the format does not require ranges to be sorted or
+// disjoint, so every write counts, including a write that overwrites a glyph
+// an earlier range already marked.
+const maxMarkGlyphs = 200000
+
 type classRange struct {
 	start, end uint16
 	class      uint16
@@ -138,7 +147,11 @@ func (f *Font) parseGPOS() error {
 		return nil
 	}
 	k := &kerning{guard: f.guard}
-	k.markGlyphs, k.markSets = parseGDEF(f.tables["GDEF"])
+	marks, sets, err := k.parseGDEF(f.tables["GDEF"])
+	if err != nil {
+		return err
+	}
+	k.markGlyphs, k.markSets = marks, sets
 	// A lookup that belongs to another script or feature must not apply to
 	// ordinary text: only the default script's kern, mark and mkmk features
 	// are enabled. A font without a usable ScriptList keeps every lookup, as
@@ -795,19 +808,45 @@ func featureLookups(gpos []byte, featureList, index int) []int {
 }
 
 // parseGDEF reads the glyph class definition and the mark filtering sets of a
-// font's GDEF table. A missing or malformed table returns nil maps: the engine
-// then has no marks to skip, which is what a font without GDEF declares.
-func parseGDEF(data []byte) (map[uint16]bool, [][]uint16) {
+// font's GDEF table. A missing or malformed table returns nil maps and no
+// error: the engine then has no marks to skip, which is what a font without
+// GDEF declares. A resource refusal or a cancelled conversion is returned
+// instead, so the font load stops rather than keeping a partial mark set.
+//
+// Every class-3 range is charged one unit plus the entries it is about to
+// write, before the map grows, and the guard is checked between ranges and
+// between mark-set coverages.
+func (k *kerning) parseGDEF(data []byte) (map[uint16]bool, [][]uint16, error) {
+	if err := k.check(); err != nil {
+		return nil, nil, err
+	}
 	if len(data) < 12 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var marks map[uint16]bool
+	expanded := 0
 	if classOff := int(binary.BigEndian.Uint16(data[4:6])); classOff != 0 {
 		if ranges, ok := parseClassDef(data, classOff); ok {
 			for _, r := range ranges {
-				if r.class != 3 {
+				// A cancelled conversion or a spent budget stops the parse
+				// between ranges instead of after the whole table.
+				if err := k.check(); err != nil {
+					return nil, nil, err
+				}
+				if r.class != 3 || r.end < r.start {
 					continue
 				}
+				entries := int(r.end-r.start) + 1
+				// Charge the range and its writes before the map grows: a
+				// six-byte range can cover the glyph space, and overlapping
+				// ranges pay for every write, not only for a new key.
+				if err := k.charge(uint64(entries) + 1); err != nil {
+					return nil, nil, err
+				}
+				if entries > maxMarkGlyphs-expanded {
+					return nil, nil, limitf("GDEF expands more than %d mark glyphs", maxMarkGlyphs)
+				}
+				expanded += entries
 				if marks == nil {
 					marks = map[uint16]bool{}
 				}
@@ -822,21 +861,36 @@ func parseGDEF(data []byte) (map[uint16]bool, [][]uint16) {
 		if binary.BigEndian.Uint16(data[setOff:setOff+2]) == 1 {
 			n := int(binary.BigEndian.Uint16(data[setOff+2 : setOff+4]))
 			sets = make([][]uint16, n)
-			k := &kerning{}
 			for i := 0; i < n; i++ {
+				if err := k.check(); err != nil {
+					return nil, nil, err
+				}
 				pos := setOff + 4 + i*4
 				raw, ok := readU32(data, pos)
 				if !ok {
 					break
 				}
 				off := setOff + int(raw)
-				cover, ok, err := k.parseCoverage(data, off, maxKerningGlyphs)
-				if err != nil || !ok {
+				// Mark sets share the coverage cap with GPOS lookups, so many
+				// sets cannot expand one font into unbounded slices.
+				remaining := maxKerningGlyphs - k.coverGlyphs
+				if remaining <= 0 {
+					return nil, nil, limitf("GDEF mark-set coverage exceeds %d glyphs", maxKerningGlyphs)
+				}
+				cover, ok, err := k.parseCoverage(data, off, remaining)
+				if err != nil {
+					// parseCoverage reports an error only for a resource
+					// refusal or a cancelled conversion; malformed coverage
+					// returns ok=false and keeps the "no mark data" behaviour.
+					return nil, nil, err
+				}
+				if !ok {
 					continue
 				}
+				k.coverGlyphs += len(cover)
 				sets[i] = cover
 			}
 		}
 	}
-	return marks, sets
+	return marks, sets, nil
 }

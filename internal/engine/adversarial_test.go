@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,6 +89,22 @@ func adversarialCases() []adversarialCase {
 				return Options{
 					FallbackFont: filepath.Join(dir, "gpos-bomb.ttf"),
 					File:         "gpos.html",
+					Limits:       Limits{MaxOperations: 250},
+				}
+			},
+		},
+		{
+			// RV5-15: 2,000 overlapping GDEF class-3 ranges expand to 131
+			// million map writes from a 12 KB font. The shared work budget must
+			// stop the expansion before it runs.
+			ID:      "P1-gdef-ranges",
+			Fixture: "p1-gdef-ranges.html",
+			Want:    "resource/limit",
+			Stage:   "GDEF parse",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					FallbackFont: filepath.Join(dir, "gdef-ranges.ttf"),
+					File:         "gdef.html",
 					Limits:       Limits{MaxOperations: 250},
 				}
 			},
@@ -369,6 +386,72 @@ func adversarialCases() []adversarialCase {
 				}
 			},
 		},
+	}
+}
+
+// checkpointContext reports context.Canceled on its Nth Err call, which makes
+// an engine-level mid-parse cancellation deterministic without a timer. The
+// first calls come from the conversion entry points, then from GDEF's range
+// checks on the checkpoint fixture.
+type checkpointContext struct {
+	context.Context
+	calls    int
+	cancelAt int
+}
+
+func (c *checkpointContext) Err() error {
+	c.calls++
+	if c.calls >= c.cancelAt {
+		return context.Canceled
+	}
+	return nil
+}
+
+// TestGDEFCancellationIsDistinctFromTheLimit runs one GDEF fixture through both
+// public entry points: a small budget reports resource/limit, while a context
+// cancelled at a counted mid-parse checkpoint returns context.Canceled, no PDF
+// and no resource/limit diagnostic. The fixture has two thousand one-entry
+// ranges, so the checkpoint is reached long before the entry cap or the budget.
+func TestGDEFCancellationIsDistinctFromTheLimit(t *testing.T) {
+	dir := adversarialDir()
+	options := func() Options {
+		return Options{
+			FallbackFont: filepath.Join(dir, "gdef-checks.ttf"),
+			File:         "gdef.html",
+		}
+	}
+	src := []byte("<p>x</p>")
+
+	limited := options()
+	limited.Limits.MaxOperations = 250
+	res, err := Convert(context.Background(), src, limited)
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("the small budget did not report resource/limit: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+
+	const cancelAt = 200
+	ctx := &checkpointContext{Context: context.Background(), cancelAt: cancelAt}
+	_, err = Validate(ctx, src, options())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Validate returned %v, want context.Canceled", err)
+	}
+	if ctx.calls != cancelAt {
+		t.Fatalf("Validate observed %d cancellation checks, want the checkpoint at %d", ctx.calls, cancelAt)
+	}
+
+	ctx = &checkpointContext{Context: context.Background(), cancelAt: cancelAt}
+	res, err = Convert(ctx, src, options())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Convert returned %v, want context.Canceled", err)
+	}
+	if len(res.PDF) != 0 {
+		t.Fatalf("a cancelled conversion returned %d PDF bytes", len(res.PDF))
+	}
+	if hasCode(res.Diagnostics, "resource/limit") {
+		t.Fatalf("the cancellation was reported as a limit: %v", res.Diagnostics.Lines())
+	}
+	if ctx.calls != cancelAt {
+		t.Fatalf("Convert observed %d cancellation checks, want the checkpoint at %d", ctx.calls, cancelAt)
 	}
 }
 
