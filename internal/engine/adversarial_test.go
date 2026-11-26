@@ -177,6 +177,23 @@ func adversarialCases() []adversarialCase {
 			Options: func(t *testing.T, dir string) Options { return Options{File: "stray.html"} },
 		},
 		{
+			// RV5-06: a brace in a style attribute used to end the declaration
+			// list, so the unsupported declaration after it was never
+			// validated. The brace itself is now reported.
+			ID:      "P2-style-attribute-brace",
+			Fixture: "p2-style-attribute-brace.html",
+			Want:    "css/syntax",
+			Options: func(t *testing.T, dir string) Options { return Options{File: "style-brace.html"} },
+		},
+		{
+			// RV5-06: an at-rule in a style attribute used to become a nested
+			// rule the caller discarded. It is now reported as unsupported.
+			ID:      "P2-style-attribute-at-rule",
+			Fixture: "p2-style-attribute-at-rule.html",
+			Want:    "css/unsupported-at-rule",
+			Options: func(t *testing.T, dir string) Options { return Options{File: "style-at-rule.html"} },
+		},
+		{
 			ID:      "P2-dom-depth",
 			Fixture: "p2-dom-depth.html",
 			Want:    "resource/limit",

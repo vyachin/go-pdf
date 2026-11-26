@@ -84,9 +84,16 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 			}
 		}
 		if style, ok := n.Attr("style"); ok {
+			// An attribute is a declaration list: the parser reports braces
+			// and at-rules, and every declaration it returns is validated
+			// below, including the ones before an offending token.
 			decls, probs := css.ParseDeclarationsWithGuard(style, opts.Budget)
 			for _, prob := range probs {
-				out.Errorf(diag.CSSSyntax, doc.Pos(n), n.Path(), "%s", prob.Message)
+				code := diag.Code(prob.Code)
+				if code == "" {
+					code = diag.CSSSyntax
+				}
+				out.Errorf(code, doc.Pos(n), n.Path(), "%s", prob.Message)
 			}
 			validateDeclarations(doc, doc.Pos(n), n.Path(), decls, &out)
 		}

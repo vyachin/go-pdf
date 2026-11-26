@@ -491,6 +491,108 @@ func TestInvalidDeclarationsAreReported(t *testing.T) {
 	}
 }
 
+// TestStyleAttributeDeclarationListEndsAtEOF guards RV5-06: a style attribute
+// is a declaration list that ends only at end of input. A real brace is a
+// reported problem that is skipped, and the declarations before it stay parsed.
+func TestStyleAttributeDeclarationListEndsAtEOF(t *testing.T) {
+	cases := []struct {
+		name    string
+		src     string
+		braceAt int
+		props   []string
+		probs   int
+	}{
+		{"leading brace", "} display:flex", 0, []string{"display"}, 1},
+		{"middle brace", "color:red} display:flex", 9, []string{"color", "display"}, 1},
+		{"trailing brace", "color:red}", 9, []string{"color"}, 1},
+		{"opening brace", "color:red{display:flex", 9, []string{"color", "display"}, 1},
+		{"both braces", "{color:red}", 0, []string{"color"}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			decls, probs := ParseDeclarations(tc.src)
+			var props []string
+			for _, d := range decls {
+				props = append(props, d.Property)
+			}
+			if strings.Join(props, ",") != strings.Join(tc.props, ",") {
+				t.Fatalf("declarations = %v, want %v", props, tc.props)
+			}
+			if len(probs) != tc.probs {
+				t.Fatalf("problems = %+v, want %d syntax problems", probs, tc.probs)
+			}
+			if !hasSyntaxProblem(probs) {
+				t.Fatalf("problems = %+v, want a css/syntax problem", probs)
+			}
+			if probs[0].Offset != tc.braceAt {
+				t.Fatalf("the first problem is at offset %d, want the brace at %d", probs[0].Offset, tc.braceAt)
+			}
+			if !strings.ContainsAny(probs[0].Message, "{}") {
+				t.Fatalf("the problem does not name the brace: %q", probs[0].Message)
+			}
+		})
+	}
+}
+
+// TestStyleAttributeAtRuleIsReportedOnce guards RV5-06: an at-rule in an
+// attribute is unsupported as a whole. It is reported once with
+// css/unsupported-at-rule and skipped, so its inner declarations neither become
+// declarations of the element nor disappear without a diagnostic.
+func TestStyleAttributeAtRuleIsReportedOnce(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		at   string
+	}{
+		{"media", "@media print { p { display: flex } }", "@media"},
+		{"page", "@page { size: A4 }", "@page"},
+		{"font-face", `@font-face { font-family: "X"; src: url(x.ttf) }`, "@font-face"},
+		{"import", "@import url(x.css);", "@import"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			decls, probs := ParseDeclarations(tc.src)
+			if len(decls) != 0 {
+				t.Fatalf("the at-rule was descended into: declarations = %+v", decls)
+			}
+			if len(probs) != 1 || probs[0].Code != "css/unsupported-at-rule" {
+				t.Fatalf("problems = %+v, want one css/unsupported-at-rule", probs)
+			}
+			if !strings.Contains(probs[0].Message, tc.at) {
+				t.Fatalf("the problem does not name %s: %q", tc.at, probs[0].Message)
+			}
+		})
+	}
+	// Declarations around the at-rule keep their positions in the list.
+	decls, probs := ParseDeclarations("color:red; @media print { p { display: flex } } font-size:10pt")
+	if len(decls) != 2 || decls[0].Property != "color" || decls[1].Property != "font-size" {
+		t.Fatalf("declarations = %+v, want color and font-size around the at-rule", decls)
+	}
+	if len(probs) != 1 || probs[0].Code != "css/unsupported-at-rule" {
+		t.Fatalf("problems = %+v, want one css/unsupported-at-rule", probs)
+	}
+}
+
+// TestStyleAttributeKeepsPrecedingDeclarations guards RV5-06: a declaration
+// before a brace is not discarded, and the cascade still applies it.
+func TestStyleAttributeKeepsPrecedingDeclarations(t *testing.T) {
+	decls, probs := ParseDeclarations("color:red} display:flex")
+	if len(decls) != 2 || decls[0].Property != "color" || decls[1].Property != "display" {
+		t.Fatalf("declarations = %+v, want color:red then display:flex", decls)
+	}
+	if !hasSyntaxProblem(probs) {
+		t.Fatalf("problems = %+v, want a css/syntax problem for the brace", probs)
+	}
+	doc := mustDoc(t, `<p style="color:red} display:flex">x</p>`)
+	p := findElement(doc.Root, "p")
+	if p == nil {
+		t.Fatal("no paragraph")
+	}
+	if got := NewCascade().Compute(p, nil).Color; got != (Color{R: 255, Set: true}) {
+		t.Fatalf("the declaration before the brace was not applied: color = %+v", got)
+	}
+}
+
 func TestPseudoContentFollowsTheCascade(t *testing.T) {
 	cssText := `
 		a.hot::after { content: "CORRECT" }

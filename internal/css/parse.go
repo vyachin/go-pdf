@@ -215,7 +215,7 @@ func (r *lexerReader) next() (Token, error) {
 }
 
 // sliceReader serves tokens that are already materialised, which is what a
-// style attribute needs: it is short and its last token becomes a brace.
+// style attribute needs: it is short and ends at the end of the input.
 type sliceReader struct {
 	toks []Token
 	pos  int
@@ -254,6 +254,10 @@ type parser struct {
 	// problems counts the problems recorded for the sheet, so the cap is
 	// enforced before the list grows with the input.
 	problems int
+	// declList parses a style attribute: a declaration list that ends only at
+	// end of input. A brace or an at-rule is a reported problem instead of a
+	// block terminator or a nested rule.
+	declList bool
 	// guard bounds parsing work and carries cancellation. Nil means no limit.
 	guard *budget.Guard
 }
@@ -382,10 +386,7 @@ func ParseDeclarationsWithGuard(src string, guard *budget.Guard) ([]Declaration,
 	if err != nil {
 		return nil, guardProblem(err)
 	}
-	if len(toks) > 0 {
-		toks[len(toks)-1] = Token{Kind: RBraceToken, Offset: len(src)}
-	}
-	p := &parser{reader: &sliceReader{toks: toks}, guard: guard}
+	p := &parser{reader: &sliceReader{toks: toks}, guard: guard, declList: true}
 	decls, _, probs := p.parseBlockContents()
 	if p.fail != nil {
 		return nil, guardProblem(p.fail)
@@ -628,7 +629,9 @@ func (p *parser) parseQualifiedRule() ([]Rule, []Problem) {
 }
 
 // parseBlockContents reads declarations and nested at-rules until the closing
-// brace (which it consumes).
+// brace (which it consumes). In declaration-list mode, used for a style
+// attribute, the list ends at end of input instead: a brace is a reported
+// problem that is skipped, and an at-rule is reported once and skipped whole.
 func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 	var decls []Declaration
 	var nested []Rule
@@ -648,14 +651,44 @@ func (p *parser) parseBlockContents() ([]Declaration, []Rule, []Problem) {
 		}
 		t := p.peek()
 		if t.Kind == EOFToken {
+			if p.declList {
+				// End of input ends the list; there is no enclosing block to
+				// be unclosed.
+				return decls, nested, probs
+			}
 			p.addProblem(&probs, Problem{Message: "unclosed block", Offset: t.Offset})
 			return decls, nested, probs
 		}
 		if t.Kind == RBraceToken {
 			p.next()
+			if p.declList {
+				// A style attribute has no enclosing block, so a real '}' is
+				// a problem rather than an end sentinel. Skip it and keep
+				// parsing so no declaration after it is lost.
+				p.addProblem(&probs, Problem{Message: "unexpected '}' in a style attribute", Offset: t.Offset})
+				continue
+			}
 			return decls, nested, probs
 		}
+		if p.declList && t.Kind == LBraceToken {
+			p.next()
+			p.addProblem(&probs, Problem{Message: "unexpected '{' in a style attribute", Offset: t.Offset})
+			continue
+		}
 		if t.Kind == AtKeywordToken {
+			if p.declList {
+				// An attribute has no rule structure to attach an at-rule to,
+				// so it is unsupported as a whole: report it once and skip its
+				// prelude and block instead of descending into it.
+				at := p.next()
+				p.addProblem(&probs, Problem{
+					Code:    string(diag.CSSUnsupportedAtRule),
+					Message: fmt.Sprintf("%s is not supported in a style attribute", strings.ToLower(at.Text)),
+					Offset:  at.Offset,
+				})
+				p.skipAtRule()
+				continue
+			}
 			r, pr := p.parseAtRule()
 			nested = append(nested, r...)
 			p.mergeProblems(&probs, pr)
@@ -697,6 +730,12 @@ func (p *parser) parseDeclaration() (Declaration, bool) {
 		if depth == 0 && (t.Kind == SemicolonToken || t.Kind == RBraceToken) {
 			break
 		}
+		if p.declList && depth == 0 && t.Kind == LBraceToken {
+			// A '{' in a style attribute is a reported problem, not part of a
+			// value: ending the declaration here keeps the preceding value and
+			// lets the list parser report the brace and resume after it.
+			break
+		}
 		switch t.Kind {
 		case LParenToken, LBracketToken:
 			depth++
@@ -729,6 +768,38 @@ func lastNonSpace(toks []Token) int {
 		}
 	}
 	return -1
+}
+
+// skipAtRule consumes an at-rule in a declaration list without descending into
+// it: its prelude up to the terminating semicolon or block, and the whole block
+// including nested braces. The parser reports the at-rule once; the
+// declarations it wraps belong to a rule an attribute cannot express.
+func (p *parser) skipAtRule() {
+	for {
+		t := p.peek()
+		if t.Kind == EOFToken {
+			return
+		}
+		p.next()
+		switch t.Kind {
+		case SemicolonToken:
+			return
+		case LBraceToken:
+			depth := 1
+			for depth > 0 {
+				t := p.next()
+				switch t.Kind {
+				case EOFToken:
+					return
+				case LBraceToken:
+					depth++
+				case RBraceToken:
+					depth--
+				}
+			}
+			return
+		}
+	}
 }
 
 func (p *parser) skipToDeclarationEnd() {

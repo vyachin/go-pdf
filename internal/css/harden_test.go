@@ -295,3 +295,36 @@ func TestSheetTrailingBackslashTerminates(t *testing.T) {
 		t.Fatalf("problems = %+v, want a syntax problem", sh.Problems)
 	}
 }
+
+// TestStyleAttributeCannotSmuggleAStylesheet guards RV5-06 at the hardening
+// boundary: rule text in an attribute never becomes a parsed rule, and an
+// at-rule never hides its body behind a silent acceptance.
+func TestStyleAttributeCannotSmuggleAStylesheet(t *testing.T) {
+	decls, probs := ParseDeclarations(`}p{color:red}`)
+	if len(decls) != 0 {
+		t.Fatalf("the attribute leaked declarations from its rule text: %+v", decls)
+	}
+	if !hasSyntaxProblem(probs) {
+		t.Fatalf("problems = %+v, want a css/syntax problem", probs)
+	}
+	decls, probs = ParseDeclarations(`@media print { p { color: red } }`)
+	if len(decls) != 0 {
+		t.Fatalf("the media rule body was descended into: %+v", decls)
+	}
+	if len(probs) != 1 || probs[0].Code != "css/unsupported-at-rule" {
+		t.Fatalf("problems = %+v, want one css/unsupported-at-rule", probs)
+	}
+}
+
+// TestStyleAttributeProblemsAreCapped guards the declaration limit: a style
+// attribute with hundreds of braces stops at MaxProblems with one
+// resource/limit instead of recording a problem per byte.
+func TestStyleAttributeProblemsAreCapped(t *testing.T) {
+	_, probs := ParseDeclarations(strings.Repeat("color:red}", 200))
+	if len(probs) != MaxProblems+1 {
+		t.Fatalf("problems = %d, want %d", len(probs), MaxProblems+1)
+	}
+	if !hasCode(probs, "resource/limit") {
+		t.Fatalf("problems = %+v, want resource/limit", probs)
+	}
+}

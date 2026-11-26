@@ -30,6 +30,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Style attribute declaration list.** A `style` attribute is now parsed as a
+  declaration list that ends only at the end of the attribute. A `{` or `}` in
+  it is `css/syntax` and an at-rule is `css/unsupported-at-rule`, instead of the
+  brace ending the list silently and the at-rule being discarded; declarations
+  before the offending token stay in the cascade and every declaration is still
+  validated. This is breaking for a template that relied on the bypass: it
+  validates clean today and fails after the change. A well-formed attribute
+  produces the same bytes as before.
 - **Byte-aware work budget.** The work budget now charges memory as well as CPU:
   every stage whose memory grows with the input charges `ceil(n / 4096) + 1`
   units before it allocates, so one unit stands for at most 4096 bytes of
