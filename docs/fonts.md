@@ -8,18 +8,44 @@ The engine **does not ship fonts in the binary**. Fonts are part of the document
 
 - **Licenses.** PT Serif, PT Sans and Liberation are distributed freely, but their redistribution terms differ, and Times New Roman and Arial cannot be redistributed at all. Embedding a font in the binary is distributing it.
 - **Size.** One family in four faces is 1.5–3 MB. A full set for documents (serif, sans-serif, mono) easily adds 8–10 MB to the binary.
-- **Reproducibility.** Byte-identical PDFs depend on the exact font bytes — and on every other resolved input. The complete input is the engine build, the HTML bytes, the options and the bytes of every linked stylesheet, image and selected font under the same resolution choices. A file edited in place at the same path is a changed input, and system fallback selects different bytes on different machines. Keeping the font in the same artifact as the documents is more reliable than depending on the system font; pin `Options.FallbackFont` or declare `@font-face`, and keep the stylesheets and images immutable next to it. `Options.Date` defaults to a fixed constant and the document identifier is a hash of the content, so the clock does not enter the output.
+- **Reproducibility.** Byte-identical PDFs depend on the exact font bytes — and on every other resolved input. The complete input is the engine build, the HTML bytes, the options and the bytes of every linked stylesheet, image and selected font under the same resolution choices. A file edited in place at the same path is a changed input. The engine never selects an installed font on its own: the bytes come from a declared `@font-face` or from an explicit `Options.FallbackFont`/`Options.FallbackFonts`, so the same template and font file reproduce the same output on every machine. Keep the font in the same artifact as the documents, declare it with `@font-face` or pass it as a fallback, and keep the stylesheets and images immutable next to it. `Options.Date` defaults to a fixed constant and the document identifier is a hash of the content, so the clock does not enter the output.
 
 For an integrator this means: the service that embeds the engine decides for itself how to deliver the font — through `go:embed` in its own binary, through a file in the container or through a volume with the fonts.
 
 ## Family resolution order
 
 1. `@font-face` in the document — an exact family match, then the closest by weight and slant.
-2. `Options.FallbackFont` — a path to a TrueType or OpenType/CFF file, used for any family that is not declared.
-3. System fonts from `DefaultFallbackFonts` — the first available family, together with the conventional bold and italic files next to its regular face (`Arial Bold.ttf`, `DejaVuSans-Bold.ttf`, `LiberationSerif-Bold.ttf`). This is a convenience for development, not for production: the set of system fonts is not controlled. A candidate that does not exist or cannot be parsed is skipped, but one that crosses a documented bound — `MaxFontBytes`, `MaxTotalFontBytes` or the parser's own limit — ends the conversion with `resource/limit` instead of quietly moving on to another family, and a cancelled context returns its cause.
+2. `Options.FallbackFont` — a single path to a TrueType or OpenType/CFF file, used for any family that is not declared. It is tried before the list and keeps its single-face meaning.
+3. `Options.FallbackFonts` — an ordered list of explicit paths. The first file that loads becomes the family, together with the conventional bold and italic files next to its regular face (`Family-Bold.ttf`, `Family-Italic.ttf`, `DejaVuSans-Bold.ttf`). A file that does not exist or cannot be parsed is skipped and the next entry is tried. One that crosses a documented bound — `MaxFontBytes`, `MaxTotalFontBytes` or the parser's own limit — ends the conversion with `resource/limit` instead of quietly moving on to another family, and a cancelled context returns its cause.
 4. The `font/unavailable` error — if nothing is found.
 
-The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@font-face` resolve through step 2 or 3.
+The first three steps use caller-selected bytes, so they keep the output
+deterministic. The engine reads **no installed host font on its own**: a
+document that declares no usable family and passes no fallback fails with
+`font/unavailable` instead of rendering in a font that differs between machines.
+The diagnostic names the requested family and both options that supply one.
+
+The pseudo-families `serif`, `sans-serif` and `monospace` without a declared
+`@font-face` resolve through step 2 or 3.
+
+### Opting into the host's fonts
+
+`pdfgen.SystemFallbackFonts()` returns the conventional platform paths — Arial
+and Times New Roman under the macOS supplemental directory, DejaVu Sans and
+Liberation Serif under the Linux font directories — as a fresh copy. Pass the
+list explicitly to accept host-dependent output:
+
+```go
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+	FallbackFonts: pdfgen.SystemFallbackFonts(),
+})
+```
+
+Paths that do not exist are skipped, so one list works on both platforms. The
+returned slice belongs to the caller: modifying or truncating it does not change
+another call or a concurrent conversion. The reference command passes this list
+so `pdfgen invoice.html` keeps working on a developer machine; that is an example
+opt-in, not the library default.
 
 ## Embedded assets and `Options.Source`
 
@@ -27,14 +53,14 @@ The pseudo-families `serif`, `sans-serif` and `monospace` without a declared `@f
 `fstest.MapFS` or a subtree made with `fs.Sub` — and replaces the host filesystem
 for the whole conversion. Every image, stylesheet and `@font-face` source is read
 through it; `BaseDir` and `FontDir` name directories inside it and default to its
-root, and `FallbackFont` is a path inside it, read from the source root. The two
-authorities are never mixed: with `Source` set, the host filesystem and the
-system font list from `DefaultFallbackFonts` are not consulted, so ship the font
-in the source and declare it with `@font-face` or set `FallbackFont`. A source
+root, and `FallbackFont`/`FallbackFonts` are paths inside it, read from the
+source root. The two authorities are never mixed: with `Source` set, no host
+file and no installed host font is consulted, so ship the font in the source and
+declare it with `@font-face` or set `FallbackFont`/`FallbackFonts`. A source
 path is slash-separated, relative and must stay inside the source; an absolute
 or escaping reference fails with the asset's load diagnostic. With a nil
 `Source` (the default) fonts resolve from the host filesystem exactly as
-described above, and step 3 of the resolution order applies.
+described above, and steps 2 and 3 of the resolution order apply.
 
 ## File requirements
 

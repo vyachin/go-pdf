@@ -320,14 +320,14 @@ func TestFallbackFontComesFromSource(t *testing.T) {
 		t.Fatalf("a host fallback font was read from the source conversion: %v", err)
 	}
 
-	// Without a declared or configured font the system font list is not tried:
-	// the family is unavailable instead of silently replaced.
+	// Without a declared or configured font no host font is read: the family
+	// is font/unavailable instead of being silently replaced.
 	res, err = pdfgen.Convert(context.Background(), []byte(`<p>Hello</p>`), pdfgen.Options{
 		File:   "fallback.html",
 		Source: source,
 	})
-	if err == nil || diagnosticWithCode(res.Diagnostics, "text/font") == nil {
-		t.Fatalf("a system font was used in a source conversion: %v", err)
+	if err == nil || diagnosticWithCode(res.Diagnostics, "font/unavailable") == nil {
+		t.Fatalf("a host font was used in a source conversion: %v", err)
 	}
 }
 

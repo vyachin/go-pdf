@@ -682,7 +682,7 @@ func rejectCSSWide(toks []Token, what string) error {
 func parseFontFamily(toks []Token) (Value, error) {
 	// The profile implements neither inherit for this property nor the other
 	// shared keywords, so a bare keyword is rejected rather than stored as a
-	// family that then falls through to a system font.
+	// family that no declaration could resolve.
 	if err := rejectCSSWide(toks, "font-family"); err != nil {
 		return Value{}, err
 	}

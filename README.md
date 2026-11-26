@@ -47,6 +47,9 @@ func main() {
 		File:    "invoice.html",      // names the document in diagnostics
 		BaseDir: "assets",            // relative images resolve here
 		FontDir: "assets/fonts",      // relative @font-face paths resolve here
+		// The face for families the document does not declare. Explicit font
+		// bytes keep the output identical on every machine.
+		FallbackFont: "assets/fonts/body.ttf",
 	})
 
 	var verr *pdfgen.Error
@@ -77,6 +80,29 @@ package documentation:
 go doc github.com/vyachin/go-pdf/pdfgen
 ```
 
+### Fonts
+
+A family resolves in one documented order: an `@font-face` family, then
+`Options.FallbackFont`, then the ordered `Options.FallbackFonts` list, then the
+`font/unavailable` diagnostic. The library reads no installed font on its own,
+so the same input and the same font file produce the same PDF on every machine.
+`FallbackFont` is one explicit path; `FallbackFonts` is a list whose first
+loadable entry becomes the family, with its bold and italic siblings discovered
+next to it.
+
+To opt into the host's conventional fonts, pass them explicitly:
+
+```go
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+	FallbackFonts: pdfgen.SystemFallbackFonts(), // Arial, DejaVu, Liberation, ...
+})
+```
+
+That is the one way host-dependent output enters the library; the zero
+`Options` value never consults the list. `SystemFallbackFonts` returns a fresh
+copy, so a caller may modify it. See [fonts and resources](docs/fonts.md) for the
+full order and the failure diagnostic.
+
 ### Assets in an `fs.FS`
 
 `Options.Source` reads every asset through a caller-supplied `fs.FS` instead of
@@ -96,13 +122,13 @@ res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
 ```
 
 `BaseDir` and `FontDir` are paths inside the source and default to its root;
-`FallbackFont` is a path inside it too, read from the source root. The source is
-authoritative: no host file is read and the system font list is not consulted, so
-ship the font in the source and declare it with `@font-face` or set
-`FallbackFont`. A source path is relative and must stay inside the source; an
-absolute or escaping reference fails with the same `img/load`, `css/link-path` or
-`font/unavailable` diagnostic as a filesystem escape. Leaving `Source` nil keeps
-the filesystem behaviour unchanged.
+`FallbackFont` and `FallbackFonts` are paths inside it too, read from the source
+root. The source is authoritative: no host file and no installed host font is
+consulted, so ship the font in the source and declare it with `@font-face` or set
+`FallbackFont`/`FallbackFonts`. A source path is relative and must stay inside
+the source; an absolute or escaping reference fails with the same `img/load`,
+`css/link-path` or `font/unavailable` diagnostic as a filesystem escape. Leaving
+`Source` nil keeps the filesystem behaviour unchanged.
 
 ### Streaming a large document
 
@@ -149,8 +175,9 @@ pages.
   selected font bytes — produce a byte-identical PDF. `Options.Date` defaults to
   a fixed constant, not the clock, and the document identifier is a hash of the
   content, so two runs agree at any wall-clock time. Every input has to be held
-  still: an asset edited in place is a changed input, and system-font fallback
-  picks different bytes on different machines, so ship the font and keep the
+  still: an asset edited in place is a changed input, and the engine selects no
+  installed font on its own, so the bytes come from an `@font-face` declaration
+  or an explicit fallback and the same template ships the same font. Keep the
   resources immutable — see [fonts and resources](docs/fonts.md).
 - **Nothing is written.** `Convert`, `ConvertTo` and `Validate` create, modify
   and delete no files; they read the assets the document references — from the
@@ -234,7 +261,10 @@ pdfgen -o out.pdf invoice.html   # or where you say
 ```
 
 Relative images, stylesheets and fonts resolve against the input file's
-directory. Exit codes: `0` success, `1` the document cannot be converted, `2` a
+directory. The command passes `pdfgen.SystemFallbackFonts()` so a one-file
+conversion still works on a developer machine; that is an example opt-in, not
+the library default: the `pdfgen` package reads no host font unless the caller
+names one. Exit codes: `0` success, `1` the document cannot be converted, `2` a
 usage error.
 
 The command is an example, not a versioned surface: its interface may change in

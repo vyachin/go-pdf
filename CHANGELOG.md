@@ -11,9 +11,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Caller-supplied asset source.** `Options.Source` accepts an `fs.FS` —
   `embed.FS`, `os.DirFS`, `fstest.MapFS` or a subtree made with `fs.Sub` — and
   every document-referenced image, stylesheet and `@font-face` source, together
-  with `Options.FallbackFont`, is then read through it. An embedded deployment
-  needs no temporary directory, and the source is authoritative: the host
-  filesystem and the system font list are not consulted while it is set.
+  with `Options.FallbackFont`/`Options.FallbackFonts`, is then read through it.
+  An embedded deployment needs no temporary directory, and the source is
+  authoritative: no host file and no installed host font is consulted while it
+  is set.
   `BaseDir` and `FontDir` name directories inside the source and default to its
   root; a source path is relative, must stay inside the source, and an absolute
   or escaping reference keeps the existing `img/load`, `css/link-path` or
@@ -61,6 +62,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Limits.MaxRasterPixels`, and it is not production output. It stays for the
   rest of the 2.x series and may be removed only in the next major release, when
   a debug package or a preview entry point can replace it.
+
+### Removed
+
+- **BREAKING — the implicit system-font search.** With no matching `@font-face`
+  and no caller-selected font, conversion used to try four hard-coded system
+  paths (`Arial.ttf`, `Times New Roman.ttf`, `DejaVuSans.ttf` and
+  `LiberationSerif-Regular.ttf`) and use the first that existed, so the same
+  template produced different glyphs, line breaks and PDF bytes on two hosts.
+  The search and the exported mutable `DefaultFallbackFonts` slice are removed:
+  no installed font is read unless the caller names one, and a missing font is a
+  `font/unavailable` diagnostic naming the requested family and both options
+  that supply a font. The ordered `Options.FallbackFonts []string` is added next
+  to `Options.FallbackFont`, and `pdfgen.SystemFallbackFonts()` returns the
+  conventional platform paths as a fresh copy for callers that opt in. The
+  reference command passes that list, so `pdfgen invoice.html` keeps working on
+  a developer machine while the library default stays reproducible.
+
+### Migration to 3.0.0
+
+A conversion that relied on the implicit search now fails with
+`font/unavailable`. There are two ways to restore rendering:
+
+1. **Ship the font with the document.** Declare it with `@font-face`, or set
+   `Options.FallbackFont` to one explicit file, or `Options.FallbackFonts` to an
+   ordered list. The first list entry that loads becomes the family, with its
+   bold and italic siblings discovered next to it. These are caller-selected
+   bytes, so the output is identical on every host.
+2. **Opt back into the host's fonts.** Set
+   `FallbackFonts: pdfgen.SystemFallbackFonts()` to reproduce the old
+   platform search. The result is host-dependent by definition; the function
+   returns a fresh copy, so modifying or truncating it cannot change another
+   call or a concurrent conversion.
+
+Code that read the removed `DefaultFallbackFonts` slice migrates to
+`pdfgen.SystemFallbackFonts()`. The `cmd/pdfgen` command already passes it, so it
+needs no change.
 
 ### Fixed
 

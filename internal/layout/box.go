@@ -186,9 +186,21 @@ type FontFace struct {
 }
 
 // FontSet resolves a font family list into a concrete face.
+//
+// An implementation returns an error wrapping [ErrFontUnavailable] when no
+// face is available for the family list and the caller selected no font. The
+// layout reports that as font/unavailable, the documented failure for a
+// document that declares no usable font; every other face error stays
+// text/font.
 type FontSet interface {
 	Face(families []string, weight int, italic bool, size int32) (*FontFace, error)
 }
+
+// ErrFontUnavailable reports that a family list resolved to no face and no
+// fallback font was configured. It is distinct from a parse failure: the
+// document can supply the font with @font-face, and the caller with
+// Options.FallbackFont or Options.FallbackFonts.
+var ErrFontUnavailable = errors.New("font unavailable")
 
 // ImageLoader resolves an image source into image data.
 type ImageLoader interface {

@@ -330,8 +330,9 @@ func TestBudgetFailureStopsDependentDiagnostics(t *testing.T) {
 	stopped := false
 	for _, max := range []int{300, 1000, 2000, 4000} {
 		res, _ := Convert(context.Background(), []byte(`<p style="font-family: Nope">hello world</p>`), Options{
-			File:   "dependent.html",
-			Limits: Limits{MaxOperations: max},
+			File:          "dependent.html",
+			FallbackFonts: []string{testFontPath(t)},
+			Limits:        Limits{MaxOperations: max},
 		})
 		if !hasCode(res.Diagnostics, "resource/limit") {
 			continue

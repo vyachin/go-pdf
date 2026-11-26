@@ -34,7 +34,8 @@ type Kind string
 const (
 	// Image is an <img> or background image reference.
 	Image Kind = "image"
-	// Font is an @font-face source, an explicit FallbackFont or a system font.
+	// Font is an @font-face source or an explicit FallbackFont/FallbackFonts
+	// file.
 	Font Kind = "font"
 	// Stylesheet is a <link rel="stylesheet"> reference.
 	Stylesheet Kind = "stylesheet"

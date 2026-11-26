@@ -99,6 +99,28 @@ func (l *layouter) fontStop(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
+// reportFaceError reports a face-resolution failure against the text that
+// needed it. A family with no face and no configured fallback is a
+// document-wide failure whose remedy is one @font-face rule or one option, so
+// font/unavailable is reported once per request signature instead of once per
+// word. Every other face error keeps the text/font missing-family code.
+func (l *layouter) reportFaceError(style *css.Style, src srcRef, err error) {
+	pos, element := src.at()
+	if !errors.Is(err, ErrFontUnavailable) {
+		l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
+		return
+	}
+	if l.unavailable == nil {
+		l.unavailable = map[string]bool{}
+	}
+	key := fmt.Sprintf("%q|%d|%d", style.FontFamily, style.FontWeight, style.FontStyle)
+	if l.unavailable[key] {
+		return
+	}
+	l.unavailable[key] = true
+	l.diags.Errorf(diag.FontUnavailable, pos, element, "%v", err)
+}
+
 // stopsOnGuard reports whether err stops the layout and records why. A budget
 // failure becomes one resource/limit diagnostic; a cancellation is reported by
 // the engine after Run returns.
@@ -111,7 +133,10 @@ func (l *layouter) stopsOnGuard(err error) bool {
 }
 
 func (l *layouter) face(style *css.Style) (*FontFace, error) {
-	key := fmt.Sprintf("%v|%d|%d|%d", style.FontFamily, style.FontWeight, style.FontStyle, style.FontSize)
+	// The key quotes every family name for the same reason the registry does:
+	// joining with a separator a name could contain made ["a b"] and
+	// ["a", "b"] share one entry, so one request received the other's face.
+	key := fmt.Sprintf("%q|%d|%d|%d", style.FontFamily, style.FontWeight, style.FontStyle, style.FontSize)
 	if f, ok := l.faces[key]; ok {
 		return f, nil
 	}
@@ -310,8 +335,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if l.fontStop(err) {
 				return
 			}
-			pos, element := src.at()
-			l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
+			l.reportFaceError(style, src, err)
 			return
 		}
 		run, err := l.shape(face, " ")
@@ -386,8 +410,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				if l.fontStop(err) {
 					return
 				}
-				pos, element := p.src.at()
-				l.diags.Errorf(diag.TextFont, pos, element, "%v", err)
+				l.reportFaceError(p.style, p.src, err)
 				continue
 			}
 			run, err := l.shape(face, p.text)
