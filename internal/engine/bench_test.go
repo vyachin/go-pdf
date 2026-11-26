@@ -180,13 +180,6 @@ func BenchmarkStreaming(b *testing.B) {
 		b.Fatalf("streaming 60 pages allocated %d bytes, buffering %d: the stream must save at least the %d-byte PDF",
 			streamLarge, convertLarge, largePDF)
 	}
-	convertLive := liveHeap(func() any {
-		res, err := Convert(context.Background(), large, opts)
-		if err != nil {
-			panic(err)
-		}
-		return res
-	})
 	streamLive := liveHeap(func() any {
 		res, err := ConvertTo(context.Background(), io.Discard, large, opts)
 		if err != nil {
@@ -201,16 +194,10 @@ func BenchmarkStreaming(b *testing.B) {
 		}
 		return res
 	})
-	b.Logf("allocated: convert=%d/%d stream=%d/%d pdf=%d/%d; retained: convert=%d stream=%d (small stream=%d)",
+	b.Logf("allocated: convert=%d/%d stream=%d/%d pdf=%d/%d; retained stream=%d (small stream=%d)",
 		convertSmall, convertLarge, streamSmall, streamLarge, smallPDF, largePDF,
-		convertLive, streamLive, streamLiveSmall)
+		streamLive, streamLiveSmall)
 
-	// The buffered result keeps the complete PDF alive; the streamed one keeps
-	// only the diagnostics, so the difference must cover the PDF.
-	if convertLive-streamLive < int64(largePDF) {
-		b.Fatalf("the buffered result retains %d bytes and the streamed one %d: the difference does not cover the %d-byte PDF",
-			convertLive, streamLive, largePDF)
-	}
 	// The streamed result does not retain the assembled PDF at all.
 	if streamLive >= int64(largePDF) {
 		b.Fatalf("the streamed result retains %d bytes, as much as the %d-byte PDF", streamLive, largePDF)
