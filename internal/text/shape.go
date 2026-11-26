@@ -89,6 +89,13 @@ type ShapeOptions struct {
 // rune it normalizes, maps and measures, before the glyph slice is allocated,
 // so a single huge word cannot allocate memory out of proportion to the budget.
 func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Run, error) {
+	// A script whose shaping needs joining that the engine does not implement
+	// is refused before a glyph is chosen: drawing it unjoined or in logical
+	// order would be silently wrong, and a font that happens to carry the
+	// isolated forms must not make that look like success.
+	if script, ok := JoiningScript(s); ok {
+		return Run{}, &UnsupportedScriptError{Script: script}
+	}
 	// Charge the rune count before converting the string: a two-megabyte word
 	// must fail the budget before it allocates its rune slice, not after.
 	if n := utf8.RuneCountInString(s); n > 0 {

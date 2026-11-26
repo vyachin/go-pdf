@@ -70,6 +70,9 @@ const (
 
 	TextFont  Code = "text/font"
 	TextGlyph Code = "text/glyph"
+	// TextUnsupportedScript reports text whose script needs contextual shaping
+	// the engine does not implement, such as Arabic joining.
+	TextUnsupportedScript Code = "text/unsupported-script"
 )
 
 // Codes returns every registered code, sorted, for the catalogue and for the
@@ -127,6 +130,7 @@ var allCodes = []Code{
 	ResourceLimit,
 	TextFont,
 	TextGlyph,
+	TextUnsupportedScript,
 }
 
 // Catalogue renders the registry as the markdown table docs/profile.md carries
@@ -190,4 +194,5 @@ var meanings = map[Code]string{
 	ResourceLimit:              "a work, page, asset or structural limit stopped the conversion",
 	TextFont:                   "no font face could be resolved for a family",
 	TextGlyph:                  "a character has no glyph or a mark cannot be attached",
+	TextUnsupportedScript:      "a script needs contextual joining the engine does not implement",
 }
