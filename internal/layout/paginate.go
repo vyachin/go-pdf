@@ -608,32 +608,33 @@ func (l *layouter) measure(b *Box, width int32) int32 {
 		inner = 0
 	}
 	if st.Height.Kind == css.MP && st.Height.Value > 0 {
-		return own + st.Height.Value
+		return clampNonNegative(int64(own) + int64(st.Height.Value))
 	}
 	if b.Kind == Table {
-		return own + l.measureTable(b, inner)
+		return clampNonNegative(int64(own) + int64(l.measureTable(b, inner)))
 	}
 	if b.Kind == Image {
 		if b.Image == nil {
 			return own
 		}
 		_, h := imageSize(b.Style, b.Image, inner, l.ctx)
-		return own + h
+		return clampNonNegative(int64(own) + int64(h))
 	}
 	if l.isTextBlock(b) {
 		l.buildLines(b, inner)
-		var h int32
+		var h int64
 		for _, ln := range b.lines {
-			h += ln.Height
+			h += int64(ln.Height)
 		}
-		return own + h
+		return clampNonNegative(int64(own) + h)
 	}
-	var h int32
+	var h int64
 	for _, c := range b.Children {
-		h += l.measure(c, inner)
-		h += c.Style.Margin[0].Resolve(inner) + c.Style.Margin[2].Resolve(inner)
+		h += int64(l.measure(c, inner))
+		h += int64(c.Style.Margin[0].Resolve(inner))
+		h += int64(c.Style.Margin[2].Resolve(inner))
 	}
-	return own + h
+	return clampNonNegative(int64(own) + h)
 }
 
 // applyFixedHeight grows the box to its declared height and warns when the
@@ -727,4 +728,13 @@ func clampInt32(v int64) int32 {
 		return math.MinInt32
 	}
 	return int32(v)
+}
+
+// clampNonNegative clamps a measured height to [0, MaxInt32]. A negative outer
+// height is never meaningful; an over-range one means "taller than any page".
+func clampNonNegative(v int64) int32 {
+	if v < 0 {
+		return 0
+	}
+	return clampInt32(v)
 }

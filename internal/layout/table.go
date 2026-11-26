@@ -369,18 +369,18 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32) int
 		span := normSpan(cell.ColSpan)
 		x := startX
 		for i := 0; i < cell.col && i < len(t.columns); i++ {
-			x += t.columns[i]
+			x = satAdd(x, t.columns[i])
 		}
 		var w int32
 		for i := 0; i < span && cell.col+i < len(t.columns); i++ {
-			w += t.columns[cell.col+i]
+			w = satAdd(w, t.columns[cell.col+i])
 		}
 		cellH := h
 		rowspan := normSpan(cell.RowSpan)
 		if rowspan > 1 {
 			cellH = 0
 			for r := index; r < index+rowspan && r < len(t.rowHeights); r++ {
-				cellH += t.rowHeights[r]
+				cellH = satAdd(cellH, t.rowHeights[r])
 			}
 		}
 		// A spanning cell that crosses the page break is clipped to the page:
@@ -389,7 +389,7 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32) int
 		// following page.
 		pageBottom := limit
 		visible := cellH
-		if y+visible > pageBottom {
+		if satAdd(y, visible) > pageBottom {
 			visible = satSub(pageBottom, y)
 			if visible < 0 {
 				visible = 0
@@ -536,15 +536,15 @@ func (l *layouter) paintStaticBlocks(page *Page, blocks []*Box, x, y, width, lim
 	for _, b := range blocks {
 		// Cell measurement already includes block margins; painting has to
 		// advance by the same amounts or the drawn content drifts upwards.
-		h += b.Style.Margin[0].Resolve(width)
-		if y+h < limit {
-			h += l.paintStaticBlock(page, b, x, y+h, width, limit)
+		h = satAdd(h, b.Style.Margin[0].Resolve(width))
+		if satAdd(y, h) < limit {
+			h = satAdd(h, l.paintStaticBlock(page, b, x, satAdd(y, h), width, limit))
 		} else {
 			// The block starts below the page: its height still counts, but it
 			// is not painted outside the sheet.
-			h += l.staticMeasure(b, width)
+			h = satAdd(h, l.staticMeasure(b, width))
 		}
-		h += b.Style.Margin[2].Resolve(width)
+		h = satAdd(h, b.Style.Margin[2].Resolve(width))
 	}
 	return h
 }
@@ -596,7 +596,7 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width, limit int32
 	if b.Kind == ListItem {
 		// The marker belongs to the first line. It is painted before any
 		// content, exactly like the paginated path does on entry.
-		b.listMarkerY = y + b.borderTop() + b.padTop()
+		b.listMarkerY = satAdd(satAdd(y, b.borderTop()), b.padTop())
 		l.paintListMarkerAt(page, b, x)
 	}
 	if b.Kind == Image {
@@ -630,7 +630,9 @@ func (l *layouter) paintStaticBlock(page *Page, b *Box, x, y, width, limit int32
 		for i := range b.lines {
 			if lineY >= limit {
 				// The line starts below the page: it is clipped, so the cell's
-				// text stays inside the sheet.
+				// text stays inside the sheet. The loss is reported once for
+				// the box instead of silently dropping content.
+				l.warnOverflow(b, "content is taller than the page and is clipped")
 				contentH = satAdd(contentH, b.lines[i].Height)
 				lineY = satAdd(lineY, b.lines[i].Height)
 				continue
