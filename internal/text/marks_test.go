@@ -289,7 +289,8 @@ func TestShapeAdvancesAreUnaffectedByAttachment(t *testing.T) {
 		for _, g := range run.Glyphs {
 			sum += g.Advance
 		}
-		if run.Width != sum || run.Width != AdvanceWidth(run.Glyphs) {
+		w, saturated := AdvanceWidth(run.Glyphs)
+		if run.Width != sum || run.Width != w || saturated || run.Saturated {
 			t.Fatalf("Shape(%q) width %d, sum of advances %d", text, run.Width, sum)
 		}
 	}

@@ -83,6 +83,28 @@ jobs:
           PDF_REQUIRE_VALIDATOR: "1"
         run: go test -shuffle=on -race ./...
 
+  arch32:
+    # Geometry is int32 millipoints, so the text and layout arithmetic must
+    # produce the same widths and diagnostics where int is 32 bits. The runner
+    # is x86_64, which executes the CGO-free 386 binaries. Every package is
+    # compiled for 386 and the new geometry tests run; the rest of the engine
+    # suite is not selected because image/png rejects a 65535x65535 header on a
+    # 32-bit build before the loader sees it, an unrelated pre-existing case.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: 32-bit build and geometry tests
+        env:
+          GOARCH: "386"
+          CGO_ENABLED: "0"
+        run: |
+          go test -shuffle=on ./... -run '^(TestAdvanceWidthSaturates|TestAdvanceWidthBoundary|TestScaleClampsBeforeNarrowing|TestMetricsClampOutOfRange|TestSaturatedWordReportsOnce|TestSaturatedWordInTableCellReportsOnce|TestLongWordWarningDoesNotRepeatAcrossPages|TestPreformattedLineSaturatesWithoutWrapping|TestExtremeFontSizeIsDiagnosed|TestLineOverflowCondition|TestSaturatedAdvanceIsDiagnosedAndReachesOutput)$'
+
   golden:
     # The render goldens are produced with the poppler of this image:
     # ubuntu-latest is Ubuntu 26.04 and ships poppler 26.01.0, which is the
@@ -219,7 +241,7 @@ jobs:
     # The single check branch protection requires. It runs even when a job
     # failed, and treats anything but success — failure, skipped, cancelled —
     # as a failure, so a suite that never ran cannot pass.
-    needs: [unit, race, golden, fuzz, lint]
+    needs: [unit, race, arch32, golden, fuzz, lint]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -235,6 +257,7 @@ jobs:
           }
           check unit "${{ needs.unit.result }}"
           check race "${{ needs.race.result }}"
+          check arch32 "${{ needs.arch32.result }}"
           check golden "${{ needs.golden.result }}"
           check fuzz "${{ needs.fuzz.result }}"
           check lint "${{ needs.lint.result }}"
