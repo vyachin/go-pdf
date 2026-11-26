@@ -169,6 +169,190 @@ func TestDetectIgnoresCommentedAndLateDeclarations(t *testing.T) {
 	}
 }
 
+// TestDeclaredCharset covers the prescan's shape rules: only a real <meta>
+// declaration counts, and the offset is the tag's '<' in the original bytes.
+func TestDeclaredCharset(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	const flag = "windows-1251"
+	cases := []struct {
+		name   string
+		src    []byte
+		label  string
+		offset int
+	}{
+		{name: "no declaration", src: []byte("<p>hi</p>")},
+		{name: "genuine charset", src: []byte(`<meta charset="windows-1251">`), label: flag},
+		{name: "uppercase tag and name", src: []byte(`<META CHARSET="Windows-1251">`), label: "Windows-1251"},
+		{name: "single-quoted value", src: []byte(`<meta charset='windows-1251'>`), label: flag},
+		{name: "unquoted value", src: []byte(`<meta charset=windows-1251>`), label: flag},
+		{name: "space around equals", src: []byte(`<meta charset = windows-1251>`), label: flag},
+		{name: "greater-than in a quoted value", src: []byte(`<meta name="description" content="a > b" charset="windows-1251">`), label: flag},
+		{name: "empty charset", src: []byte(`<meta charset="">`)},
+		{name: "charset in another attribute", src: []byte(`<meta name="description" content="charset is a word">`)},
+		{name: "markup in another attribute", src: []byte(`<meta name="x" content='<meta charset="utf-8">'>`)},
+		{name: "charset attribute on another element", src: []byte(`<div charset="windows-1251"></div>`)},
+		{name: "meta prefix of another element", src: []byte(`<metadata charset="windows-1251">`)},
+		{name: "comment", src: []byte(`<!-- <meta charset="utf-8"> -->`)},
+		{
+			name:   "comment then real declaration",
+			src:    []byte(`<!-- <meta charset="utf-8"> --><meta charset="windows-1251">`),
+			label:  flag,
+			offset: len(`<!-- <meta charset="utf-8"> -->`),
+		},
+		{
+			name:   "doctype",
+			src:    []byte(`<!DOCTYPE html><meta charset="windows-1251">`),
+			label:  flag,
+			offset: len(`<!DOCTYPE html>`),
+		},
+		{
+			name:   "processing instruction",
+			src:    []byte(`<?xml version="1.0"?><meta charset="windows-1251">`),
+			label:  flag,
+			offset: len(`<?xml version="1.0"?>`),
+		},
+		{name: "unterminated comment", src: []byte(`<!-- <meta charset="windows-1251">`)},
+		{name: "unterminated tag", src: []byte(`<meta charset="windows-1251"`)},
+		{name: "non-meta element before the declaration", src: []byte(`<p title="a > b">x</p><meta charset="windows-1251">`), label: flag, offset: len(`<p title="a > b">x</p>`)},
+		{
+			name:  "http-equiv",
+			src:   []byte(`<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">`),
+			label: flag,
+		},
+		{
+			name:  "http-equiv reversed attributes",
+			src:   []byte(`<meta content="text/html; charset=windows-1251" http-equiv=content-type>`),
+			label: flag,
+		},
+		{
+			name:  "http-equiv quoted label",
+			src:   []byte(`<meta http-equiv="Content-Type" content='text/html; charset="windows-1251"'>`),
+			label: flag,
+		},
+		{name: "http-equiv other type", src: []byte(`<meta http-equiv="refresh" content="0; charset=windows-1251">`)},
+		{name: "http-equiv without content", src: []byte(`<meta http-equiv="Content-Type">`)},
+		{name: "byte order mark", src: append(append([]byte{}, bom...), []byte(`<meta charset="windows-1251">`)...), label: flag, offset: len(bom)},
+		{name: "declaration after the window", src: append(bytes.Repeat([]byte(" "), prescanWindow), []byte(`<meta charset="windows-1251">`)...)},
+		{name: "tag cut by the window", src: append(bytes.Repeat([]byte(" "), prescanWindow-24), []byte(`<meta charset="windows-1251">`)...)},
+		{
+			name:   "tag ends at the window",
+			src:    append(bytes.Repeat([]byte(" "), prescanWindow-len(`<meta charset="windows-1251">`)), []byte(`<meta charset="windows-1251">`)...),
+			label:  flag,
+			offset: prescanWindow - len(`<meta charset="windows-1251">`),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			label, offset := declaredCharset(tc.src)
+			wantOffset := tc.offset
+			if tc.label == "" {
+				wantOffset = -1
+			}
+			if label != tc.label || offset != wantOffset {
+				t.Fatalf("declaredCharset = %q at %d, want %q at %d", label, offset, tc.label, wantOffset)
+			}
+		})
+	}
+}
+
+// TestResolveIgnoresNonDeclarations proves the prescan does not let a comment
+// or another attribute value decide the encoding: such a document is
+// undecodable at its first invalid byte, and no supported encoding is named as
+// unsupported.
+func TestResolveIgnoresNonDeclarations(t *testing.T) {
+	body := cp1251(t, "Счёт")
+	cases := []struct {
+		name   string
+		prefix string
+	}{
+		{name: "comment", prefix: `<!-- <meta charset="utf-8"> --><p>`},
+		{name: "description attribute", prefix: `<meta name="description" content="charset is a word"><p>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := append([]byte(tc.prefix), body...)
+			_, err := Resolve(src, "")
+			if err == nil {
+				t.Fatal("Resolve accepted a document with no real declaration")
+			}
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("error %T is not a *charset.Error", err)
+			}
+			if strings.Contains(e.Msg, "unsupported document encoding") {
+				t.Fatalf("the diagnostic names an encoding the document does not declare: %q", e.Msg)
+			}
+			if strings.Contains(e.Msg, `"utf-8"`) || strings.Contains(e.Msg, `"is"`) {
+				t.Fatalf("the diagnostic quotes ignored markup as an encoding: %q", e.Msg)
+			}
+			if e.Offset != len(tc.prefix) || e.Line != 1 || e.Col != len(tc.prefix)+1 {
+				t.Fatalf("position = offset %d, %d:%d; want %d at 1:%d", e.Offset, e.Line, e.Col, len(tc.prefix), len(tc.prefix)+1)
+			}
+		})
+	}
+}
+
+// TestDeclarationPositionInOriginalBytes proves the offset and column named
+// for a declaration are the author's, even after a multi-byte word and a
+// newline.
+func TestDeclarationPositionInOriginalBytes(t *testing.T) {
+	src := []byte("<p>Привет</p>\n  <meta charset=\"big5\">")
+	wantOffset := bytes.Index(src, []byte("<meta"))
+	_, err := Resolve(src, "")
+	if err == nil {
+		t.Fatal("an unsupported declaration was accepted")
+	}
+	var e *Error
+	if !errors.As(err, &e) {
+		t.Fatalf("error %T is not a *charset.Error", err)
+	}
+	if e.Offset != wantOffset || e.Line != 2 || e.Col != 3 {
+		t.Fatalf("position = offset %d, %d:%d; want offset %d at 2:3", e.Offset, e.Line, e.Col, wantOffset)
+	}
+}
+
+// TestDeclaredCharsetBoundsMemory guards the prescan window: a megabyte of
+// markup-free bytes is scanned without allocating per byte.
+func TestDeclaredCharsetBoundsMemory(t *testing.T) {
+	src := bytes.Repeat([]byte("<"), 1<<20)
+	allocs := testing.AllocsPerRun(1, func() { declaredCharset(src) })
+	if allocs > 8 {
+		t.Fatalf("a megabyte of '<' allocated %v objects", allocs)
+	}
+}
+
+// FuzzDeclaredCharset seeds the scanner with the comment and attribute shapes
+// the prescan must tolerate, and checks that a reported offset always lies in
+// the bytes it was given.
+func FuzzDeclaredCharset(f *testing.F) {
+	for _, seed := range []string{
+		`<!-- <meta charset="utf-8"> -->`,
+		`<meta name="description" content="charset is a word">`,
+		`<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">`,
+		`<meta charset=windows-1251>`,
+		`<meta content="a > b" charset="windows-1251">`,
+		`<meta name="x" content='<meta charset="utf-8">'>`,
+		`<!DOCTYPE html><meta charset="windows-1251">`,
+		`<?xml version="1.0"?><meta charset="windows-1251">`,
+		`<!-- <meta charset="windows-1251">`,
+		`<meta charset="windows-1251"`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, src []byte) {
+		label, offset := declaredCharset(src)
+		if offset < -1 || offset > len(src) {
+			t.Fatalf("offset %d outside %d bytes", offset, len(src))
+		}
+		if label == "" && offset != -1 {
+			t.Fatalf("empty label with offset %d", offset)
+		}
+		if label != "" && (offset < 0 || offset >= len(src)) {
+			t.Fatalf("label %q at offset %d in %d bytes", label, offset, len(src))
+		}
+	})
+}
+
 func TestTables(t *testing.T) {
 	wantUndefined := map[string][]int{
 		Windows1251: {0x98},

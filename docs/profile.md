@@ -52,18 +52,24 @@ standard detects it:
    first 1024 bytes;
 3. otherwise UTF-8.
 
+Only a real declaration counts. A `<meta charset>` written inside a comment, a
+doctype or a processing instruction, a charset attribute on another element,
+and the word `charset` in another attribute's value are not declarations: they
+never decide the encoding, and no diagnostic names the encoding they appear to
+mention.
+
 A UTF-8 byte order mark is removed before parsing. A declaration overrides the
 bytes: a document that says `windows-1251` is read as windows-1251 even when its
 bytes happen to be valid UTF-8, exactly as a browser would read it.
 
 The supported set is closed: `utf-8`, `windows-1251`, `koi8-r` and `ibm866`. A
 declaration of anything else — `shift_jis`, `windows-1252`, a UTF-16 byte order
-mark — fails with `html/encoding` naming the encoding, and the position of the
-first `<meta>` in the window when there is one. windows-1252 is deliberately not
-supported: the standard library reports it both for a document that declares it
-and for a document that declares nothing and is not valid UTF-8, so accepting it
-would read an undeclared windows-1251 document as Latin mojibake. Convert such a
-file, or name the real encoding.
+mark — fails with `html/encoding` naming the encoding, and the byte position of
+the `<meta>` that declares it when the prescan finds one. windows-1252 is
+deliberately not supported: the standard library reports it both for a document
+that declares it and for a document that declares nothing and is not valid
+UTF-8, so accepting it would read an undeclared windows-1251 document as Latin
+mojibake. Convert such a file, or name the real encoding.
 
 A document that is not valid UTF-8 and declares nothing fails with
 `html/encoding` at its first invalid byte, and a byte the selected encoding does

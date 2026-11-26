@@ -158,6 +158,13 @@ func TestEncodingDiagnostics(t *testing.T) {
 			message: []string{"shift_jis", "windows-1251", "utf-8"},
 		},
 		{
+			name:    "declared windows-1252",
+			src:     append([]byte(`<meta charset="windows-1252">`), cp1251Bytes(t, "Счёт")...),
+			line:    1,
+			col:     1,
+			message: []string{"windows-1252", "Options.Charset"},
+		},
+		{
 			name:    "utf-16 document",
 			src:     []byte{0xFF, 0xFE, '<', 0, 'p', 0, '>', 0},
 			message: []string{"UTF-16"},
@@ -427,6 +434,103 @@ func TestEncodingDetection(t *testing.T) {
 				t.Fatalf("decoded = %v, want %v: %v", got, tc.ok, diags.Lines())
 			}
 		})
+	}
+}
+
+// TestEncodingPrescanIgnoresNonDeclarations covers the prescan contract: a
+// charset written inside a comment or inside another attribute's value is not
+// a declaration, so the document is undecodable at its first invalid byte
+// instead of naming an encoding the author never declared.
+func TestEncodingPrescanIgnoresNonDeclarations(t *testing.T) {
+	font := testFontPath(t)
+	body := cp1251Bytes(t, "Счёт")
+	cases := []struct {
+		name   string
+		prefix string
+	}{
+		{name: "comment", prefix: `<!-- <meta charset="utf-8"> --><p>`},
+		{name: "description attribute", prefix: `<meta name="description" content="charset is a word"><p>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := append([]byte(tc.prefix), body...)
+			diags, err := Validate(context.Background(), src, Options{File: "doc.html", FallbackFont: font})
+			if err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			d := firstWithCode(diags, "html/encoding")
+			if d == nil {
+				t.Fatalf("no html/encoding diagnostic: %v", diags.Lines())
+			}
+			if strings.Contains(d.Message, "unsupported document encoding") {
+				t.Fatalf("the diagnostic names an encoding the document does not declare: %q", d.Message)
+			}
+			if strings.Contains(d.Message, `"utf-8"`) || strings.Contains(d.Message, `"is"`) {
+				t.Fatalf("the diagnostic quotes ignored markup as an encoding: %q", d.Message)
+			}
+			if d.Pos.Line != 1 || d.Pos.Col != len(tc.prefix)+1 {
+				t.Fatalf("position = %d:%d, want 1:%d", d.Pos.Line, d.Pos.Col, len(tc.prefix)+1)
+			}
+		})
+	}
+}
+
+// TestEncodingDeclarationVariants proves a real declaration is still read: the
+// charset attribute and the http-equiv form both decode windows-1251.
+func TestEncodingDeclarationVariants(t *testing.T) {
+	font := testFontPath(t)
+	cases := []struct {
+		name string
+		decl string
+	}{
+		{name: "charset attribute", decl: `<meta charset="windows-1251">`},
+		{name: "http-equiv", decl: `<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := cp1251Bytes(t, tc.decl+`<p>Счёт</p>`)
+			res, err := Convert(context.Background(), src, Options{File: "doc.html", FallbackFont: font})
+			if err != nil {
+				t.Fatalf("Convert: %v", err)
+			}
+			if res.Diagnostics.HasErrors() {
+				t.Fatalf("diagnostics: %v", res.Diagnostics.Lines())
+			}
+			text, err := extractText(res.PDF)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(text, "Счёт") {
+				t.Fatalf("text = %q, want the decoded windows-1251", text)
+			}
+		})
+	}
+}
+
+// TestByteOrderMarkWinsOverDeclaration proves the mark is applied before the
+// declaration and the disagreement is not reported as a conflict.
+func TestByteOrderMarkWinsOverDeclaration(t *testing.T) {
+	font := testFontPath(t)
+	src := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`<meta charset="windows-1251"><p>Привет</p>`)...)
+	res, err := Convert(context.Background(), src, Options{File: "bom.html", FallbackFont: font})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	if res.Diagnostics.HasErrors() {
+		t.Fatalf("diagnostics: %v", res.Diagnostics.Lines())
+	}
+	if d := firstWithCode(res.Diagnostics, "html/encoding"); d != nil {
+		t.Fatalf("the declaration was reported as a conflict: %s", d.String())
+	}
+	text, err := extractText(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Привет") {
+		t.Fatalf("text = %q, want the UTF-8 document", text)
+	}
+	if strings.ContainsRune(text, '\uFEFF') {
+		t.Fatal("the byte order mark survived into the text layer")
 	}
 }
 

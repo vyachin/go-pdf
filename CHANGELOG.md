@@ -34,6 +34,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the int32 limit no longer measures a negative height or paints following content
   above itself; measurement, placement and painting saturate, and a box that
   cannot fit reports `layout/overflow` once.
+- **Encoding prescan.** Only a real `<meta charset>` or
+  `<meta http-equiv="Content-Type">` declaration in the first 1024 bytes decides
+  the input encoding. A declaration written inside a comment, a charset
+  attribute on another element, or the word `charset` in another attribute's
+  value no longer influences detection, so a windows-1251 document with such a
+  mention reports its first invalid byte instead of naming an unrelated
+  encoding as unsupported. The supported encoding set is unchanged.
 
 ## [2.0.0] - 2026-11-25
 
