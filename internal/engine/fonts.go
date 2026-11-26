@@ -73,13 +73,17 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 	}
 	seen := map[string]bool{}
 	fontDir := opts.FontDir
-	if fontDir == "" {
+	if !reg.IsSource() && fontDir == "" {
+		// On the host filesystem an empty FontDir historically falls back to
+		// BaseDir. A source names each directory explicitly and defaults both
+		// to its root, so no hidden host path enters the resolution.
 		fontDir = opts.BaseDir
 	}
 	// The root is opened eagerly, so a configured but unusable directory is
 	// reported before any font is read; the registry keeps the handle for the
-	// conversion and closes it once.
-	if fontDir != "" {
+	// conversion and closes it once. A source root is a directory inside the
+	// caller's fs.FS and is checked in preparation instead.
+	if fontDir != "" && !reg.IsSource() {
 		if _, err := reg.Root(fontDir); err != nil {
 			return nil, fmt.Errorf("opening the font directory: %w", err)
 		}
@@ -192,10 +196,11 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		if err := guard.Err(); err != nil {
 			return nil, err
 		}
-		// The explicit fallback is caller-selected: it is read as an
-		// operating-system path, outside the document root, and only after the
-		// caller named it. A file the document already declared is shared from
-		// the same registry record and the same parse.
+		// The explicit fallback is caller-selected: on the host filesystem it
+		// is read as an operating-system path outside the document root; on a
+		// source it is a path inside the source, still read as the caller wrote
+		// it. Only after the caller named it. A file the document already
+		// declared is shared from the same registry record and the same parse.
 		rec, readErr := reg.Read(assets.Request{
 			Kind:          assets.Font,
 			Reference:     opts.FallbackFont,
@@ -428,6 +433,13 @@ var DefaultFallbackFonts = []string{
 }
 
 func (r *fontRegistry) loadSystemFamily() ([]*registeredFace, error) {
+	if r.reg.IsSource() {
+		// A source is authoritative for the whole conversion: the host system
+		// font list is not consulted, so an embedded deployment never mixes a
+		// source with a host file. The caller ships the font in the source and
+		// declares it, or names it with FallbackFont.
+		return nil, nil
+	}
 	if err := r.guard.Err(); err != nil {
 		return nil, err
 	}

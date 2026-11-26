@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Caller-supplied asset source.** `Options.Source` accepts an `fs.FS` —
+  `embed.FS`, `os.DirFS`, `fstest.MapFS` or a subtree made with `fs.Sub` — and
+  every document-referenced image, stylesheet and `@font-face` source, together
+  with `Options.FallbackFont`, is then read through it. An embedded deployment
+  needs no temporary directory, and the source is authoritative: the host
+  filesystem and the system font list are not consulted while it is set.
+  `BaseDir` and `FontDir` name directories inside the source and default to its
+  root; a source path is relative, must stay inside the source, and an absolute
+  or escaping reference keeps the existing `img/load`, `css/link-path` or
+  `font/unavailable` diagnostic. The field is additive: a nil `Source` keeps
+  every existing conversion byte-identical.
+
 ### Fixed
 
 - **Font table defects.** A GPOS `ScriptList` that names only a non-ordinary

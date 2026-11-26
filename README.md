@@ -77,6 +77,33 @@ package documentation:
 go doc github.com/vyachin/go-pdf/pdfgen
 ```
 
+### Assets in an `fs.FS`
+
+`Options.Source` reads every asset through a caller-supplied `fs.FS` instead of
+the host filesystem, so templates and their resources can ship inside the binary
+without extracting anything:
+
+```go
+//go:embed assets
+var assets embed.FS
+
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+	File:    "invoice.html", // the diagnostic name, not a source path
+	Source:  assets,
+	BaseDir: "assets",       // image and stylesheet directory inside the source
+	FontDir: "assets/fonts", // @font-face directory inside the source
+})
+```
+
+`BaseDir` and `FontDir` are paths inside the source and default to its root;
+`FallbackFont` is a path inside it too, read from the source root. The source is
+authoritative: no host file is read and the system font list is not consulted, so
+ship the font in the source and declare it with `@font-face` or set
+`FallbackFont`. A source path is relative and must stay inside the source; an
+absolute or escaping reference fails with the same `img/load`, `css/link-path` or
+`font/unavailable` diagnostic as a filesystem escape. Leaving `Source` nil keeps
+the filesystem behaviour unchanged.
+
 ## Guarantees
 
 - **Deterministic.** The same engine build, the same HTML bytes, the same
@@ -88,8 +115,9 @@ go doc github.com/vyachin/go-pdf/pdfgen
   picks different bytes on different machines, so ship the font and keep the
   resources immutable — see [fonts and resources](docs/fonts.md).
 - **Nothing is written.** `Convert` and `Validate` create, modify and delete no
-  files; they read the assets the document references and return the PDF to the
-  caller, who decides where it goes.
+  files; they read the assets the document references — from the host
+  filesystem or from the caller-supplied `Options.Source` — and return the PDF
+  to the caller, who decides where it goes.
 - **No panics.** Any input is answered with a result or an error, never with a
   crash, so a hostile template cannot take the host process down.
 - **Concurrent.** The package keeps no mutable global state; independent calls
