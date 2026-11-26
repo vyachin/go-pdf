@@ -221,6 +221,9 @@ func FuzzParse(f *testing.F) {
 	if mutated := replaceTableBytes(base, "GPOS", gposWithPairPos(pairPosFormat2Test(coverageFormat2Test([][2]uint16{{0, 65534}})))); mutated != nil {
 		f.Add(mutated)
 	}
+	if mutated := relocateGPOSToEnd(base); mutated != nil {
+		f.Add(withGPOSFeatureList(mutated, 0xFFFF))
+	}
 	if mutated := replaceTableBytes(base, "cmap", cmap12Test([3]uint32{'A', 'A', 70000})); mutated != nil {
 		f.Add(mutated)
 	}
@@ -296,6 +299,57 @@ func FuzzParseClassDef(f *testing.F) {
 
 // truncateTable shortens one table in the sfnt directory so that parsers see
 // less data than the table claims to have.
+// tableRange returns the directory record and the range of one sfnt table. A
+// record whose offset or length leaves the file reports false.
+func tableRange(data []byte, tag string) (rec, off, length int, ok bool) {
+	if len(data) < 12 {
+		return 0, 0, 0, false
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	for i := 0; i < numTables; i++ {
+		rec := 12 + i*16
+		if rec+16 > len(data) {
+			return 0, 0, 0, false
+		}
+		if string(data[rec:rec+4]) != tag {
+			continue
+		}
+		off64 := uint64(binary.BigEndian.Uint32(data[rec+8 : rec+12]))
+		len64 := uint64(binary.BigEndian.Uint32(data[rec+12 : rec+16]))
+		if off64+len64 > uint64(len(data)) {
+			return 0, 0, 0, false
+		}
+		return rec, int(off64), int(len64), true
+	}
+	return 0, 0, 0, false
+}
+
+// relocateGPOSToEnd copies the GPOS table to the end of the font and points the
+// directory at the copy, so the table's capacity ends with the file's.
+func relocateGPOSToEnd(data []byte) []byte {
+	rec, off, length, ok := tableRange(data, "GPOS")
+	if !ok {
+		return nil
+	}
+	out := append([]byte(nil), data...)
+	table := append([]byte(nil), data[off:off+length]...)
+	newOff := len(out)
+	out = append(out, table...)
+	out = out[:len(out):len(out)]
+	binary.BigEndian.PutUint32(out[rec+8:rec+12], uint32(newOff))
+	return out
+}
+
+// withGPOSFeatureList sets the FeatureList offset inside the font's GPOS table.
+func withGPOSFeatureList(data []byte, featureList uint16) []byte {
+	_, off, length, ok := tableRange(data, "GPOS")
+	if !ok || length < 8 {
+		return nil
+	}
+	binary.BigEndian.PutUint16(data[off+6:off+8], featureList)
+	return data
+}
+
 func truncateTable(t *testing.T, data []byte, tag string, length int) []byte {
 	t.Helper()
 	numTables := int(binary.BigEndian.Uint16(data[4:6]))
@@ -329,6 +383,57 @@ func TestTruncatedGPOSDoesNotPanic(t *testing.T) {
 		if parsed.Kerning(0, 0) != 0 && length < 10 {
 			t.Fatalf("truncated GPOS of %d bytes still produced kerning", length)
 		}
+	}
+}
+
+// TestGPOSFeatureListPastTableDoesNotPanic guards RV5-01 on a real font: a
+// FeatureList offset past the table keeps the font usable without kerning
+// instead of reading outside the table.
+func TestGPOSFeatureListPastTableDoesNotPanic(t *testing.T) {
+	f := testFont(t)
+	if f.gpos == nil {
+		t.Skip("the test font has no GPOS table")
+	}
+	_, _, length, ok := tableRange(f.data, "GPOS")
+	if !ok {
+		t.Fatal("the GPOS table is missing")
+	}
+	data := withGPOSFeatureList(append([]byte(nil), f.data...), uint16(length+2))
+	if data == nil {
+		t.Fatal("could not set the FeatureList offset")
+	}
+	parsed, err := Parse(data)
+	if err != nil {
+		// A font error is allowed for a malformed optional table; a panic is
+		// not, and would have aborted the test before this point.
+		return
+	}
+	if parsed.gpos != nil {
+		t.Fatalf("GPOS lookups = %d, want none", len(parsed.gpos.lookups))
+	}
+}
+
+// TestGPOSFeatureListPastRelocatedTableDoesNotPanic moves the GPOS table to the
+// end of the file, so a read past the table would leave the slice's capacity.
+func TestGPOSFeatureListPastRelocatedTableDoesNotPanic(t *testing.T) {
+	f := testFont(t)
+	if f.gpos == nil {
+		t.Skip("the test font has no GPOS table")
+	}
+	data := relocateGPOSToEnd(f.data)
+	if data == nil {
+		t.Fatal("could not relocate the GPOS table")
+	}
+	data = withGPOSFeatureList(data, 0xFFFF)
+	if data == nil {
+		t.Fatal("could not set the FeatureList offset")
+	}
+	parsed, err := Parse(data)
+	if err != nil {
+		return
+	}
+	if parsed.gpos != nil {
+		t.Fatalf("GPOS lookups = %d, want none", len(parsed.gpos.lookups))
 	}
 }
 

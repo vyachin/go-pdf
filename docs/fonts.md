@@ -116,6 +116,11 @@ Offsets, lengths and counts are evaluated in 64-bit arithmetic before any slice,
 so a value that does not fit an `int` on a 32-bit build is rejected instead of
 wrapping; a `cmap` format 12 group that would map past glyph 65535 is refused.
 
+A malformed optional table degrades rather than rejecting the font. A `GPOS`
+`ScriptList` or `FeatureList` offset outside the table disables the lookups it
+would select: the font loads without kerning, no byte outside the table is read,
+and parsing never panics.
+
 ## Recommended set for Russian documents
 
 | Role | Font | License |

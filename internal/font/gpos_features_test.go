@@ -211,3 +211,53 @@ func TestMarkFilteringSetExcludesMarks(t *testing.T) {
 		t.Fatalf("a mark inside the filtering set lost its kerning: %d", got)
 	}
 }
+
+// TestFeatureListPastTableDisablesLookups guards RV5-01: an out-of-bounds
+// FeatureList header is an unusable feature list, not a read outside the table.
+// It disables every lookup instead of panicking or enabling all of them.
+func TestFeatureListPastTableDisablesLookups(t *testing.T) {
+	gpos := buildGPOS(
+		[]gposScript{{tag: "DFLT", features: []int{0}}},
+		[]gposFeature{{tag: "kern", lookups: []int{0}}},
+		[][]byte{pairLookupTable(pairPosFormat1Test(65, 86, -100), 0, 0)},
+	)
+	binary.BigEndian.PutUint16(gpos[6:8], 0xFFFF)
+	got := enabledLookups(gpos)
+	if got == nil || len(got) != 0 {
+		t.Fatalf("enabledLookups = %v, want an empty non-nil set", got)
+	}
+	f := parseGPOSTable(t, gpos, nil)
+	if kerning := f.Kerning(65, 86); kerning != 0 {
+		t.Fatalf("kerning = %d, want 0", kerning)
+	}
+}
+
+// TestFeatureLookupsRejectsHeaderPastTable guards the local check in
+// featureLookups: the header read is bounds-checked before it slices.
+func TestFeatureLookupsRejectsHeaderPastTable(t *testing.T) {
+	gpos := buildGPOS(
+		[]gposScript{{tag: "DFLT", features: []int{0}}},
+		[]gposFeature{{tag: "kern", lookups: []int{0}}},
+		[][]byte{pairLookupTable(pairPosFormat1Test(65, 86, -100), 0, 0)},
+	)
+	for _, off := range []int{len(gpos), 0xFFFF} {
+		if got := featureLookups(gpos, off, 0); got != nil {
+			t.Fatalf("featureLookups(%d) = %v, want nil", off, got)
+		}
+	}
+}
+
+// TestFeatureLookupsRejectsRecordPastTable covers a FeatureList header that fits
+// but whose feature-record offset does not.
+func TestFeatureLookupsRejectsRecordPastTable(t *testing.T) {
+	gpos := buildGPOS(
+		[]gposScript{{tag: "DFLT", features: []int{0}}},
+		[]gposFeature{{tag: "kern", lookups: []int{0}}},
+		[][]byte{pairLookupTable(pairPosFormat1Test(65, 86, -100), 0, 0)},
+	)
+	featureList := int(binary.BigEndian.Uint16(gpos[6:8]))
+	binary.BigEndian.PutUint16(gpos[featureList+2+4:featureList+2+6], 0xFFFF)
+	if got := featureLookups(gpos, featureList, 0); got != nil {
+		t.Fatalf("featureLookups = %v, want nil", got)
+	}
+}
