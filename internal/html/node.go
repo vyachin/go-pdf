@@ -373,39 +373,21 @@ func (d *Document) Position(offset int) diag.Position {
 		from := start + d.posCol
 		// One unit per byte examined, so the charge follows the scanned span.
 		_ = d.guard.Add(uint64(colByte - d.posCol))
-		whole, end := countRunesTo(d.text, from, offset)
-		// An offset inside a character counts every remaining byte as one
-		// rune, the same way a RuneCount from the line start does.
-		colRunes += whole + (offset - end)
+		// Column is 1-based, so its result minus one is the number of
+		// characters from the cursor to the offset. An offset inside a
+		// character counts every remaining byte as one character, the same way
+		// a count from the line start does.
+		colRunes += charset.Column(d.text, from, offset) - 1
 		// Keep the cursor on a whole rune boundary: an offset inside a
 		// character must not make the next query start in the middle of one.
-		d.posRunes += whole
+		end := offset
+		for end > from && end < len(d.text) && !utf8.RuneStart(d.text[end]) {
+			end--
+		}
+		d.posRunes += charset.Column(d.text, from, end) - 1
 		d.posCol = end - start
 	}
 	return diag.Position{File: d.File, Line: line, Col: colRunes + 1}
-}
-
-// countRunesTo counts the whole runes in text[from:to] and returns the last
-// rune boundary at or before to. It advances one character at a time, so it
-// allocates nothing, unlike utf8.RuneCount, whose non-ASCII path converts the
-// remaining bytes to a string. The text is valid UTF-8, so only the final
-// character can be truncated; the caller counts its bytes as RuneCount would.
-func countRunesTo(text []byte, from, to int) (whole, end int) {
-	end = from
-	for end < to {
-		if text[end] < utf8.RuneSelf {
-			end++
-			whole++
-			continue
-		}
-		if !utf8.FullRune(text[end:to]) {
-			return whole, end
-		}
-		_, size := utf8.DecodeRune(text[end:to])
-		whole++
-		end += size
-	}
-	return whole, end
 }
 
 // Pos returns the position of the node's start offset.

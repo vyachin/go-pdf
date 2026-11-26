@@ -110,15 +110,56 @@ func TestMapperPositionWithByteOrderMark(t *testing.T) {
 		line   int
 		col    int
 	}{
-		{0, 1, 1}, // the mark is invisible: the first character is column 1
-		{3, 1, 4}, // after "abc"
-		{4, 2, 1}, // first character of the second line
+		{0, 1, 1},  // the mark is invisible: the first character is column 1
+		{3, 1, 4},  // after "abc"
+		{4, 2, 1},  // first character of the second line
+		{6, 2, 2},  // second character: the word is two bytes per letter
+		{10, 2, 4}, // fourth character
+		{12, 2, 5}, // end of the text: after the fourth character
 	}
 	for _, tc := range cases {
 		line, col := m.Position(tc.offset)
 		if line != tc.line || col != tc.col {
 			t.Fatalf("Position(%d) = %d:%d, want %d:%d", tc.offset, line, col, tc.line, tc.col)
 		}
+	}
+	// An offset inside a multi-byte character names the character's start.
+	if line, col := m.Position(5); line != 2 || col != 1 {
+		t.Fatalf("Position inside a character = %d:%d, want 2:1", line, col)
+	}
+}
+
+// TestMapperPositionUTF8LongLineIsLinear guards the cursor on the UTF-8
+// mapper path: a document with a byte order mark and one long Cyrillic line
+// reports a position for every character. The cursor scans each byte once; a
+// character count from the line start for every position would make this test
+// very slow.
+func TestMapperPositionUTF8LongLineIsLinear(t *testing.T) {
+	if testing.Short() {
+		t.Skip("long line")
+	}
+	const reps = 20_000
+	body := strings.Repeat("Счёт ", reps)
+	src := append([]byte{0xEF, 0xBB, 0xBF}, []byte(body)...)
+	enc, err := Validate(UTF8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := Decode(enc, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewMapper(src, dec.Text, dec.Widths, dec.Skip)
+	lastCol := 0
+	for off := 0; off < len(dec.Text); off++ {
+		line, col := m.Position(off)
+		if line != 1 || col < lastCol {
+			t.Fatalf("Position(%d) = %d:%d, previous column %d", off, line, col, lastCol)
+		}
+		lastCol = col
+	}
+	if lastCol != 5*reps {
+		t.Fatalf("last column = %d, want %d", lastCol, 5*reps)
 	}
 }
 

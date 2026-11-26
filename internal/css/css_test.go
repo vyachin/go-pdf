@@ -459,6 +459,19 @@ func TestStylesheetPositions(t *testing.T) {
 	}
 }
 
+// TestLinkedUTF8StylesheetPositionCountsCharacters covers the position fallback
+// of an external UTF-8 stylesheet, which has no locator: a declaration after a
+// Cyrillic comment names the character column the author sees, not its byte
+// offset. "flex" starts at character 26 and byte 30.
+func TestLinkedUTF8StylesheetPositionCountsCharacters(t *testing.T) {
+	const rule = "/* Счёт */ .x { display: flex }"
+	sheet := ParseSheet(SheetOptions{File: "styles.css"}, []byte(rule))
+	pos := sheet.Position(strings.Index(rule, "flex"))
+	if pos.File != "styles.css" || pos.Line != 1 || pos.Col != 26 {
+		t.Fatalf("position = %+v, want styles.css:1:26", pos)
+	}
+}
+
 func TestRuleKeepsItsSheet(t *testing.T) {
 	sheet := ParseSheet(SheetOptions{File: "a.css"}, []byte("p { color: red }"))
 	if len(sheet.Rules) != 1 {

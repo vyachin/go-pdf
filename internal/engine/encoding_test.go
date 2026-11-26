@@ -190,6 +190,15 @@ func TestEncodingDiagnostics(t *testing.T) {
 			col:     4,
 			message: []string{"not valid UTF-8"},
 		},
+		{
+			// The author sees the invalid byte at character 9 on line 2: the
+			// Cyrillic word is eight bytes but four characters.
+			name:    "invalid utf-8 after multibyte text",
+			src:     append([]byte("<meta charset=\"utf-8\">\n<p>Счёт "), 0xFF),
+			line:    2,
+			col:     9,
+			message: []string{"not valid UTF-8"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -251,6 +260,73 @@ func TestUTF8ByteOrderMark(t *testing.T) {
 	if strings.ContainsRune(text, '\uFEFF') {
 		t.Fatal("the byte order mark survived into the text layer")
 	}
+}
+
+// TestUTF8ColumnWithAndWithoutByteOrderMark pins the character-column rule on
+// a multibyte document: the same text reports the same column whether or not it
+// starts with a UTF-8 byte order mark. Before the fix the marked copy reported
+// the byte column 20 and the plain copy the character column 14.
+func TestUTF8ColumnWithAndWithoutByteOrderMark(t *testing.T) {
+	font := testFontPath(t)
+	body := []byte(`<p>Привет</p><img src="missing.png">`)
+	marked := append([]byte{0xEF, 0xBB, 0xBF}, body...)
+	for _, tc := range []struct {
+		name string
+		src  []byte
+	}{
+		{name: "without mark", src: body},
+		{name: "with mark", src: marked},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, _ := Convert(context.Background(), tc.src, Options{
+				File:         "columns.html",
+				BaseDir:      t.TempDir(),
+				FallbackFont: font,
+			})
+			d := firstWithCode(res.Diagnostics, "img/load")
+			if d == nil {
+				t.Fatalf("no img/load diagnostic:\n%s", strings.Join(res.Diagnostics.Lines(), "\n"))
+			}
+			if d.Pos.Line != 1 || d.Pos.Col != 14 {
+				t.Fatalf("img/load position = %d:%d, want 1:14:\n%s", d.Pos.Line, d.Pos.Col, strings.Join(res.Diagnostics.Lines(), "\n"))
+			}
+		})
+	}
+}
+
+// TestLinkedStylesheetColumnsCountCharacters covers a linked UTF-8 stylesheet
+// with no locator: its position fallback must count characters, not bytes. The
+// inline rule is the control, because the document path already counted
+// characters.
+func TestLinkedStylesheetColumnsCountCharacters(t *testing.T) {
+	font := testFontPath(t)
+	const rule = "/* Счёт */ .x { display: flex }"
+	// "flex" starts at character column 26; the byte column is 30.
+
+	t.Run("linked sheet", func(t *testing.T) {
+		dir := t.TempDir()
+		doc := []byte(`<link rel="stylesheet" href="styles.css"><p class="x">x</p>`)
+		if err := os.WriteFile(filepath.Join(dir, "doc.html"), doc, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "styles.css"), []byte(rule+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		res, _ := Convert(context.Background(), doc, Options{FallbackFont: font, File: "doc.html", BaseDir: dir})
+		d := requireDiagnostic(t, res.Diagnostics, "css/unsupported-value", "flex")
+		if filepath.Base(d.Pos.File) != "styles.css" || d.Pos.Line != 1 || d.Pos.Col != 26 {
+			t.Fatalf("position = %s:%d:%d, want styles.css:1:26", d.Pos.File, d.Pos.Line, d.Pos.Col)
+		}
+	})
+
+	t.Run("inline rule", func(t *testing.T) {
+		doc := []byte("<style>\n" + rule + "\n</style><p class=\"x\">x</p>")
+		res, _ := Convert(context.Background(), doc, Options{FallbackFont: font, File: "doc.html"})
+		d := requireDiagnostic(t, res.Diagnostics, "css/unsupported-value", "flex")
+		if d.Pos.Line != 2 || d.Pos.Col != 26 {
+			t.Fatalf("position = %d:%d, want 2:26", d.Pos.Line, d.Pos.Col)
+		}
+	})
 }
 
 // TestLegacyInvoice converts the windows-1251 invoice, freezes its text layer

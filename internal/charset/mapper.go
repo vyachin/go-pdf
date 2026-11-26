@@ -1,12 +1,18 @@
 package charset
 
-import "github.com/vyachin/go-pdf/internal/budget"
+import (
+	"unicode/utf8"
+
+	"github.com/vyachin/go-pdf/internal/budget"
+)
 
 // Mapper translates an offset in a decoded text back to the line and column of
-// the source bytes it came from. A single-byte encoding changes neither the
-// line structure nor the order of the bytes, so the line number is the decoded
-// one; only the column has to be recomputed, by walking the source line and
-// adding up the decoded widths until the decoded column is reached.
+// the source bytes it came from. The line number is the decoded one: a
+// single-byte encoding changes neither the line structure nor the order of the
+// bytes, and decoding UTF-8 only removes a leading byte order mark. The column
+// counts characters, not bytes: a single-byte source walks the decoded widths
+// of the source line, while a UTF-8 source counts code points in the decoded
+// text.
 //
 // The walk resumes from a cursor kept for the last line answered. Diagnostics
 // are ordered by line and column, so a document that reports many positions on
@@ -33,6 +39,10 @@ type Mapper struct {
 	line   int
 	decCol int
 	srcCol int
+	// col is the character column of decCol for a UTF-8 source. It is unused
+	// for a single-byte source, where one source byte is one character and
+	// srcCol already is the column.
+	col int
 }
 
 // NewMapper builds the mapper of a decoded source. widths is the Decoded
@@ -54,8 +64,8 @@ func NewMapperWithGuard(src, text []byte, widths []uint8, skip int, guard *budge
 }
 
 // Position converts an offset in the decoded text into a 1-based line and
-// column of the source. An offset inside a decoded character reports the column
-// where that character starts.
+// column of the source. The column counts characters, not bytes. An offset
+// inside a decoded character reports the column where that character starts.
 func (m *Mapper) Position(offset int) (line, col int) {
 	if offset < 0 {
 		offset = 0
@@ -66,7 +76,22 @@ func (m *Mapper) Position(offset int) (line, col int) {
 	i, decStart := m.decLines.Resolve(offset)
 	decCol := offset - decStart
 	if !m.cached || m.line != i || decCol < m.decCol {
-		m.cached, m.line, m.decCol, m.srcCol = true, i, 0, 0
+		m.cached, m.line, m.decCol, m.srcCol, m.col = true, i, 0, 0, 0
+	}
+	if m.widths == nil {
+		// A UTF-8 source needs no byte translation: the decoded text is the
+		// source minus a leading byte order mark, and one code point is one
+		// source character. Count from the cursor, and stop at the character
+		// boundary so an offset inside a character names its start.
+		end := offset
+		for end > decStart+m.decCol && end < len(m.text) && !utf8.RuneStart(m.text[end]) {
+			end--
+		}
+		if end > decStart+m.decCol {
+			m.col += Column(m.text, decStart+m.decCol, end) - 1
+			m.decCol = end - decStart
+		}
+		return i + 1, m.col + 1
 	}
 	srcBase, ok := m.srcLines.StartAt(i)
 	if !ok {
@@ -97,6 +122,9 @@ func (m *Mapper) Position(offset int) (line, col int) {
 		srcCol++
 	}
 	m.decCol, m.srcCol = j, srcCol
+	// A single-byte encoding decodes one character per source byte, so the
+	// byte column is already the character column and the existing numbers do
+	// not move.
 	return i + 1, srcCol + 1
 }
 
