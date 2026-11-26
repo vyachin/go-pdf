@@ -68,6 +68,113 @@ func TestTableColumnsFitTheContentBox(t *testing.T) {
 	}
 }
 
+// TestHugeDeclaredTableColumnsStayInsideContentBox guards RV5-16: the declared
+// widths were summed in int32, so two 2,000,000 pt columns wrapped the total and
+// the scale-to-fit pass saturated it. Each produced column stayed about 449 pt
+// wide, the second cell began at roughly 505 pt and its box painted past the
+// 595 pt page while the table still claimed its columns were scaled to fit.
+func TestHugeDeclaredTableColumnsStayInsideContentBox(t *testing.T) {
+	h := newHarness(t)
+	size, margin := h.ctx.PageSize, h.ctx.Margin
+	contentLeft := margin[3]
+	contentRight := size.Width - margin[1]
+	src := `<table><tr>
+	  <td style="width:2000000pt;background-color:#eeeeee">A</td>
+	  <td style="width:2000000pt;background-color:#dddddd">B</td>
+	</tr></table>`
+	doc, diags := h.runRaw(src, size, margin)
+	if diags.HasErrors() {
+		t.Fatalf("layout errors: %v", diags.Lines())
+	}
+	colors := []css.Color{
+		{R: 0xee, G: 0xee, B: 0xee, Set: true},
+		{R: 0xdd, G: 0xdd, B: 0xdd, Set: true},
+	}
+	cells := make([]*Rect, len(colors))
+	for _, page := range doc.Pages {
+		for i := range page.Ops {
+			op := &page.Ops[i]
+			if op.Kind != FillOpKind {
+				continue
+			}
+			for k, color := range colors {
+				if op.Color == color {
+					cells[k] = &op.Rect
+				}
+			}
+		}
+	}
+	for k, rect := range cells {
+		if rect == nil {
+			t.Fatalf("cell %d has no painted background", k+1)
+		}
+		if rect.W <= 0 {
+			t.Fatalf("cell %d has width %d, want a positive scaled width", k+1, rect.W)
+		}
+		if rect.X < contentLeft {
+			t.Fatalf("cell %d starts at %d, before the content box %d", k+1, rect.X, contentLeft)
+		}
+		if right := int64(rect.X) + int64(rect.W); right > int64(contentRight) {
+			t.Fatalf("cell %d ends at %d, past the content box right edge %d", k+1, right, contentRight)
+		}
+	}
+	// No operation is painted outside the page either.
+	for _, page := range doc.Pages {
+		for _, op := range page.Ops {
+			if op.Rect.X < 0 || int64(op.Rect.X)+int64(op.Rect.W) > int64(page.Size.Width) {
+				t.Fatalf("an operation is outside the page: x=%d w=%d", op.Rect.X, op.Rect.W)
+			}
+		}
+	}
+	// The one warning describes the geometry that was produced: the columns
+	// were scaled, so the table fits the content box.
+	reported := 0
+	for _, d := range diags {
+		if d.Code != "layout/overflow" {
+			continue
+		}
+		reported++
+		if !strings.Contains(d.Message, "scaled to fit") {
+			t.Fatalf("the overflow warning does not describe the scaled columns: %s", d.String())
+		}
+	}
+	if reported != 1 {
+		t.Fatalf("the scaled table reported layout/overflow %d times, want 1: %v", reported, diags.Lines())
+	}
+	// A table whose declared columns fit keeps its geometry and reports nothing.
+	fitSrc := `<table><tr>
+	  <td style="width:100pt;background-color:#eeeeee">A</td>
+	  <td style="background-color:#dddddd">B</td>
+	</tr></table>`
+	fitDoc, fitDiags := h.runRaw(fitSrc, size, margin)
+	if n := countOverflow(fitDiags); n != 0 {
+		t.Fatalf("a fitting table reported %d layout/overflow diagnostics: %v", n, fitDiags.Lines())
+	}
+	fitCells := make([]*Rect, len(colors))
+	for _, page := range fitDoc.Pages {
+		for i := range page.Ops {
+			op := &page.Ops[i]
+			if op.Kind != FillOpKind {
+				continue
+			}
+			for k, color := range colors {
+				if op.Color == color {
+					fitCells[k] = &op.Rect
+				}
+			}
+		}
+	}
+	if fitCells[0] == nil || fitCells[0].W != 100000 {
+		t.Fatalf("the declared 100 pt column was resized: %+v", fitCells[0])
+	}
+	if fitCells[1] == nil || fitCells[1].X != contentLeft+100000 {
+		t.Fatalf("the fitting columns moved: %+v", fitCells[1])
+	}
+	if right := int64(fitCells[1].X) + int64(fitCells[1].W); right != int64(contentRight) {
+		t.Fatalf("the fitting table ends at %d, want the content edge %d", right, contentRight)
+	}
+}
+
 // TestLongWordIsReported guards RV4-16: a thousand-character word — and any run
 // with no break opportunity, such as a CJK paragraph — produced no diagnostic,
 // so the text was clipped at the page edge with the tail silently lost. Each
@@ -96,6 +203,34 @@ func TestLongWordIsReported(t *testing.T) {
 		if d.Code == "layout/overflow" {
 			t.Fatalf("ordinary text warned: %v", d.String())
 		}
+	}
+}
+
+// TestLongWordInTableCellIsReported guards RV5-17: only placeText compared a
+// line with its width, so a thousand-character word inside a table cell was
+// painted past the page edge with no diagnostic, while the same word in a
+// paragraph was reported. The cell reports once, and a word that fits reports
+// nothing.
+func TestLongWordInTableCellIsReported(t *testing.T) {
+	h := newHarness(t)
+	_, diags := h.runRaw(`<table><tr><td>`+repeatRune('ж', 1000)+`</td></tr></table>`,
+		h.ctx.PageSize, h.ctx.Margin)
+	if diags.HasErrors() {
+		t.Fatalf("layout errors: %v", diags.Lines())
+	}
+	if n := countOverflow(diags); n != 1 {
+		t.Fatalf("the cell reported %d layout/overflow diagnostics, want 1: %v", n, diags.Lines())
+	}
+	for _, d := range diags {
+		if d.Code == "layout/overflow" && !strings.Contains(d.Element, "td") {
+			t.Fatalf("the diagnostic does not name the cell: %s", d.String())
+		}
+	}
+	// A cell whose words fit its content width does not warn.
+	_, fitDiags := h.runRaw(`<table><tr><td>короткое слово</td></tr></table>`,
+		h.ctx.PageSize, h.ctx.Margin)
+	if n := countOverflow(fitDiags); n != 0 {
+		t.Fatalf("a fitting cell reported %d layout/overflow diagnostics: %v", n, fitDiags.Lines())
 	}
 }
 
