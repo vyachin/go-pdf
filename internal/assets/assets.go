@@ -606,11 +606,16 @@ func (r *Registry) locate(req Request) (path, canonical string, explicit bool, e
 	return named, canonical, false, nil
 }
 
-// size returns the size of one asset without reading it.
+// size returns the size of one asset without reading it. A non-regular file is
+// refused here, before a reservation is made, so the adapter reports the
+// resource's load diagnostic instead of a size or a read failure.
 func (r *Registry) size(req Request, canonical, path string, explicit bool) (int64, error) {
 	if explicit {
 		info, err := os.Stat(canonical)
 		if err != nil {
+			return 0, &Error{Kind: req.Kind, Reference: req.Reference, Path: path, Err: err}
+		}
+		if err := fsx.CheckRegular(path, info); err != nil {
 			return 0, &Error{Kind: req.Kind, Reference: req.Reference, Path: path, Err: err}
 		}
 		return info.Size(), nil
@@ -627,7 +632,9 @@ func (r *Registry) size(req Request, canonical, path string, explicit bool) (int
 }
 
 // readBytes reads one asset: through the root handle for a document reference,
-// from the file system for a caller-selected path.
+// from the file system for a caller-selected path. Both readers apply the
+// regular-file gate, so an explicit FallbackFont naming a FIFO cannot block
+// either.
 func (r *Registry) readBytes(req Request, canonical string, explicit bool) ([]byte, error) {
 	if explicit {
 		data, err := fsx.ReadFileLimit(canonical, req.MaxBytes)

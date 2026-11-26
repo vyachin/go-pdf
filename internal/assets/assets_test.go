@@ -9,6 +9,7 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/fsx"
+	"github.com/vyachin/go-pdf/internal/testfifo"
 )
 
 // writeFile writes data under dir/name and returns the path.
@@ -242,5 +243,31 @@ func TestTypedErrorKeepsTheCause(t *testing.T) {
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the cause is not unwrapped: %v", err)
+	}
+}
+
+// TestNonRegularReadKeepsTheTypedCause guards the admission gate and the typed
+// failure: every kind refuses a FIFO with ErrNotRegular, in a root and for an
+// explicit caller-selected path, instead of opening it and waiting for a writer.
+func TestNonRegularReadKeepsTheTypedCause(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "probe.fifo")
+	testfifo.Create(t, fifo)
+	reg := New(nil)
+	defer func() { _ = reg.Close() }()
+	for _, req := range []Request{
+		{Kind: Image, Reference: "probe.fifo", Dir: dir},
+		{Kind: Stylesheet, Reference: "probe.fifo", Dir: dir},
+		{Kind: Font, Reference: "probe.fifo", Dir: dir},
+		{Kind: Font, Reference: fifo, Explicit: true},
+	} {
+		_, err := reg.Read(req)
+		var assetErr *Error
+		if !errors.As(err, &assetErr) {
+			t.Fatalf("%s read of a FIFO returned %T, want *assets.Error", req.Kind, err)
+		}
+		if !errors.Is(err, fsx.ErrNotRegular) {
+			t.Fatalf("%s read lost the typed cause: %v", req.Kind, err)
+		}
 	}
 }

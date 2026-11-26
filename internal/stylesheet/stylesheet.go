@@ -46,9 +46,16 @@ type linkError struct {
 	// pos overrides the link element's position when the problem is inside
 	// the stylesheet file rather than in the document that refers to it.
 	pos *diag.Position
+	// cause is the failure the diagnostic describes, when one is known. It is
+	// kept so a caller can still match a typed cause — fsx.ErrNotRegular, for
+	// example — instead of receiving only a message.
+	cause error
 }
 
 func (e *linkError) Error() string { return e.msg }
+
+// Unwrap returns the failure the diagnostic describes, when one is known.
+func (e *linkError) Unwrap() error { return e.cause }
 
 // Collect walks the document in order and returns every stylesheet it finds:
 // inline <style> elements and local <link rel="stylesheet"> files. The slice
@@ -290,13 +297,13 @@ func readError(err error, href string) error {
 			return assetErr.Err
 		}
 		if assetErr.Path != "" {
-			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err)}
+			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err), cause: assetErr.Err}
 		}
 	}
 	if refErr := referenceError(href); refErr != nil {
 		return refErr
 	}
-	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err)}
+	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err), cause: err}
 }
 
 // referenceError names the references that cannot denote a local file. The

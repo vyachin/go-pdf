@@ -128,24 +128,38 @@ func (r *Registry) readSource(req Request) (*Record, error) {
 }
 
 // readSourceLeader performs the leader half of a source read. The file is
-// opened once and closed on every path, its declared size is checked and
-// reserved, and the contents are read through io.LimitReader, so a source
-// cannot hand the conversion more bytes than MaxBytes however large the object
-// claims to be. The reservation is then reconciled with the bytes actually
-// admitted.
+// classified before the open when the source can stat it, and through the
+// descriptor otherwise, so a source backed by the host filesystem cannot block
+// in open(2) on a FIFO. The file is opened once and closed on every path, its
+// declared size is checked and reserved, and the contents are read through
+// io.LimitReader, so a source cannot hand the conversion more bytes than
+// MaxBytes however large the object claims to be. The reservation is then
+// reconciled with the bytes actually admitted.
 func (r *Registry) readSourceLeader(req Request, key, name string) (*Record, error) {
+	// A source that can report file information is classified before the open;
+	// a source that cannot is classified through the descriptor after it. The
+	// pre-open stat is what keeps an operating-system source from waiting in
+	// open(2) on a FIFO.
+	if statter, ok := r.source.(fs.StatFS); ok {
+		info, err := statter.Stat(name)
+		if err != nil {
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
+		}
+		if err := fsx.CheckRegular(name, info); err != nil {
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
+		}
+	}
 	f, err := r.source.Open(name)
 	if err != nil {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
 	}
 	defer func() { _ = f.Close() }()
 	size := int64(-1)
-	if info, statErr := f.Stat(); statErr == nil {
-		if info.IsDir() {
-			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name,
-				Err: fmt.Errorf("%q is a directory, not an asset file", name)}
+	if openedInfo, statErr := f.Stat(); statErr == nil {
+		if err := fsx.CheckRegular(name, openedInfo); err != nil {
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
 		}
-		size = info.Size()
+		size = openedInfo.Size()
 	}
 	if req.MaxBytes > 0 && size > int64(req.MaxBytes) {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference,

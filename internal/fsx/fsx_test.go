@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/testfifo"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -295,5 +297,177 @@ func TestRelativePathsResolveInsideTheRoot(t *testing.T) {
 	// Containment still holds: a relative traversal leaves the root.
 	if _, err := root.Read("../outside.txt"); !errors.Is(err, ErrOutsideRoot) {
 		t.Fatalf("a traversal returned %v, want ErrOutsideRoot", err)
+	}
+}
+
+// TestReadRejectsNonRegular guards the regular-file gate: a directory, a FIFO
+// or a character device is refused before the read, while a regular file is
+// still read. A FIFO read without the gate would wait in open(2) until the test
+// timeout.
+func TestReadRejectsNonRegular(t *testing.T) {
+	dir := t.TempDir()
+	regular := writeFile(t, dir, "regular.bin", "data")
+	folder := filepath.Join(dir, "folder")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	t.Run("regular file", func(t *testing.T) {
+		data, err := root.Read(regular)
+		if err != nil || string(data) != "data" {
+			t.Fatalf("Read = %q, %v; want the file contents", data, err)
+		}
+		if size, err := root.Size(regular); err != nil || size != 4 {
+			t.Fatalf("Size = %d, %v; want 4", size, err)
+		}
+	})
+	t.Run("directory", func(t *testing.T) {
+		assertNotRegular(t, root, folder, "a directory")
+	})
+	t.Run("FIFO", func(t *testing.T) {
+		fifo := filepath.Join(dir, "probe.fifo")
+		testfifo.Create(t, fifo)
+		assertNotRegular(t, root, fifo, "a FIFO")
+		// The reader outside a root applies the same gate.
+		if _, err := ReadFileLimit(fifo, 0); !errors.Is(err, ErrNotRegular) {
+			t.Fatalf("ReadFileLimit on a FIFO = %v, want ErrNotRegular", err)
+		}
+	})
+	t.Run("character device", func(t *testing.T) {
+		info, statErr := os.Stat("/dev/null")
+		if statErr != nil || info.Mode()&fs.ModeCharDevice == 0 {
+			t.Skip("/dev/null is not available as a character device")
+		}
+		devRoot, openErr := Open("/dev")
+		if openErr != nil {
+			t.Skipf("cannot open /dev: %v", openErr)
+		}
+		defer func() { _ = devRoot.Close() }()
+		assertNotRegular(t, devRoot, "/dev/null", "a character device")
+	})
+}
+
+// assertNotRegular requires Read and Size to reject path as non-regular and to
+// name what the file is instead.
+func assertNotRegular(t *testing.T, root *Root, path, kind string) {
+	t.Helper()
+	_, err := root.Read(path)
+	if !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("Read(%q) = %v, want ErrNotRegular", path, err)
+	}
+	if !strings.Contains(err.Error(), kind) {
+		t.Fatalf("the error does not name %s: %v", kind, err)
+	}
+	if _, err := root.Size(path); !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("Size(%q) = %v, want ErrNotRegular", path, err)
+	}
+}
+
+// TestOpenRejectsFileSwappedForFIFO guards the post-open check: a regular file
+// replaced by a FIFO between the stat and the open is still rejected, and the
+// non-blocking open lets the check run instead of waiting for a writer.
+func TestOpenRejectsFileSwappedForFIFO(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "probe.bin", "regular")
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	swapped := false
+	root.beforeOpen = func() {
+		swapped = true
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		testfifo.Create(t, path)
+	}
+	if _, err := root.Read(path); !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("a file swapped for a FIFO returned %v, want ErrNotRegular", err)
+	}
+	if !swapped {
+		t.Fatal("the test never swapped the file")
+	}
+}
+
+// TestSymlinkTargetClassification guards that symlinks are resolved first and
+// the target is then classified: a regular target inside the root still reads,
+// a FIFO target inside the root is non-regular, and a target outside the root
+// is still a path escape.
+func TestSymlinkTargetClassification(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	regular := writeFile(t, dir, "regular.bin", "data")
+	outside := writeFile(t, outsideDir, "secret.bin", "secret")
+	regularLink := filepath.Join(dir, "regular.link")
+	if err := os.Symlink(regular, regularLink); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	outsideLink := filepath.Join(dir, "outside.link")
+	if err := os.Symlink(outside, outsideLink); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	cases := []struct {
+		name string
+		// setup returns the symlink path the test reads.
+		setup    func(t *testing.T) string
+		want     error
+		wantText string
+	}{
+		{
+			name:  "regular target inside the root",
+			setup: func(*testing.T) string { return regularLink },
+		},
+		{
+			name:  "target outside the root",
+			setup: func(*testing.T) string { return outsideLink },
+			want:  ErrOutsideRoot,
+		},
+		{
+			name: "FIFO target inside the root",
+			setup: func(t *testing.T) string {
+				fifo := filepath.Join(dir, "probe.fifo")
+				testfifo.Create(t, fifo)
+				link := filepath.Join(dir, "fifo.link")
+				if err := os.Symlink(fifo, link); err != nil {
+					t.Skipf("symlinks are not available: %v", err)
+				}
+				return link
+			},
+			want:     ErrNotRegular,
+			wantText: "a FIFO",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.setup(t)
+			data, err := root.Read(path)
+			if tc.want == nil {
+				if err != nil {
+					t.Fatalf("Read(%q) = %v, want the target contents", path, err)
+				}
+				if string(data) != "data" {
+					t.Fatalf("Read(%q) = %q, want %q", path, data, "data")
+				}
+				return
+			}
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Read(%q) = %v, want %v", path, err, tc.want)
+			}
+			if tc.wantText != "" && !strings.Contains(err.Error(), tc.wantText) {
+				t.Fatalf("the error does not name %s: %v", tc.wantText, err)
+			}
+		})
 	}
 }
