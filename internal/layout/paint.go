@@ -20,6 +20,15 @@ func (l *layouter) finishFragment(f *flow, b *Box, completed bool) {
 	bottom := f.y
 	if completed {
 		bottom = satAdd(bottom, satAdd(b.padBottom(), b.borderBottom()))
+		if b.Kind == Table && bottom > f.bottom {
+			// A table's bottom padding and border belong to the page the table
+			// ends on: paint them up to the page bottom and report the clip
+			// instead of drawing past the MediaBox. afterBlock still advances
+			// the flow by the declared insets, so following content starts on
+			// the next page; only the paint is clipped.
+			bottom = f.bottom
+			l.warnOverflow(b, "the table's bottom padding and border are clipped at the page bottom")
+		}
 	}
 	if bottom < top {
 		bottom = top
@@ -134,7 +143,9 @@ func inlineBaseline(line *Line, it LineItem) int32 {
 	}
 }
 
-// paintLineAt draws one line of text.
+// paintLineAt draws one line of text. unstretched suppresses justification: the
+// caller sets it for the paragraph's final line and for the last line a page or
+// a table fragment paints.
 // paintShapedRun emits one shaped run at x on the given baseline, preserving
 // the shaper's glyph offsets. A glyph with an offset is drawn as its own text
 // object at pen+offset, so the PDF writer needs no vertical text state, while
@@ -184,7 +195,7 @@ func (l *layouter) paintShapedRun(page *Page, face *FontFace, color css.Color, r
 	flush()
 }
 
-func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, last bool) {
+func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, unstretched bool) {
 	st := b.Style
 	x = satAdd(x, line.Indent)
 	// Natural already contains the indent, so the free space is measured from
@@ -207,7 +218,9 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 	case css.AlignCenter:
 		x = satAdd(x, extra/2)
 	case css.AlignJustify:
-		if !last && !line.ForcedBreak && spaces > 0 && extra > 0 {
+		// unstretched covers the paragraph's own last line and the last line
+		// painted on a page; a line ended by a forced break keeps its width too.
+		if !unstretched && !line.ForcedBreak && spaces > 0 && extra > 0 {
 			justify = extra
 		}
 	}

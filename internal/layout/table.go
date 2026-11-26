@@ -684,14 +684,16 @@ func (l *layouter) paintSpanCellText(page *Page, block *Box, contentX, contentY,
 
 // paintBlockLines paints the lines of block from index from and stops before a
 // line that would start at or below limit. It returns the index of the first
-// line that was not painted.
+// line that was not painted. The last line of the fragment is not justified, so
+// a continued cell obeys the same rule as a page's closing line.
 func (l *layouter) paintBlockLines(page *Page, block *Box, from int, x, y, width, limit int32) int {
 	for i := from; i < len(block.lines); i++ {
 		if y >= limit {
 			return i
 		}
 		line := &block.lines[i]
-		l.paintLineAt(page, block, line, x, y, width, i == len(block.lines)-1)
+		fragmentLast := i == len(block.lines)-1 || satAdd(y, line.Height) >= limit
+		l.paintLineAt(page, block, line, x, y, width, fragmentLast)
 		for _, id := range line.Anchors {
 			if _, ok := l.anchors[id]; !ok {
 				l.anchors[id] = Anchor{Page: page.Number, Y: y}

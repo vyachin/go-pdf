@@ -109,9 +109,17 @@ func (l *layouter) paintMarginBoxes() {
 	}
 	names := slices.Sorted(maps.Keys(l.pageStyle.Boxes))
 	total := len(l.doc.Pages)
+	// A margin box whose label cannot be placed is reported once per box, not
+	// once per page.
+	reported := map[string]bool{}
 	for _, page := range l.doc.Pages {
 		contentLeft := page.Margin[3]
-		contentWidth := page.Size.Width - page.Margin[1] - page.Margin[3]
+		// Saturating arithmetic: a horizontal margin larger than the page must
+		// not wrap the content width into a huge negative value.
+		contentWidth := satSub(page.Size.Width, satAdd(page.Margin[1], page.Margin[3]))
+		if contentWidth < 0 {
+			contentWidth = 0
+		}
 		for _, name := range names {
 			label := l.contentString(l.pageStyle.Boxes[name], page.Number, total)
 			if label == "" {
@@ -128,23 +136,64 @@ func (l *layouter) paintMarginBoxes() {
 				l.diags.Errorf(diag.TextGlyph, l.pageStyle.BoxPos[name], name, "margin box %s: %v", name, err)
 				continue
 			}
-			var x, y int32
-			switch {
-			case strings.HasSuffix(name, "left"):
-				x = contentLeft
-			case strings.HasSuffix(name, "center"):
-				x = contentLeft + (contentWidth-run.Width)/2
-			default:
-				x = contentLeft + contentWidth - run.Width
-			}
-			if strings.HasPrefix(name, "top") {
-				y = page.Margin[0]/2 + face.Ascent/2
-			} else {
-				y = page.Size.Height - page.Margin[2]/2 + face.Ascent/2
+			x, xClamped := marginBoxX(name, contentLeft, contentWidth, run.Width, page.Size.Width)
+			y, yClamped := marginBoxY(name, page, face.Ascent)
+			if (xClamped || yClamped || contentWidth <= 0) && !reported[name] {
+				reported[name] = true
+				// The label is still painted at the clamped origin: a footer at
+				// the page edge reads better than none, and the diagnostic
+				// records the clamp.
+				l.diags.Warnf(diag.LayoutOverflow, l.pageStyle.BoxPos[name], name,
+					"margin box %s does not fit inside the page and is clamped", name)
 			}
 			l.paintShapedRun(page, face, css.Color{Set: true}, run, x, y)
 		}
 	}
+}
+
+// marginBoxX returns the horizontal origin of a margin box label, clamped into
+// the page. It reports whether the exact origin had to move, which the caller
+// diagnoses once for the box. A label wider than the page has no origin inside
+// it; it starts at the left edge and is reported.
+func marginBoxX(name string, contentLeft, contentWidth, runWidth, pageWidth int32) (int32, bool) {
+	var x int32
+	switch {
+	case strings.HasSuffix(name, "left"):
+		x = contentLeft
+	case strings.HasSuffix(name, "center"):
+		x = satAdd(contentLeft, satSub(contentWidth, runWidth)/2)
+	default:
+		x = satSub(satAdd(contentLeft, contentWidth), runWidth)
+	}
+	limit := satSub(pageWidth, runWidth)
+	if limit < 0 {
+		return 0, true
+	}
+	switch {
+	case x < 0:
+		return 0, true
+	case x > limit:
+		return limit, true
+	}
+	return x, false
+}
+
+// marginBoxY returns the baseline of a margin box label, clamped into the
+// vertical page range. It reports whether the exact position had to move.
+func marginBoxY(name string, page *Page, ascent int32) (int32, bool) {
+	var y int32
+	if strings.HasPrefix(name, "top") {
+		y = satAdd(page.Margin[0]/2, ascent/2)
+	} else {
+		y = satAdd(satSub(page.Size.Height, page.Margin[2]/2), ascent/2)
+	}
+	switch {
+	case y < 0:
+		return 0, true
+	case y > page.Size.Height:
+		return page.Size.Height, true
+	}
+	return y, false
 }
 
 func (l *layouter) contentString(items []css.ContentItem, page, total int) string {

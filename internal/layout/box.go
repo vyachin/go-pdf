@@ -512,7 +512,14 @@ func (b *builder) buildElement(n *html.Node, style *css.Style, parentStyle *css.
 		kind = ListItem
 	}
 	if kind == Inline {
-		return b.splitInline(n, style, b.buildInlineFlow(n, style))
+		flow := b.buildInlineFlow(n, style)
+		if len(flow) == 0 && n.ID() != "" {
+			// An inline element with no content still carries its id: keep one
+			// empty inline box, so collectPieces registers the anchor at this
+			// flow position instead of losing it together with the empty flow.
+			return []*Box{{Kind: Inline, Node: n, Style: style}}
+		}
+		return b.splitInline(n, style, flow)
 	}
 	return []*Box{{Kind: Block, Node: n, Style: style, Children: b.buildBlocks(n, style)}}
 }
