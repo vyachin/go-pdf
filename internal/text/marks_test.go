@@ -246,10 +246,24 @@ func TestShapeAcceptsRealFontAnchors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
+		anchored := 0
 		for _, text := range texts {
-			if _, err := Shape(f, 12000, text); err != nil {
-				t.Errorf("%s: Shape(%q) = %v, want a normal anchor", filepath.Base(path), text, err)
+			_, err := Shape(f, 12000, text)
+			if err == nil {
+				anchored++
+				continue
 			}
+			var missing *MissingMarkError
+			if errors.As(err, &missing) && !fontHasAnchor(f, missing.Base, missing.Mark) {
+				// This face has no anchor for the pair at all: Liberation's
+				// Cyrillic coverage ships no GPOS marks, so there is nothing
+				// for the tolerance to accept and nothing to reject.
+				continue
+			}
+			t.Errorf("%s: Shape(%q) = %v, want a normal anchor", filepath.Base(path), text, err)
+		}
+		if anchored == 0 {
+			t.Logf("%s: no test text has an attachment anchor in this face", filepath.Base(path))
 		}
 		checked++
 	}
@@ -279,4 +293,21 @@ func TestShapeAdvancesAreUnaffectedByAttachment(t *testing.T) {
 			t.Fatalf("Shape(%q) width %d, sum of advances %d", text, run.Width, sum)
 		}
 	}
+}
+
+// fontHasAnchor reports whether the face declares an attachment anchor for the
+// mark over the base. It separates "this face has no anchor for the pair" from
+// "the shaper rejected an anchor the face declares", which is the defect the
+// test guards.
+func fontHasAnchor(f *font.Font, base, mark rune) bool {
+	baseGID, ok := f.GlyphIndex(base)
+	if !ok {
+		return false
+	}
+	markGID, ok := f.GlyphIndex(mark)
+	if !ok {
+		return false
+	}
+	_, _, _, ok = f.MarkAttachment(markGID, baseGID)
+	return ok
 }
