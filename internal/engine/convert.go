@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"image"
 	"image/png"
 	"io"
 	"maps"
@@ -382,7 +383,7 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 // Convert renders a template into a PDF and returns it in Result.PDF.
 func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	var buf bytes.Buffer
-	res, err := convert(ctx, src, opts, &buf)
+	res, err := convert(ctx, src, opts, &buf, png.Encode)
 	if err != nil {
 		return res, err
 	}
@@ -394,13 +395,14 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 // Result and diagnostics as Convert, with Result.PDF nil, and passes the
 // caller's writer to the shared serialiser instead of buffering the document.
 func ConvertTo(ctx context.Context, dst io.Writer, src []byte, opts Options) (Result, error) {
-	return convert(ctx, src, opts, dst)
+	return convert(ctx, src, opts, dst, png.Encode)
 }
 
 // convert is the one conversion pipeline. The only difference between Convert
 // and ConvertTo is the sink: a buffer that becomes Result.PDF, or the caller's
-// writer.
-func convert(ctx context.Context, src []byte, opts Options, sink io.Writer) (Result, error) {
+// writer. The encoder is a parameter so a test can exercise the preview failure
+// path without a mutable package variable; production always passes png.Encode.
+func convert(ctx context.Context, src []byte, opts Options, sink io.Writer, encode func(io.Writer, image.Image) error) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -463,16 +465,15 @@ func convert(ctx context.Context, src []byte, opts Options, sink io.Writer) (Res
 		}
 		writer.AddPage(p.Size.Width, p.Size.Height, pdfOps)
 	}
-	// The preview is rendered before the PDF is written: a raster failure is a
-	// conversion failure, and ConvertTo must not leave a complete document in
-	// the caller's writer when it returns an error.
+	// The preview is rendered before the PDF is written: a raster or encoding
+	// failure is a conversion failure, and ConvertTo must not leave a complete
+	// document in the caller's writer when it returns an error.
 	var pngData []byte
 	if opts.RenderPNG && len(pages.Pages) > 0 {
-		img, err := raster.Render(pages.Pages[0], raster.Options{
-			DPI:       96,
-			MaxPixels: limits.MaxRasterPixels,
-			Budget:    p.guard,
-		})
+		pngData, err = renderPreview(pages.Pages[0], previewOptions{
+			limits: limits,
+			guard:  p.guard,
+		}, encode)
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return Result{Diagnostics: diags}, ctxErr
@@ -485,10 +486,6 @@ func convert(ctx context.Context, src []byte, opts Options, sink io.Writer) (Res
 			diags.Errorf(diag.RasterRender, aggregatePosition(opts), "", "%v", err)
 			diags.Sort()
 			return Result{Diagnostics: diags}, diags.Error()
-		}
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err == nil {
-			pngData = buf.Bytes()
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -509,6 +506,40 @@ func convert(ctx context.Context, src []byte, opts Options, sink io.Writer) (Res
 	}
 	diags.Sort()
 	return Result{PNG: pngData, Diagnostics: diags}, nil
+}
+
+// previewDPI is the resolution of the debug preview. It is part of the
+// documented contract of Options.RenderPNG, so it is named instead of being a
+// literal in the raster call.
+const previewDPI = 96
+
+// previewOptions is what renderPreview needs: the conversion's limits bound the
+// raster, and the work guard bounds the raster work and reports cancellation.
+type previewOptions struct {
+	limits Limits
+	guard  *budget.Guard
+}
+
+// renderPreview rasterizes page into the debug preview and encodes it with
+// encode. The production conversion passes png.Encode; a test passes a failing
+// encoder, so the failure path is exercised without mutable global state. A
+// raster failure is returned with its budget error intact, and an encoding
+// failure is wrapped so the conversion can report it as a raster/render
+// diagnostic.
+func renderPreview(page *layout.Page, opts previewOptions, encode func(io.Writer, image.Image) error) ([]byte, error) {
+	img, err := raster.Render(page, raster.Options{
+		DPI:       previewDPI,
+		MaxPixels: opts.limits.MaxRasterPixels,
+		Budget:    opts.guard,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("encoding the preview PNG: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // stageFailure moves a budget failure recorded by layout into the conversion

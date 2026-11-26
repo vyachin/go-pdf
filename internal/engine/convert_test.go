@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -161,6 +162,65 @@ func TestRenderPNG(t *testing.T) {
 	}
 	if img.Bounds().Dx() < 700 || img.Bounds().Dy() < 1000 {
 		t.Fatalf("unexpected PNG size %v", img.Bounds())
+	}
+}
+
+// TestRenderPNGEncodeFailure guards RV5-51's encoding scenario: the raster is
+// produced but PNG encoding fails, so the conversion reports raster/render
+// naming the document and returns an error with a nil Result.PNG.
+func TestRenderPNGEncodeFailure(t *testing.T) {
+	var sink bytes.Buffer
+	res, err := convert(context.Background(), []byte(`<p>A</p>`), Options{
+		FallbackFont: testFontPath(t),
+		File:         "encode.html",
+		RenderPNG:    true,
+	}, &sink, func(io.Writer, image.Image) error {
+		return errors.New("encoder refused the image")
+	})
+	if err == nil {
+		t.Fatal("a failed preview encoding was accepted")
+	}
+	d := diagWithCode(t, res.Diagnostics, "raster/render")
+	if d.Pos.File != "encode.html" || d.Pos.Line != 0 || d.Pos.Col != 0 {
+		t.Fatalf("diagnostic = %s:%d:%d, want encode.html:0:0", d.Pos.File, d.Pos.Line, d.Pos.Col)
+	}
+	if !strings.Contains(d.Message, "encoder refused the image") {
+		t.Fatalf("diagnostic message %q does not name the encoding failure", d.Message)
+	}
+	if len(res.PNG) != 0 {
+		t.Fatalf("a failed preview returned %d PNG bytes", len(res.PNG))
+	}
+	if sink.Len() != 0 {
+		t.Fatalf("a failed preview wrote %d PDF bytes", sink.Len())
+	}
+}
+
+// TestPreviewDoesNotChangePDF guards the preview containment rule: enabling the
+// debug preview leaves the PDF bytes and the diagnostics unchanged, and only
+// the conversion that requested it returns a PNG.
+func TestPreviewDoesNotChangePDF(t *testing.T) {
+	src := []byte(`<html><head><title>Preview</title></head><body><p>Текст для предпросмотра</p><script>1</script></body></html>`)
+	opts := Options{FallbackFont: testFontPath(t), File: "preview.html"}
+	plain, err := Convert(context.Background(), src, opts)
+	if err != nil {
+		t.Fatalf("Convert without the preview: %v\n%s", err, strings.Join(plain.Diagnostics.Lines(), "\n"))
+	}
+	opts.RenderPNG = true
+	preview, err := Convert(context.Background(), src, opts)
+	if err != nil {
+		t.Fatalf("Convert with the preview: %v\n%s", err, strings.Join(preview.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Equal(plain.PDF, preview.PDF) {
+		t.Fatal("enabling the preview changed the PDF bytes")
+	}
+	if plain.PNG != nil {
+		t.Fatalf("the conversion without the option returned %d PNG bytes", len(plain.PNG))
+	}
+	if len(preview.PNG) == 0 {
+		t.Fatal("the conversion with the option returned no preview")
+	}
+	if got, want := strings.Join(preview.Diagnostics.Lines(), "\n"), strings.Join(plain.Diagnostics.Lines(), "\n"); got != want {
+		t.Fatalf("the preview changed the diagnostics:\nwithout:\n%s\nwith:\n%s", want, got)
 	}
 }
 

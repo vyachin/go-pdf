@@ -4,7 +4,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -76,6 +78,72 @@ func TestExportedDocs(t *testing.T) {
 	if !packageDoc {
 		t.Error("the package has no doc comment")
 	}
+}
+
+// TestRenderPNGContractDocs guards RV5-51 at the source level: the public
+// field states its exact preview contract and its deprecation, and the mirrored
+// engine field states the same contract without claiming a command-line caller.
+// The doc is read from the field itself, so a phrase that survives elsewhere in
+// a file does not satisfy the test.
+func TestRenderPNGContractDocs(t *testing.T) {
+	checks := []struct {
+		path  string
+		want  []string
+		local bool
+	}{
+		{"pdfgen.go", []string{"first page", "96 dpi", "MaxRasterPixels", "Deprecated:"}, true},
+		{filepath.Join("..", "internal", "engine", "engine.go"), []string{"debug preview", "first page", "96 dpi", "MaxRasterPixels"}, false},
+	}
+	for _, check := range checks {
+		doc := structFieldDoc(t, check.path, "Options", "RenderPNG")
+		for _, phrase := range check.want {
+			if !strings.Contains(doc, phrase) {
+				t.Errorf("%s: Options.RenderPNG does not say %q:\n%s", check.path, phrase, doc)
+			}
+		}
+		if !check.local {
+			if regexp.MustCompile(`CLI\s+debug`).MatchString(doc) {
+				t.Errorf("%s: Options.RenderPNG still claims a command-line flag drives the preview:\n%s", check.path, doc)
+			}
+		}
+	}
+}
+
+// structFieldDoc returns the doc comment of one struct field, read through the
+// parser so that only the field's own comment counts.
+func structFieldDoc(t *testing.T, path, structName, fieldName string) string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), path, src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	doc, found := "", false
+	ast.Inspect(file, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != structName {
+			return true
+		}
+		structType, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		for _, field := range structType.Fields.List {
+			for _, name := range field.Names {
+				if name.Name == fieldName {
+					doc, found = field.Doc.Text(), true
+				}
+			}
+		}
+		return false
+	})
+	if !found {
+		t.Fatalf("%s has no %s.%s", path, structName, fieldName)
+	}
+	return doc
 }
 
 func undocumented(t *testing.T, fset *token.FileSet, what string, pos token.Pos) {

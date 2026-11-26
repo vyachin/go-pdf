@@ -38,7 +38,9 @@ type Options struct {
 	// Title overrides the document title taken from <title>.
 	Title string
 	// RenderPNG asks the converter to also rasterize the first page into a
-	// debug preview.
+	// debug preview: only the first page is rendered, at 96 dpi, and the
+	// raster is bounded by Limits.MaxRasterPixels. A rasterizer or PNG encoder
+	// failure is reported as an error and leaves Result.PNG nil.
 	RenderPNG bool
 	// File is the path used in diagnostics. When empty a placeholder is used.
 	File string

@@ -100,6 +100,39 @@ func TestConvertRendersPNG(t *testing.T) {
 	}
 }
 
+// TestConvertWithoutPreview guards the containment rule through the public API:
+// without the option no preview or raster diagnostic appears, and a raster
+// limit below one page fails with resource/limit instead of returning a partial
+// preview.
+func TestConvertWithoutPreview(t *testing.T) {
+	opts := testOptions(t)
+	res, err := pdfgen.Convert(context.Background(), []byte(invoiceHTML), opts)
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if res.PNG != nil {
+		t.Fatalf("Result.PNG is %d bytes though RenderPNG was false", len(res.PNG))
+	}
+	if d := diagnosticWithCode(res.Diagnostics, "raster/render"); d != nil {
+		t.Fatalf("a raster diagnostic appeared without the preview: %s", d)
+	}
+
+	// An A4 page is roughly 794x1123 pixels at 96 dpi, so a limit of one pixel
+	// is below every page and the preview must be rejected before allocation.
+	opts.RenderPNG = true
+	opts.Limits.MaxRasterPixels = 1
+	res, err = pdfgen.Convert(context.Background(), []byte(`<p>A</p>`), opts)
+	if err == nil {
+		t.Fatal("a raster limit below one page was accepted")
+	}
+	if d := diagnosticWithCode(res.Diagnostics, "resource/limit"); d == nil {
+		t.Fatalf("want resource/limit, got %v", res.Diagnostics.Lines())
+	}
+	if res.PNG != nil {
+		t.Fatalf("a limited preview returned %d PNG bytes", len(res.PNG))
+	}
+}
+
 func TestConvertInvalidTemplateReturnsError(t *testing.T) {
 	src := `<html><body><p style="flex: 1">x</p></body></html>`
 	res, err := pdfgen.Convert(context.Background(), []byte(src), testOptions(t))
