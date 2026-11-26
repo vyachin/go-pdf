@@ -51,38 +51,59 @@ func (l *layouter) computeColumns(t *Box, available int32) []int32 {
 			}
 		}
 	}
-	var used int32
+	// The declared widths can exceed the int32 range together, so the running
+	// sum that decides how much space is left is kept in 64 bits. A wrapped sum
+	// divided the remainder against a negative total and split a two-column
+	// table into columns wider than the page.
+	var used int64
 	zero := 0
 	for _, w := range widths {
-		used += w
+		used += int64(w)
 		if w == 0 {
 			zero++
 		}
 	}
-	remaining := available - used
+	remaining := int64(available) - used
 	if remaining < 0 {
 		remaining = 0
 	}
 	if zero > 0 {
-		per := remaining / int32(zero)
+		per := clampInt32(remaining / int64(zero))
 		for i := range widths {
 			if widths[i] == 0 {
 				widths[i] = per
 			}
 		}
 	}
-	// The declared widths may not fit the content box. Scaled down, the later
-	// cells stay on the page; without the scaling a 1000 pt first cell pushed
-	// the rest past the edge with no diagnostic.
-	var total int32
+	// The declared widths may not fit the content box. Scale against the true
+	// 64-bit total, then clamp each produced width to the space that is left:
+	// the loop invariant is that the columns never end to the right of the
+	// content box. The remainder rounds into the last column, so the rounding
+	// is deterministic and no fraction of a millipoint is lost.
+	var total int64
 	for _, w := range widths {
-		total = satAdd(total, w)
+		total += int64(w)
 	}
-	if total > available {
-		l.warnOverflow(t, "the table's declared columns are wider than the content box and are scaled to fit")
-		for i := range widths {
-			widths[i] = clampInt32(int64(widths[i]) * int64(available) / int64(total))
+	scaled := total > int64(available)
+	if scaled {
+		var running int64
+		last := len(widths) - 1
+		for i, w := range widths {
+			next := int64(w) * int64(available) / total
+			if i == last {
+				next = int64(available) - running
+			} else if rest := int64(available) - running; next > rest {
+				next = rest
+			}
+			if next < 0 {
+				next = 0
+			}
+			widths[i] = int32(next)
+			running += next
 		}
+		// The warning describes the geometry that was produced, and the
+		// per-box latch keeps it to one report for the table.
+		l.warnOverflow(t, "the table's declared columns are wider than the content box and are scaled to fit")
 	}
 	return widths
 }
@@ -241,6 +262,11 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	// the row loop skip header rows; on the first page they are placed normally.
 	repeated := l.paintRepeatedHeaders(f, t)
 	t.headerPage = f.pageNum
+	// A forced break that was already pending when the table was entered
+	// belongs to the box flow, not to a row: an empty table does not consume
+	// it, and the row loop must not take it as a row break. The flag stays
+	// pending for the next box that paints.
+	inheritedBreak := f.breakPending
 	// Every spanning cell whose fragment crossed the previous page break
 	// continues here, in grid order, before the rows that carry the rest of the
 	// span are painted.
@@ -259,10 +285,12 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		// A row break shares the pending decision with blocks. When the page
 		// already carries body content the transition is owed; returning hands
 		// it to the page loop. When it does not, the boundary is already fresh.
+		rowBreak := false
 		if row.Style != nil && row.Style.BreakBefore == css.BreakPage {
 			f.breakPending = true
+			rowBreak = true
 		}
-		if f.breakPending {
+		if f.breakPending && (rowBreak || !inheritedBreak) {
 			if f.pageHasBody {
 				return false
 			}
@@ -288,8 +316,12 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 		}
 		l.paintRow(f, t, t.cursor.row)
 		f.y = satAdd(f.y, h)
-		// A body row is page content; the repeated headers above are not.
-		f.pageHasBody = true
+		// A body row that can paint something is page content; the repeated
+		// headers above are not, and neither is a row that only reserves the
+		// padding height of an empty cell.
+		if rowHasContent(row) {
+			f.pageHasBody = true
+		}
 		t.cursor.row++
 		if row.Style != nil && row.Style.BreakAfter == css.BreakPage {
 			f.breakPending = true
@@ -634,7 +666,9 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		// A fragment that ends at the page boundary starts its content at the
 		// fragment's own top; its remaining lines are continued from there.
 		if block, ok := l.spanLineBlock(cell); ok {
-			return l.paintSpanCellText(page, block, contentX, contentY, inner, y, limit)
+			cursor := l.paintSpanCellText(page, block, contentX, contentY, inner, y, limit)
+			l.checkCellOverflow(cell)
+			return cursor
 		}
 		// The content is block-level and has no line cursor. Paint what fits
 		// quietly: the continuation reports the loss once for the cell instead
@@ -642,6 +676,7 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		l.suppressOverflow++
 		l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner, limit)
 		l.suppressOverflow--
+		l.checkCellOverflow(cell)
 		return cursor
 	}
 	contentH := int32(0)
@@ -659,7 +694,45 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		contentY = y + bt + cell.padTop()
 	}
 	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner, limit)
+	l.checkCellOverflow(cell)
 	return cursor
+}
+
+// checkCellOverflow reports a word wider than the width its cell text was
+// painted at, once for the cell. The cell content is painted by the static
+// path, which never calls placeText, so the shared check runs here after the
+// painter has built the lines: the comparison uses exactly the geometry that
+// was drawn.
+func (l *layouter) checkCellOverflow(cell *Box) {
+	for _, c := range cell.Children {
+		if l.checkPaintedOverflow(cell, c) {
+			return
+		}
+	}
+}
+
+// checkPaintedOverflow walks the blocks a cell painter started and checks the
+// lines they built. A block below the page was not painted, so it is skipped;
+// a nested table is left to its own cells.
+func (l *layouter) checkPaintedOverflow(cell, b *Box) bool {
+	if b.Kind == Table || b.Kind == Image || !b.started {
+		return false
+	}
+	if l.isTextBlock(b) {
+		inner := b.contentWidth()
+		for i := range b.lines {
+			if l.checkLineOverflow(cell, b.lines[i], inner) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range b.Children {
+		if l.checkPaintedOverflow(cell, c) {
+			return true
+		}
+	}
+	return false
 }
 
 // paintSpanCellText paints the lines of a clipped spanning cell's text block

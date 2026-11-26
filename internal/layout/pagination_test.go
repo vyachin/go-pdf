@@ -1888,3 +1888,142 @@ func TestSplitTableKeepsDecorationPerPage(t *testing.T) {
 		t.Fatalf("the bottom border belongs to page %d, want the last page %d", bottomPage, len(doc.Pages))
 	}
 }
+
+// TestEmptyTableDoesNotConsumeForcedBreak guards RV5-18: boxHasContent answered
+// from a table's row count alone, so an empty table counted as page body and
+// consumed a pending break-before, appending a blank page after the paragraph.
+func TestEmptyTableDoesNotConsumeForcedBreak(t *testing.T) {
+	h := newHarness(t)
+	size, margin := forcedBreakPage()
+	src := `<style>p { margin: 0 }</style>
+	<p>A</p>
+	<table style="break-before: page"><tr><td></td></tr></table>`
+	doc := h.runRawOrFail(src, size, margin)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("the empty table produced %d pages, want 1", len(doc.Pages))
+	}
+	if got := pageText(doc, 1); !strings.Contains(got, "A") {
+		t.Fatalf("page 1 = %q, want A", got)
+	}
+	// An empty table is not page body either, so the first content after it
+	// still takes its own break on an otherwise fresh page.
+	src = `<style>p { margin: 0 }</style>
+	<table><tr><td></td></tr></table>
+	<p style="break-before: page">B</p>`
+	doc = h.runRawOrFail(src, size, margin)
+	if len(doc.Pages) != 1 {
+		t.Fatalf("the empty table counted as page body and produced %d pages, want 1", len(doc.Pages))
+	}
+	if got := pageText(doc, 1); !strings.Contains(got, "B") {
+		t.Fatalf("page 1 = %q, want B", got)
+	}
+}
+
+// TestHeightOnlyTableConsumesForcedBreak guards the other half of RV5-18: a
+// table that paints only a height and a background did not count as page body,
+// so the pending break-after was consumed by the paragraph that followed and the
+// table stayed on the page the break was leaving.
+func TestHeightOnlyTableConsumesForcedBreak(t *testing.T) {
+	h := newHarness(t)
+	size, margin := forcedBreakPage()
+	src := `<style>p { margin: 0 }</style>
+	<p style="break-after: page">A</p>
+	<table style="height: 50pt; background-color: #ff0000"></table>
+	<p>B</p>`
+	doc := h.runRawOrFail(src, size, margin)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("the height-only table produced %d pages, want 2", len(doc.Pages))
+	}
+	if got := pageText(doc, 1); !strings.Contains(got, "A") || strings.Contains(got, "B") {
+		t.Fatalf("page 1 = %q, want only A", got)
+	}
+	if got := pageText(doc, 2); !strings.Contains(got, "B") {
+		t.Fatalf("page 2 = %q, want B", got)
+	}
+	// The table itself is painted on the second page, at its top and with the
+	// declared height, before the paragraph that follows it.
+	found := false
+	for _, op := range doc.Pages[1].Ops {
+		if op.Kind != FillOpKind || op.Color != (css.Color{R: 255, Set: true}) {
+			continue
+		}
+		found = true
+		if op.Rect.Y != margin[0] || op.Rect.H != 50000 {
+			t.Fatalf("the moved table background is %+v, want Y=%d H=50000", op.Rect, margin[0])
+		}
+	}
+	if !found {
+		t.Fatal("the moved table was not painted on the second page")
+	}
+}
+
+// TestTextRowTableConsumesForcedBreak guards the third delta scenario: a table
+// with visible cell text is page content and takes a pending break as before.
+func TestTextRowTableConsumesForcedBreak(t *testing.T) {
+	h := newHarness(t)
+	size, margin := forcedBreakPage()
+	src := `<style>p { margin: 0 }</style>
+	<p style="break-after: page">A</p>
+	<table><tr><td>T</td></tr></table>
+	<p>B</p>`
+	doc := h.runRawOrFail(src, size, margin)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("the table with text produced %d pages, want 2", len(doc.Pages))
+	}
+	if got := pageText(doc, 1); !strings.Contains(got, "A") || strings.Contains(got, "T") || strings.Contains(got, "B") {
+		t.Fatalf("page 1 = %q, want only A", got)
+	}
+	if got := pageText(doc, 2); !strings.Contains(got, "T") || !strings.Contains(got, "B") {
+		t.Fatalf("page 2 = %q, want T and B", got)
+	}
+}
+
+// findBoxKind returns the first box of the given kind in the tree, including
+// the cells of every table.
+func findBoxKind(b *Box, kind Kind) *Box {
+	if b.Kind == kind {
+		return b
+	}
+	for _, row := range b.Rows {
+		for _, cell := range row.Cells {
+			if got := findBoxKind(cell, kind); got != nil {
+				return got
+			}
+		}
+	}
+	for _, c := range b.Children {
+		if got := findBoxKind(c, kind); got != nil {
+			return got
+		}
+	}
+	return nil
+}
+
+// TestTableBoxHasContent guards the break predicate itself (RV5-18): a table
+// counts only when it can paint something, so an empty table answers false and
+// a table whose own height and background paint answers true.
+func TestTableBoxHasContent(t *testing.T) {
+	h := newHarness(t)
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"empty", `<table><tr><td></td></tr></table>`, false},
+		{"height and background", `<table style="height:50pt;background-color:#ff0000"></table>`, true},
+		{"text row", `<table><tr><td>T</td></tr></table>`, true},
+		{"row background", `<table><tr style="background-color:#ff0000"><td></td></tr></table>`, true},
+		{"cell border", `<table><tr><td style="border:1pt solid #000000"></td></tr></table>`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			table := findBoxKind(h.buildTree(tc.src), Table)
+			if table == nil {
+				t.Fatalf("%s: the table box is missing", tc.src)
+			}
+			if got := boxHasContent(table); got != tc.want {
+				t.Fatalf("boxHasContent(%s) = %v, want %v", tc.src, got, tc.want)
+			}
+		})
+	}
+}

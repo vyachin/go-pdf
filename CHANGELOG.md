@@ -50,6 +50,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Table layout defects.** A table's declared column widths are now summed in
+  64 bits and scaled against the true total, then clamped so the last column's
+  right edge stays inside the content box; the single `layout/overflow` warning
+  is emitted only after the clamp and describes the geometry that was produced.
+  A word wider than a table cell reports `layout/overflow` once for the cell,
+  exactly as the same word in a paragraph does. The forced-break content
+  predicate now asks whether a box paints anything: an empty table no longer
+  consumes a pending break or appends a blank page, while a table that paints
+  only a height or a background (or an image with no visible data but a height,
+  background or border) still consumes it. A table whose declared widths fit
+  keeps byte-identical layout.
 - **Combining marks after a new base.** A combining mark now attaches to the
   base that immediately precedes it instead of reusing an anchor from an earlier
   cluster: in `о́о́` and `а́б́` the second acute is painted over the second

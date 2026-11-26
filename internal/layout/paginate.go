@@ -413,18 +413,22 @@ func (l *layouter) placeBlock(f *flow, b *Box, x, width int32, isRoot bool) bool
 // boxHasContent reports whether a box can paint anything visible or reserve
 // vertical space. It is the predicate that consumes a pending forced break, so
 // it covers a height, a background, a border, a list marker, an image and
-// descendants that paint: a container of empty boxes paints nothing.
+// descendants that paint: a container of empty boxes paints nothing. A table is
+// not content by its row count alone, and an empty table is not content at all;
+// a table with a visible height, background or border is.
 func boxHasContent(b *Box) bool {
 	switch b.Kind {
-	case Image:
-		return b.Image != nil
-	case Table:
-		return len(b.Rows) > 0
 	case Text:
-		return strings.TrimSpace(b.Text) != ""
+		if strings.TrimSpace(b.Text) != "" {
+			return true
+		}
 	case ListItem:
 		// The marker is painted even when the item has no text.
 		return true
+	case Image:
+		if b.Image != nil {
+			return true
+		}
 	}
 	if st := b.Style; st != nil {
 		if st.Height.Kind == css.MP && st.Height.Value > 0 {
@@ -439,8 +443,36 @@ func boxHasContent(b *Box) bool {
 			}
 		}
 	}
+	if b.Kind == Table {
+		for _, row := range b.Rows {
+			if rowHasContent(row) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, c := range b.Children {
 		if boxHasContent(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// rowHasContent reports whether a table row can paint something or reserve
+// height. A row is not a Box, so its own height and backgrounds are checked
+// here before its cells recurse through boxHasContent.
+func rowHasContent(row *Row) bool {
+	if st := row.Style; st != nil {
+		if st.Height.Kind == css.MP && st.Height.Value > 0 {
+			return true
+		}
+		if st.Background.Set || row.Background != nil {
+			return true
+		}
+	}
+	for _, cell := range row.Cells {
+		if boxHasContent(cell) {
 			return true
 		}
 	}
@@ -526,8 +558,7 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 	// edge and clipped by the page. The reader gets one report per box instead
 	// of silently losing the tail of a long word.
 	for _, line := range b.lines {
-		if line.Natural > width {
-			l.warnOverflow(b, "a word is wider than the content box and is clipped")
+		if l.checkLineOverflow(b, line, width) {
 			break
 		}
 	}
@@ -670,6 +701,19 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 		// nothing else, so a later forced break still has a page to leave.
 		f.pageHasBody = true
 	}
+}
+
+// checkLineOverflow reports an unbreakable token that is wider than the width
+// its line was laid out at. The comparison is 64-bit, so a line wider than the
+// int32 geometry cannot wrap and look like a fitting one. The diagnostic is
+// reported once per box; the return value tells the caller whether this call
+// produced it, so a scan over the lines stops after the first report.
+func (l *layouter) checkLineOverflow(b *Box, line Line, width int32) bool {
+	if int64(line.Natural) <= int64(width) || b.overflowWarned || l.suppressOverflow > 0 {
+		return false
+	}
+	l.warnOverflow(b, "a word is wider than the content box and is clipped")
+	return true
 }
 
 // warnOverflow reports a layout/overflow warning once per box. A box can be
