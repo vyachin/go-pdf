@@ -12,10 +12,10 @@
 //     resolved asset bytes — linked stylesheets, images and selected font bytes
 //     — produce a byte-identical PDF. [Options].Date defaults to a fixed
 //     constant rather than the system clock, and the document identifier is a
-//     hash of the content. A file edited in place is a changed input, and
-//     system-font fallback is environment-dependent, so a reproducible
-//     deployment selects [Options].FallbackFont (or an @font-face source) and
-//     keeps its stylesheets and images immutable.
+//     hash of the content. A file edited in place is a changed input, so a
+//     reproducible deployment keeps its stylesheets and images immutable and
+//     selects the font bytes with an @font-face source or an explicit
+//     [Options].FallbackFont/[Options].FallbackFonts entry.
 //   - No writes. [Convert], [ConvertTo] and [Validate] create, modify and delete
 //     no files. They read only the assets the document references, inside the
 //     configured roots or the caller-supplied [Options].Source, and the PDF is
@@ -50,14 +50,25 @@
 // against [Options].BaseDir and [Options].FontDir; when both are empty, the
 // process working directory is used.
 //
+// # Fonts
+//
+// A family resolves in one documented order: a declared @font-face family,
+// then [Options].FallbackFont, then the ordered [Options].FallbackFonts list,
+// then the font/unavailable diagnostic. The package reads no installed font of
+// its own: a document that declares no usable family and passes no fallback
+// fails instead of rendering host-dependent glyphs. [SystemFallbackFonts]
+// returns the conventional platform paths for callers that explicitly opt into
+// that non-reproducible behaviour.
+//
 // # Asset sources
 //
 // [Options].Source accepts any fs.FS — an embed.FS, an os.DirFS, a
 // fstest.MapFS or a subtree made with fs.Sub. When it is set, it replaces the
 // host filesystem for the whole conversion: every document-referenced image,
-// stylesheet and @font-face source, and [Options].FallbackFont, is read through
-// it. [Options].BaseDir and [Options].FontDir then name directories inside the
-// source and default to its root, and the host system font list is not
+// stylesheet and @font-face source, and
+// [Options].FallbackFont/[Options].FallbackFonts, is read through it.
+// [Options].BaseDir and [Options].FontDir then name directories inside the
+// source and default to its root, and no host file or installed host font is
 // consulted. The two authorities are never mixed: a source path is relative,
 // must stay inside the source and is rejected with the asset's load diagnostic
 // otherwise. A nil Source reads from the host filesystem exactly as before.

@@ -102,6 +102,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// file, so a document and its assets work from any directory.
 		BaseDir: dir,
 		FontDir: dir,
+		// This command is a development example, so it opts into the host's
+		// conventional font paths. The library default reads no host font: a
+		// deployment that needs reproducible output selects its own font.
+		FallbackFonts: pdfgen.SystemFallbackFonts(),
 		// An explicit -charset wins over the document's own declaration.
 		Charset: *charsetName,
 	})
@@ -194,6 +198,10 @@ Usage:
 
 Without -o the PDF is written next to the input as <input>.pdf. Relative
 images, stylesheets and fonts resolve against the input file's directory.
+Fonts resolve from @font-face declarations, then from the conventional system
+font paths this command passes as SystemFallbackFonts. That is an example
+opt-in for a developer machine, not the library default: the pdfgen package
+reads no host font unless the caller names one.
 
 The input encoding is detected from the document: a byte order mark, then a
 <meta charset> declaration in its first 1024 bytes, then UTF-8. -charset names

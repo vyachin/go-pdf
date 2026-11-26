@@ -13,15 +13,6 @@ import (
 	"github.com/vyachin/go-pdf/internal/css"
 )
 
-// withFallbackCandidates points system discovery at the given files for one
-// test and restores the host list afterwards.
-func withFallbackCandidates(t *testing.T, paths ...string) {
-	t.Helper()
-	old := DefaultFallbackFonts
-	DefaultFallbackFonts = paths
-	t.Cleanup(func() { DefaultFallbackFonts = old })
-}
-
 // copyFontFile copies the bundled test font to dir/name and returns the path.
 func copyFontFile(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -37,20 +28,19 @@ func copyFontFile(t *testing.T, dir, name string) string {
 }
 
 // TestFallbackAggregateLimitIsResourceLimit guards the review reproduction: an
-// available system font refused by MaxTotalFontBytes must end the conversion
+// explicit fallback font refused by MaxTotalFontBytes must end the conversion
 // with resource/limit, not with the missing-family text/font diagnostic.
 func TestFallbackAggregateLimitIsResourceLimit(t *testing.T) {
 	dir := t.TempDir()
-	path := copyFontFile(t, dir, "system.ttf")
-	withFallbackCandidates(t, path)
+	path := copyFontFile(t, dir, "fallback.ttf")
 	src := []byte(`<p>Text in the fallback font</p>`)
-	opts := Options{File: "limit.html", Limits: Limits{MaxTotalFontBytes: 1}}
+	opts := Options{File: "limit.html", FallbackFonts: []string{path}, Limits: Limits{MaxTotalFontBytes: 1}}
 	res, err := Convert(context.Background(), src, opts)
 	if err == nil || !hasCode(res.Diagnostics, "resource/limit") {
 		t.Fatalf("Convert: err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
 	for _, d := range res.Diagnostics {
-		if d.Code == "text/font" {
+		if d.Code == "text/font" || d.Code == "font/unavailable" {
 			t.Fatalf("a dependent missing-family diagnostic escaped: %s", d.String())
 		}
 	}
@@ -61,8 +51,8 @@ func TestFallbackAggregateLimitIsResourceLimit(t *testing.T) {
 	if !hasCode(diags, "resource/limit") {
 		t.Fatalf("Validate missed the limit: %v", diags.Lines())
 	}
-	if hasCode(diags, "text/font") {
-		t.Fatalf("Validate reported a dependent text/font: %v", diags.Lines())
+	if hasCode(diags, "text/font") || hasCode(diags, "font/unavailable") {
+		t.Fatalf("Validate reported a dependent missing-family diagnostic: %v", diags.Lines())
 	}
 }
 
@@ -70,11 +60,11 @@ func TestFallbackAggregateLimitIsResourceLimit(t *testing.T) {
 // refusal, named by MaxFontBytes.
 func TestFallbackPerFileLimitIsResourceLimit(t *testing.T) {
 	dir := t.TempDir()
-	path := copyFontFile(t, dir, "system.ttf")
-	withFallbackCandidates(t, path)
+	path := copyFontFile(t, dir, "fallback.ttf")
 	res, err := Convert(context.Background(), []byte(`<p>Text</p>`), Options{
-		File:   "limit.html",
-		Limits: Limits{MaxFontBytes: 10},
+		File:          "limit.html",
+		FallbackFonts: []string{path},
+		Limits:        Limits{MaxFontBytes: 10},
 	})
 	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || hasCode(res.Diagnostics, "text/font") {
 		t.Fatalf("err=%v diags=%v", err, res.Diagnostics.Lines())
@@ -88,27 +78,29 @@ func TestFallbackVariantLimitIsResourceLimit(t *testing.T) {
 	dir := t.TempDir()
 	regular := copyFontFile(t, dir, "Family.ttf")
 	copyFontFile(t, dir, "Family Bold.ttf")
-	withFallbackCandidates(t, regular)
 	info, err := os.Stat(regular)
 	if err != nil {
 		t.Fatal(err)
 	}
 	res, err := Convert(context.Background(), []byte(`<p>Text</p>`), Options{
-		File:   "variant.html",
-		Limits: Limits{MaxTotalFontBytes: int(info.Size()) + int(info.Size())/2},
+		File:          "variant.html",
+		FallbackFonts: []string{regular},
+		Limits:        Limits{MaxTotalFontBytes: int(info.Size()) + int(info.Size())/2},
 	})
 	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || hasCode(res.Diagnostics, "text/font") {
 		t.Fatalf("err=%v diags=%v", err, res.Diagnostics.Lines())
 	}
 }
 
-// TestAbsentFallbackCandidateFallsThrough guards genuine absence: a missing
-// candidate is skipped and the next one serves the document.
+// TestAbsentFallbackCandidateFallsThrough guards the documented list order: a
+// missing first entry is skipped and the next one serves the document.
 func TestAbsentFallbackCandidateFallsThrough(t *testing.T) {
 	dir := t.TempDir()
-	path := copyFontFile(t, dir, "system.ttf")
-	withFallbackCandidates(t, filepath.Join(dir, "missing.ttf"), path)
-	res, err := Convert(context.Background(), []byte(`<p>Text</p>`), Options{File: "fallback.html"})
+	path := copyFontFile(t, dir, "fallback.ttf")
+	res, err := Convert(context.Background(), []byte(`<p>Text</p>`), Options{
+		File:          "fallback.html",
+		FallbackFonts: []string{filepath.Join(dir, "missing.ttf"), path},
+	})
 	if err != nil {
 		t.Fatalf("a missing candidate stopped discovery: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
 	}
@@ -122,13 +114,14 @@ func TestAbsentFallbackCandidateFallsThrough(t *testing.T) {
 // remaining candidates are not read.
 func TestFallbackDiscoveryHonoursCancellation(t *testing.T) {
 	dir := t.TempDir()
-	path := copyFontFile(t, dir, "system.ttf")
-	withFallbackCandidates(t, path)
+	path := copyFontFile(t, dir, "fallback.ttf")
 	ctx, cancel := context.WithCancel(context.Background())
 	guard := budget.New(ctx, 0)
 	reg := assets.New(guard)
 	defer func() { _ = reg.Close() }()
-	registry, err := newFontRegistry(context.Background(), guard, []*css.Stylesheet{}, Options{}, reg)
+	registry, err := newFontRegistry(context.Background(), guard, []*css.Stylesheet{}, Options{
+		FallbackFonts: []string{path},
+	}, reg)
 	if err != nil {
 		t.Fatal(err)
 	}

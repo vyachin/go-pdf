@@ -62,28 +62,34 @@ func TestHelpExitsZero(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d", code, exitOK)
 	}
-	for _, want := range []string{"pdfgen [-o out.pdf] [-charset name] <input.html>", "no\ncompatibility promise", "windows-1251"} {
+	for _, want := range []string{
+		"pdfgen [-o out.pdf] [-charset name] <input.html>",
+		"no\ncompatibility promise",
+		"windows-1251",
+		"SystemFallbackFonts",
+		"not the library default",
+	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("help output does not contain %q:\n%s", want, stdout)
 		}
 	}
 }
 
+// requireFont skips a conversion test when the host has none of the
+// conventional paths the command opts into. The command passes
+// pdfgen.SystemFallbackFonts() as an example opt-in, so a host with no system
+// font cannot convert a template that declares none.
 func requireFont(t *testing.T) {
 	t.Helper()
 	if p := os.Getenv("PDFTEST_FONT"); p != "" {
 		return
 	}
-	for _, p := range []string{
-		"/System/Library/Fonts/Supplemental/Arial.ttf",
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-	} {
+	for _, p := range pdfgen.SystemFallbackFonts() {
 		if _, err := os.Stat(p); err == nil {
 			return
 		}
 	}
-	t.Skip("no TrueType font available; set PDFTEST_FONT")
+	t.Skip("no conventional system font; set PDFTEST_FONT")
 }
 
 func writeDocument(t *testing.T, dir, name, body string) string {

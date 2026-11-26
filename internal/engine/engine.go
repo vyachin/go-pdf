@@ -45,8 +45,17 @@ type Options struct {
 	// File is the path used in diagnostics. When empty a placeholder is used.
 	File string
 	// FallbackFont is a TrueType font used for families that are not declared
-	// with @font-face. When empty, a small list of system fonts is tried.
+	// with @font-face. When empty and FallbackFonts is empty, a family that
+	// cannot be declared fails with font/unavailable instead of reading an
+	// installed system font.
 	FallbackFont string
+	// FallbackFonts is an ordered list of TrueType or OpenType/CFF files used
+	// for families that are not declared with @font-face. The first file that
+	// loads becomes the fallback family, with its conventional bold and italic
+	// siblings discovered next to it; a missing or unusable entry is skipped.
+	// FallbackFont is tried first. When Source is set, every path is inside
+	// that source, read from its root. An empty list consults no host font.
+	FallbackFonts []string
 	// Strict turns profile warnings into errors.
 	Strict bool
 	// Charset names the input encoding explicitly and wins over the document's

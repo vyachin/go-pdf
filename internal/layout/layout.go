@@ -18,6 +18,10 @@ type layouter struct {
 	pageStyle PageStyle
 	faces     map[string]*FontFace
 	anchors   map[string]Anchor
+	// unavailable records the family requests already reported as
+	// font/unavailable, so one missing font produces one diagnostic instead of
+	// one per word that needed it.
+	unavailable map[string]bool
 	// ops counts every drawing operation emitted so far; pagination uses it to
 	// detect that a page made no progress.
 	ops     int
@@ -43,14 +47,15 @@ type layouter struct {
 // Run lays out a validated document and returns its pages.
 func Run(doc *html.Document, ctx Context) (*Document, diag.List) {
 	l := &layouter{
-		ctx:       ctx,
-		source:    doc,
-		doc:       &Document{Anchors: map[string]Anchor{}, Targets: map[string]bool{}},
-		pageStyle: ctx.PageStyle,
-		faces:     map[string]*FontFace{},
-		anchors:   map[string]Anchor{},
-		targets:   ctx.TargetPages,
-		maxPages:  ctx.MaxPages,
+		ctx:         ctx,
+		source:      doc,
+		doc:         &Document{Anchors: map[string]Anchor{}, Targets: map[string]bool{}},
+		pageStyle:   ctx.PageStyle,
+		faces:       map[string]*FontFace{},
+		anchors:     map[string]Anchor{},
+		unavailable: map[string]bool{},
+		targets:     ctx.TargetPages,
+		maxPages:    ctx.MaxPages,
 	}
 	root, buildDiags := Build(doc, ctx)
 	l.diags = append(l.diags, buildDiags...)

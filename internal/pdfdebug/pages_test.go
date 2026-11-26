@@ -13,9 +13,16 @@ import (
 // which is the case Pages was blind to.
 const onePixelPNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 
+// bundledFont is the repository's test font. Passing it explicitly keeps the
+// page model independent of the developer machine: the package reads no
+// installed host font on its own.
+const bundledFont = "../../testdata/fonts/DejaVuSans.ttf"
+
 func convertHTML(t *testing.T, src string) []byte {
 	t.Helper()
-	res, err := pdfgen.Convert(context.Background(), []byte(src), pdfgen.Options{})
+	res, err := pdfgen.Convert(context.Background(), []byte(src), pdfgen.Options{
+		FallbackFont: bundledFont,
+	})
 	if err != nil {
 		t.Fatalf("converting %q: %v", src, err)
 	}

@@ -1653,13 +1653,25 @@ func TestUndeclaredFamilyDoesNotReuseAnotherFace(t *testing.T) {
 		faces: []*registeredFace{{family: "pt serif", weight: 400, font: f}},
 		cache: map[string]*layout.FontFace{},
 	}
-	// A machine with no system font left to try: the once-guard is consumed.
-	r.systemOnce.Do(func() {})
-	if got, err := r.pick([]string{"Arial"}, 400, false); err != nil || got != nil {
-		t.Fatalf("pick returned %v, %v for Arial", got, err)
+	// No fallback is configured, so an undeclared family is unavailable rather
+	// than replaced by the first declared face or a host font.
+	got, err := r.pick([]string{"Arial"}, 400, false)
+	if err == nil {
+		t.Fatal("pick accepted an undeclared family without a diagnostic")
 	}
-	if _, err := r.Face([]string{"Arial"}, 400, false, 12000); err == nil {
-		t.Fatal("Face accepted an undeclared family without a diagnostic")
+	if !errors.Is(err, layout.ErrFontUnavailable) {
+		t.Fatalf("pick returned %v, want a font/unavailable error", err)
+	}
+	if got != nil {
+		t.Fatalf("pick returned %v for an undeclared family", got)
+	}
+	for _, want := range []string{"Arial", "Options.FallbackFont", "Options.FallbackFonts"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the diagnostic does not name %q: %v", want, err)
+		}
+	}
+	if _, err := r.Face([]string{"Arial"}, 400, false, 12000); !errors.Is(err, layout.ErrFontUnavailable) {
+		t.Fatalf("Face returned %v for an undeclared family", err)
 	}
 
 	// A declared family still resolves, and an explicit fallback still covers

@@ -44,10 +44,10 @@ type Options struct {
 	BaseDir string
 	// Source is a caller-supplied file system that replaces the host filesystem
 	// for the conversion. When it is non-nil, every document-referenced image,
-	// stylesheet and @font-face source, and FallbackFont, is read through it;
-	// BaseDir and FontDir name directories inside it and default to its root,
-	// and FallbackFont is a path inside it, read from its root. No host file is
-	// read and the system font list is not consulted. Source paths are
+	// stylesheet and @font-face source, and FallbackFont/FallbackFonts, is read
+	// through it; BaseDir and FontDir name directories inside it and default to
+	// its root, and a fallback path is read from its root. No host file and no
+	// installed host font is consulted. Source paths are
 	// slash-separated and relative: an absolute or escaping reference is
 	// rejected with the asset's load diagnostic. A nil Source keeps the
 	// filesystem behaviour unchanged.
@@ -71,14 +71,26 @@ type Options struct {
 	RenderPNG bool
 	// File is the path used in diagnostics. When empty a placeholder is used.
 	File string
-	// FallbackFont is a TrueType font used for families that are not declared
-	// with @font-face. When empty a small list of system fonts is tried; a
-	// document whose font cannot be found fails with a diagnostic instead of
-	// silently replacing glyphs.
+	// FallbackFont is a TrueType or OpenType/CFF font used for families that
+	// are not declared with @font-face. It is tried before FallbackFonts and
+	// wins regardless of the requested weight or slant. When both this field
+	// and FallbackFonts are empty, a family the document does not declare
+	// fails with font/unavailable instead of reading an installed host font,
+	// so the same input renders identically on every host.
 	//
 	// When Source is set, FallbackFont is a path inside that source, read from
-	// its root, and the system font list is not consulted.
+	// its root, and no host file is read.
 	FallbackFont string
+	// FallbackFonts is an ordered list of TrueType or OpenType/CFF files used
+	// for families that are not declared with @font-face. The first file that
+	// loads becomes the fallback family, with its conventional bold and italic
+	// siblings discovered next to it; a missing or unparseable file is skipped
+	// and the next one is tried. FallbackFont is tried first. The list is
+	// caller-selected bytes, so it keeps the output deterministic; pass
+	// [SystemFallbackFonts] to opt into the host-dependent platform search.
+	//
+	// When Source is set, every path is inside that source, read from its root.
+	FallbackFonts []string
 	// Charset names the input encoding explicitly and wins over the document's
 	// own declaration and its byte order mark. Empty means detect: a byte
 	// order mark, then a <meta charset> or http-equiv declaration in the first
@@ -94,6 +106,25 @@ type Options struct {
 	// Limits bounds the work a single conversion may do. Zero fields mean the
 	// defaults.
 	Limits Limits
+}
+
+// SystemFallbackFonts returns the conventional system font paths: Arial and
+// Times New Roman under the macOS supplemental directory, DejaVu Sans and
+// Liberation Serif under the Linux font directories. The list covers both
+// platforms, and paths that do not exist are skipped at conversion time.
+//
+// The result is a fresh copy, so a caller may modify or truncate it without
+// affecting another call. The list is host-dependent and belongs to an
+// explicit opt-in: passing it as Options.FallbackFonts restores the convenience
+// of rendering with an installed font, at the cost of output that differs
+// between machines. The zero Options value never consults it.
+func SystemFallbackFonts() []string {
+	return []string{
+		"/System/Library/Fonts/Supplemental/Arial.ttf",
+		"/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+		"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+	}
 }
 
 // Limits bounds the resources a conversion may consume. A limit is checked
@@ -402,19 +433,20 @@ func CharsetSupported(name string) bool {
 
 func (o Options) toEngine() engine.Options {
 	return engine.Options{
-		PageSize:     o.PageSize,
-		Margin:       o.Margin,
-		FontDir:      o.FontDir,
-		BaseDir:      o.BaseDir,
-		Source:       o.Source,
-		Date:         o.Date,
-		Title:        o.Title,
-		RenderPNG:    o.RenderPNG,
-		File:         o.File,
-		FallbackFont: o.FallbackFont,
-		Charset:      o.Charset,
-		Strict:       o.Strict,
-		Limits:       o.Limits.toEngine(),
+		PageSize:      o.PageSize,
+		Margin:        o.Margin,
+		FontDir:       o.FontDir,
+		BaseDir:       o.BaseDir,
+		Source:        o.Source,
+		Date:          o.Date,
+		Title:         o.Title,
+		RenderPNG:     o.RenderPNG,
+		File:          o.File,
+		FallbackFont:  o.FallbackFont,
+		FallbackFonts: o.FallbackFonts,
+		Charset:       o.Charset,
+		Strict:        o.Strict,
+		Limits:        o.Limits.toEngine(),
 	}
 }
 
