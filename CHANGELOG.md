@@ -31,6 +31,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING — stricter CSS validation and `currentColor` borders.** A
+  `line-height` that resolves to zero or below is now rejected with
+  `css/unsupported-value` for percentages and `em` lengths as well as absolute
+  lengths; the profile previously accepted `line-height:-10%` or `-2em` and
+  layout replaced the value. A page margin box (`@top-center`, `@bottom-left`
+  and the other margin-box names) is now accepted only as a direct child of
+  `@page`; anywhere else it is `css/unsupported-at-rule` and its declarations
+  are not painted. A border declared without a colour now uses the element's
+  `color` (`currentColor`) instead of black, and the `currentColor` keyword is
+  accepted, so `color:#c00; border:1px solid` paints a red border; an explicit
+  colour still wins. Inline declaration diagnostics now carry the owning
+  element's line and column, and each parser problem is counted once against
+  the stylesheet's problem cap.
 - **BREAKING — asset references are confined by default.** A relative image or
   stylesheet reference resolves against `BaseDir`, then the directory of
   `Options.File`, then the process working directory; a relative `@font-face`

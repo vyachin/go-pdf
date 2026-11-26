@@ -117,6 +117,13 @@ var Table = map[string]PropSpec{
 			if v.Color.Transparent {
 				return fmt.Errorf("color: transparent is not supported")
 			}
+			if v.Color.CurrentColor {
+				// currentColor on the color property computes to the inherited
+				// value, which is kept separately because an earlier declaration
+				// in the same rule may already have replaced Color.
+				s.Color = s.inheritedColor
+				return nil
+			}
 			s.Color = v.Color
 			return nil
 		},
@@ -229,16 +236,20 @@ var Table = map[string]PropSpec{
 				// factor of the same value uses the same scale.
 				l = EmLen(float64(l.Value) / 100000)
 			}
-			if l.Kind == MP && l.Value <= 0 {
-				return Value{}, fmt.Errorf("line-height must be positive")
-			}
 			return Value{Kind: "length", Length: l}, nil
 		},
-		Set: func(s *Style, v Value, _ int32) error {
+		Set: func(s *Style, v Value, parentFontSize int32) error {
 			if v.Float > 0 {
 				s.LineHeightFactor = v.Float
 				s.LineHeight = Length{Kind: Auto}
 				return nil
+			}
+			// Validate after unit resolution, so a percentage, an em length and
+			// an absolute length share one rule. A resolved zero or a negative
+			// value would otherwise reach layout, which silently replaced it
+			// with an ascent-derived height.
+			if l := v.Length; l.Kind != Auto && l.Resolve(parentFontSize) <= 0 {
+				return fmt.Errorf("line-height must be positive")
 			}
 			s.LineHeightFactor = 0
 			s.LineHeight = v.Length
@@ -562,7 +573,7 @@ func parseBorderShorthand(toks []Token) (Value, error) {
 	if len(f) == 0 {
 		return Value{}, fmt.Errorf("border expects a width, style and colour")
 	}
-	side := BorderSide{Style: BorderNone, Color: Color{R: 0, G: 0, B: 0, Set: true}}
+	side := BorderSide{Style: BorderNone, Color: Color{CurrentColor: true}}
 	var widthSet bool
 	for i := 0; i < len(f); i++ {
 		t := f[i]

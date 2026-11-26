@@ -35,8 +35,8 @@ by an ascent-derived line height.
 
 The initial border colour SHALL be `currentColor`, resolved from the element's
 `color` when the border is painted. The `currentColor` keyword MUST be accepted
-wherever a border colour is accepted, and an explicitly declared `border-color`
-MUST win over the initial value.
+wherever a border colour is accepted, and an explicitly declared border colour in
+the `border` shorthand MUST win over the initial value.
 
 #### Scenario: A border without an explicit colour
 
@@ -46,7 +46,7 @@ MUST win over the initial value.
 
 #### Scenario: An explicit border colour wins
 
-- **WHEN** the same rule also declares `border-color:#00f`
+- **WHEN** the same rule also declares `border:1px solid #00f`
 - **THEN** the border is blue
 - **AND** `currentColor` is not applied over it
 

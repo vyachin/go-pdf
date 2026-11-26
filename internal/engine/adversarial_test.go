@@ -211,6 +211,22 @@ func adversarialCases() []adversarialCase {
 			Options: func(t *testing.T, dir string) Options { return Options{File: "style-at-rule.html"} },
 		},
 		{
+			// RV5-21: a negative percentage line-height used to validate and
+			// reach layout, which replaced it silently. It is now rejected.
+			ID:      "P2-negative-line-height",
+			Fixture: "p2-negative-line-height.html",
+			Want:    "css/unsupported-value",
+			Options: func(t *testing.T, dir string) Options { return Options{File: "negative-line-height.html"} },
+		},
+		{
+			// RV5-24: a margin box outside @page used to be parsed and painted.
+			// It is now css/unsupported-at-rule and contributes no rule.
+			ID:      "P2-top-level-margin-box",
+			Fixture: "p2-top-level-margin-box.html",
+			Want:    "css/unsupported-at-rule",
+			Options: func(t *testing.T, dir string) Options { return Options{File: "margin-box.html"} },
+		},
+		{
 			ID:      "P2-dom-depth",
 			Fixture: "p2-dom-depth.html",
 			Want:    "resource/limit",

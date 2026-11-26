@@ -183,8 +183,12 @@ type Color struct {
 	// Transparent marks the transparent keyword, which is distinct from an
 	// absent colour (Set == false).
 	Transparent bool
-	R, G, B     uint8
-	Set         bool
+	// CurrentColor marks the currentColor keyword. The cascade resolves it from
+	// the element's computed color, so a declaration order inside one rule
+	// cannot decide the answer.
+	CurrentColor bool
+	R, G, B      uint8
+	Set          bool
 }
 
 var namedColors = map[string][3]uint8{
@@ -219,6 +223,9 @@ func ParseColor(toks []Token) (Color, error) {
 			name := strings.ToLower(t.Text)
 			if name == "transparent" {
 				return Color{Transparent: true}, nil
+			}
+			if name == "currentcolor" {
+				return Color{CurrentColor: true}, nil
 			}
 			if c, ok := namedColors[name]; ok {
 				return Color{R: c[0], G: c[1], B: c[2], Set: true}, nil

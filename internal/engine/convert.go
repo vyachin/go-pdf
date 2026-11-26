@@ -266,7 +266,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 	return &prepared{
 		doc:       doc,
 		sheets:    sheets,
-		cascade:   css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...).SetGuard(guard),
+		cascade:   css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...).SetGuard(guard).SetNodePosition(doc.Pos),
 		pageSize:  pageSize,
 		margin:    margin,
 		pageStyle: pageStyle,

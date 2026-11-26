@@ -191,9 +191,14 @@ type ContentItem struct {
 	Pos diag.Position
 }
 
-// Position returns the source position of a declaration, with a zero position
-// when the declaration did not come from a parsed stylesheet.
+// Position returns the source position of a declaration. A style attribute
+// carries the owning element's position, which is used when the declaration
+// did not come from a parsed stylesheet; otherwise the position is the
+// declaration's offset inside its sheet.
 func (d Declaration) Position() diag.Position {
+	if d.Pos.File != "" {
+		return d.Pos
+	}
 	if d.Sheet == nil {
 		return diag.Position{}
 	}

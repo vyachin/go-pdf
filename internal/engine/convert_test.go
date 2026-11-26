@@ -1866,3 +1866,79 @@ func TestTruncatedDocumentFailsWithDiagnostic(t *testing.T) {
 	}
 	t.Fatalf("no html/truncated diagnostic: %v", res.Diagnostics.Lines())
 }
+
+// TestInlineDeclarationDiagnosticNamesElement guards RV5-23: a declaration in a
+// style attribute rejected against the resolved parent font size names the
+// element's line and column instead of :0:0.
+func TestInlineDeclarationDiagnosticNamesElement(t *testing.T) {
+	src := []byte("<html><body>\n<div style=\"font-size:1pt\">\n<p style=\"font-size:0.01%\">x</p>\n</div>\n</body></html>")
+	list, err := Validate(context.Background(), src, Options{File: "inline-pos.html", FallbackFont: testFontPath(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range list {
+		if d.Code != "css/unsupported-value" || !strings.Contains(d.Message, "font-size") {
+			continue
+		}
+		if d.Pos.File != "inline-pos.html" || d.Pos.Line != 3 || d.Pos.Col != 1 {
+			t.Fatalf("diagnostic position = %+v, want inline-pos.html:3:1", d.Pos)
+		}
+		return
+	}
+	t.Fatalf("no css/unsupported-value for the tiny font size:\n%s", strings.Join(list.Lines(), "\n"))
+}
+
+// TestBorderUsesCurrentColor guards RV5-22 in the rendered output: a border
+// declared without a colour paints in the element's color, not black.
+func TestBorderUsesCurrentColor(t *testing.T) {
+	src := `<div style="color:#c00;border:1pt solid;width:100pt;height:20pt">x</div>`
+	res, err := Convert(context.Background(), []byte(src), Options{File: "border.html", FallbackFont: testFontPath(t)})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	var content strings.Builder
+	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
+		content.Write(stream)
+		content.WriteByte('\n')
+	}
+	painted := content.String()
+	if !strings.Contains(painted, "0.8 0 0 rg\n") {
+		t.Fatalf("the border was not painted red: %q", painted)
+	}
+	if strings.Contains(painted, "0 0 0 rg\n") {
+		t.Fatalf("a black border was painted: %q", painted)
+	}
+}
+
+// TestMarginBoxOutsidePageIsRejected guards RV5-24: a top-level margin box is
+// css/unsupported-at-rule, its content is not painted, and no PDF is produced.
+func TestMarginBoxOutsidePageIsRejected(t *testing.T) {
+	src := []byte(`<style>@top-center { content: "HEADER" }</style><p>body</p>`)
+	res, err := Convert(context.Background(), src, Options{File: "margin.html", FallbackFont: testFontPath(t)})
+	if err == nil {
+		t.Fatal("a top-level margin box was accepted")
+	}
+	if !hasCode(res.Diagnostics, "css/unsupported-at-rule") {
+		t.Fatalf("want css/unsupported-at-rule, got:\n%s", strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if len(res.PDF) != 0 {
+		t.Fatalf("a rejected margin box produced %d PDF bytes", len(res.PDF))
+	}
+}
+
+// TestMarginBoxInsidePageIsPainted guards the other side of RV5-24: the same
+// margin box directly inside @page still paints its content on every page.
+func TestMarginBoxInsidePageIsPainted(t *testing.T) {
+	src := []byte(`<style>@page { @top-center { content: "HEADER" } }</style><p>body</p>`)
+	res, err := Convert(context.Background(), src, Options{File: "margin.html", FallbackFont: testFontPath(t)})
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	text, err := pdfdebug.Text(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "HEADER") {
+		t.Fatalf("the margin box was not painted: %q", text)
+	}
+}

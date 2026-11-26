@@ -48,7 +48,10 @@ end of the attribute. A `{` or `}` in it is `css/syntax`, and an at-rule is
 `css/unsupported-at-rule`; neither ends the list silently or is discarded, and
 the declarations before the offending token stay in the cascade. Every
 declaration is either applied or reported in the same pass, so
-`style="} display:flex"` names both the brace and `display`.
+`style="} display:flex"` names both the brace and `display`. A rejected
+declaration carries the position of the element that owns the attribute, so a
+diagnostic can jump to the element even though the attribute has no source
+position of its own.
 
 ## Input encodings
 
@@ -105,7 +108,7 @@ and an encoding error follow the same rule.
 | `margin`, `padding` | no | 1–4 lengths |
 | `margin-top`, `margin-right`, `margin-bottom`, `margin-left` | no | a length; `auto` is rejected |
 | `padding-top`, `padding-right`, `padding-bottom`, `padding-left` | no | a non-negative length |
-| `border` | no | `[width] [solid\|none] [color]` |
+| `border` | no | `[width] [solid\|none] [color\|currentColor]` |
 | `border-collapse` | no | `collapse`, `separate` |
 | `background-color` | no | a colour |
 | `background-image` | no | `url(<local file>)` or `url("data:image/png;base64,…")`, `url("data:image/jpeg;base64,…")` |
@@ -115,7 +118,7 @@ and an encoding error follow the same rule.
 | `font-size` | yes | a length, `em`, `%` |
 | `font-weight` | yes | `100`–`900`, `normal`, `bold` |
 | `font-style` | yes | `normal`, `italic` |
-| `line-height` | yes | a number, a length, a percentage, `normal` |
+| `line-height` | yes | a positive number, a positive length, a positive percentage, `normal` |
 | `text-align` | yes | `left`, `right`, `center`, `justify` |
 | `text-indent` | yes | a length |
 | `white-space` | yes | `normal`, `pre` |
@@ -146,6 +149,11 @@ The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does 
 
 `auto` is allowed only for `width` and `height`. For `margin`, `padding`, `text-indent` and `line-height` it is a profile error: `margin: 0 auto` does not centre the block, whereas it used to silently align it to the left.
 
+`line-height` must resolve to a positive value. A negative number, percentage,
+`em` or absolute length fails with `css/unsupported-value`, and a zero value
+fails the same way, so layout never replaces the declaration with an
+ascent-derived line height.
+
 Quoted CSS strings decode backslash escapes: one to six hexadecimal digits followed by
 an optional space, a backslash-newline continuation, and a backslash before any other
 character. `content` and `font-family` see the decoded text, so `"\2014"` is an em
@@ -158,7 +166,11 @@ A `url()` argument decodes the same escapes as a string before it reaches the
 resolver, so `url("a\20 b.png")` names the file `a b.png`; an unescaped `)` ends an
 unquoted argument and an escaped `\)` stays in the path. The `border` shorthand accepts every colour form `color` accepts, including
 `rgb()` and hexadecimal values; a `transparent` border keeps its layout width but paints
-no pixels.
+no pixels. The initial border colour is `currentColor`: a border declared
+without a colour takes the element's computed `color` instead of black, so
+`color:#c00; border:1px solid` paints a red border. The `currentColor` keyword
+is accepted in the shorthand, and an explicit colour still wins over the
+initial value.
 
 A background image is painted behind the box's content, scaled to cover the box and clipped to it. The same `data:` URI forms as for `<img src>` are accepted; remote URLs are not. `cover` is the only supported value; the initial `auto` behaves as `cover`, because the profile has no natural-size painting, so a background image always fills its box. The crop is centered: there is no `background-position`, `background-repeat` or multiple-background grammar. An inline box paints no background at all, neither a colour nor an image; the supported backgrounds belong to block boxes and table cells.
 
@@ -221,6 +233,9 @@ font size (12 pt), not the page width. `size: portrait` flips a landscape fallba
 `size: landscape` flips a portrait one.
 
 Margin boxes: `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, `bottom-right`.
+A margin box is accepted only as a direct child of `@page`. At the top level or
+inside `@media` it is `css/unsupported-at-rule`, and its declarations are
+neither painted nor applied to page geometry.
 `content` values: quoted strings, `counter(page)` and `counter(pages)`.
 `target-counter` inside a margin box is rejected with `css/unsupported-value`,
 because a margin box runs before the target pages are known and would either

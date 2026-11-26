@@ -76,6 +76,55 @@ func TestBorderAcceptsEveryColorForm(t *testing.T) {
 	}
 }
 
+// TestBorderColorDefaultsToCurrentColor guards RV5-22: a border without an
+// explicit colour follows the element's color instead of painting black, the
+// currentColor keyword is accepted, and an explicit colour still wins.
+func TestBorderColorDefaultsToCurrentColor(t *testing.T) {
+	doc := mustDoc(t, `<p id="x">x</p>`)
+	red := Color{R: 0xcc, Set: true}
+	blue := Color{B: 0xff, Set: true}
+	cases := []struct {
+		name string
+		css  string
+		want Color
+	}{
+		{"initial currentColor", `p { color: #c00; border: 1px solid }`, red},
+		{"declaration order", `p { border: 1px solid; color: #c00 }`, red},
+		{"keyword", `p { color: #c00; border: 1px solid currentColor }`, red},
+		{"explicit colour wins", `p { color: #c00; border: 1px solid #00f }`, blue},
+		{"initial colour is black", `p { border: 1px solid }`, Color{Set: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sheet := Parse([]byte(tc.css))
+			st := NewCascade(sheet).Compute(doc.FindByID("x"), nil)
+			if got := st.Border[0].Color; got != tc.want {
+				t.Fatalf("border colour = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+	// A transparent border stays invisible and is not rewritten to currentColor.
+	sheet := Parse([]byte(`p { color: #c00; border: 1px solid transparent }`))
+	st := NewCascade(sheet).Compute(doc.FindByID("x"), nil)
+	if !st.Border[0].Color.Transparent || st.Border[0].IsVisible() {
+		t.Fatalf("transparent border = %+v, want an invisible side", st.Border[0])
+	}
+}
+
+// TestBorderColorIsInheritedFromTheElement guards that currentColor resolves
+// per element and not from the stylesheet: the child border takes the child's
+// inherited color.
+func TestBorderColorIsInheritedFromTheElement(t *testing.T) {
+	doc := mustDoc(t, `<div id="d" style="color: #c00"><p id="p" style="border: 1px solid">x</p></div>`)
+	cascade := NewCascade()
+	div := doc.FindByID("d")
+	p := doc.FindByID("p")
+	st := cascade.Compute(p, cascade.Compute(div, nil))
+	if got, want := st.Border[0].Color, (Color{R: 0xcc, Set: true}); got != want {
+		t.Fatalf("inherited currentColor border = %+v, want %+v", got, want)
+	}
+}
+
 // TestPageMarginGrammar guards page margins: lengths only, with em resolved
 // against the initial 12 pt font size.
 func TestPageMarginGrammar(t *testing.T) {

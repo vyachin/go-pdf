@@ -40,6 +40,12 @@ type Cascade struct {
 	// reported deduplicates those diagnostics: one declaration applied to a
 	// thousand elements is one problem, not a thousand.
 	reported map[string]bool
+	// nodePos maps an element to its source position. The cascade parses a
+	// style attribute itself, so without it a declaration rejected here would
+	// report :0:0 although the owning element's position is known. Nil means
+	// positions are unknown, which is what a standalone style computation
+	// wants.
+	nodePos func(*html.Node) diag.Position
 }
 
 // SetGuard attaches the conversion's work guard to the cascade and returns it
@@ -58,15 +64,23 @@ func (c *Cascade) SetDiagnostics(list *diag.List) *Cascade {
 	return c
 }
 
+// SetNodePosition attaches the document's position lookup to the cascade and
+// returns it so construction can stay fluent. It makes an inline declaration
+// rejected during style computation name the element that owns it. A nil
+// lookup leaves inline positions unknown.
+func (c *Cascade) SetNodePosition(lookup func(*html.Node) diag.Position) *Cascade {
+	c.nodePos = lookup
+	return c
+}
+
 // report records one declaration that could not be applied.
 func (c *Cascade) report(d Declaration, err error) {
 	if c.diags == nil {
 		return
 	}
-	pos := diag.Position{}
-	if d.Sheet != nil {
-		p := d.Sheet.Position(d.Offset)
-		pos = diag.Position{File: p.File, Line: p.Line, Col: p.Col}
+	pos := d.Position()
+	if pos.File == "" && d.Element != nil && c.nodePos != nil {
+		pos = c.nodePos(d.Element)
 	}
 	if c.reported == nil {
 		c.reported = map[string]bool{}
@@ -158,6 +172,7 @@ func (c *Cascade) Compute(n *html.Node, parent *Style) *Style {
 	}
 
 	st.resolveEm()
+	st.resolveCurrentColor()
 	return st
 }
 
@@ -198,6 +213,7 @@ func (c *Cascade) cascadeEntries(n *html.Node) []styleEntry {
 	if attr, ok := n.Attr("style"); ok {
 		decls, _ := ParseDeclarationsWithGuard(attr, c.guard)
 		for _, d := range decls {
+			d.Element = n
 			entries = append(entries, styleEntry{decl: d, spec: [3]int{1 << 20, 0, 0}, ord: 1 << 30, origin: originAuthor})
 		}
 	}
