@@ -142,7 +142,7 @@ func TestConvertedCFFKeepsGDEFMarkClasses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sourceMarks, _ := parseGDEF(tables["GDEF"])
+			sourceMarks, _, _ := (&kerning{}).parseGDEF(tables["GDEF"])
 			if len(sourceMarks) == 0 {
 				t.Fatal("the fixture declares GDEF but no mark glyphs")
 			}
