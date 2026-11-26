@@ -30,8 +30,8 @@ type Options struct {
 	Date time.Time
 	// Title overrides the document title taken from <title>.
 	Title string
-	// RenderPNG asks the converter to also rasterize the first page. It is
-	// used by tests and the CLI debug flag.
+	// RenderPNG asks the converter to also rasterize the first page into a
+	// debug preview.
 	RenderPNG bool
 	// File is the path used in diagnostics. When empty a placeholder is used.
 	File string
@@ -84,7 +84,8 @@ type Limits struct {
 	// MaxDOMDepth bounds element nesting. A deeper document is rejected while
 	// parsing, before the tree allocates one node per level.
 	MaxDOMDepth int
-	// MaxTableCells bounds the number of cells in one table.
+	// MaxTableCells bounds the grid area of one table: its column count times
+	// its row count.
 	MaxTableCells int
 	// MaxOperations bounds the total work of a conversion: parsed tokens,
 	// stylesheet rules and compounds matched by the cascade, font parsing,
