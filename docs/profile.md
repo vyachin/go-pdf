@@ -43,6 +43,13 @@ dimension is effective, the other follows the image's intrinsic aspect ratio.
 The HTML `hidden` attribute hides the element's subtree like `display: none`;
 its content is not laid out and does not appear in the PDF.
 
+A `style` attribute is a declaration list, not a stylesheet: it ends only at the
+end of the attribute. A `{` or `}` in it is `css/syntax`, and an at-rule is
+`css/unsupported-at-rule`; neither ends the list silently or is discarded, and
+the declarations before the offending token stay in the cascade. Every
+declaration is either applied or reported in the same pass, so
+`style="} display:flex"` names both the brace and `display`.
+
 ## Input encodings
 
 The input does not have to be UTF-8. The encoding is detected as the HTML

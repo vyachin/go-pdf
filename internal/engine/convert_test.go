@@ -547,6 +547,93 @@ func hasCode(l diag.List, code string) bool {
 	return false
 }
 
+// TestStyleAttributeBypassIsRejected guards RV5-06 end to end: a brace or an
+// at-rule in a style attribute used to end the declaration list silently, so an
+// unsupported declaration after it never reached validation. The conversion now
+// fails, names every problem and produces no PDF.
+func TestStyleAttributeBypassIsRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"leading brace", `<p style="} display:flex">x</p>`, []string{"css/syntax", "css/unsupported-value"}},
+		{"nested media", `<p style="@media print { p { display: flex } }">x</p>`, []string{"css/unsupported-at-rule"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Convert(context.Background(), []byte(tc.src), Options{
+				FallbackFont: testFontPath(t),
+				File:         "bypass.html",
+			})
+			if err == nil {
+				t.Fatalf("the bypass was accepted: %v", res.Diagnostics.Lines())
+			}
+			if len(res.PDF) != 0 {
+				t.Fatalf("a rejected template produced %d PDF bytes", len(res.PDF))
+			}
+			if len(res.Diagnostics) != len(tc.want) {
+				t.Fatalf("diagnostics = %v, want %v", res.Diagnostics.Lines(), tc.want)
+			}
+			for _, code := range tc.want {
+				if !hasCode(res.Diagnostics, code) {
+					t.Fatalf("diagnostics = %v, want %s", res.Diagnostics.Lines(), code)
+				}
+			}
+			for _, d := range res.Diagnostics {
+				switch d.Code {
+				case "css/syntax":
+					if !strings.ContainsAny(d.Message, "{}") {
+						t.Fatalf("the syntax problem does not name the brace: %q", d.Message)
+					}
+				case "css/unsupported-value":
+					if !strings.Contains(d.Message, "display") {
+						t.Fatalf("the value problem does not name the declaration: %q", d.Message)
+					}
+				case "css/unsupported-at-rule":
+					if !strings.Contains(d.Message, "@media") {
+						t.Fatalf("the at-rule problem does not name the at-rule: %q", d.Message)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestWellFormedStyleAttributeIsUnchanged guards RV5-06: a well-formed style
+// attribute still produces no diagnostics and applies every declaration. The
+// rendered bytes are identical to the same declarations in a stylesheet rule,
+// which is the parent behaviour the change must not alter.
+func TestWellFormedStyleAttributeIsUnchanged(t *testing.T) {
+	opts := Options{FallbackFont: testFontPath(t), File: "style-attr.html"}
+	res, err := Convert(context.Background(), []byte(`<p style="color:#c00;font-size:10pt">x</p>`), opts)
+	if err != nil {
+		t.Fatalf("Convert: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", res.Diagnostics.Lines())
+	}
+	var content strings.Builder
+	for _, stream := range pdfdebug.ContentStreams(res.PDF) {
+		content.Write(stream)
+	}
+	painted := content.String()
+	if !strings.Contains(painted, "0.8 0 0 rg") {
+		t.Fatalf("color:#c00 was not applied: %q", painted)
+	}
+	if !strings.Contains(painted, " 10 Tf") {
+		t.Fatalf("font-size:10pt was not applied: %q", painted)
+	}
+	// The attribute form and the equivalent rule render the same bytes.
+	sheet, err := Convert(context.Background(), []byte(`<style>p{color:#c00;font-size:10pt}</style><p>x</p>`), opts)
+	if err != nil {
+		t.Fatalf("Convert stylesheet form: %v\n%s", err, strings.Join(sheet.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Equal(res.PDF, sheet.PDF) {
+		t.Fatal("the style attribute no longer renders like the equivalent stylesheet rule")
+	}
+}
+
 func TestConvertClipsAnOversizedLine(t *testing.T) {
 	fontPath := testFontPath(t)
 	src := `<style>

@@ -138,6 +138,60 @@ func TestInlineStyleValidation(t *testing.T) {
 	}
 }
 
+// TestInlineStyleDeclarationList guards RV5-06 at validation: a brace or an
+// at-rule in a style attribute is reported with the attribute's position, the
+// declarations around the offending token are still validated, and a
+// well-formed attribute stays clean.
+func TestInlineStyleDeclarationList(t *testing.T) {
+	cases := []struct {
+		name  string
+		style string
+		want  []string
+	}{
+		{"leading brace", `} display:flex`, []string{"css/syntax", "css/unsupported-value"}},
+		{"middle brace", `color:red} display:flex`, []string{"css/syntax", "css/unsupported-value"}},
+		{"opening brace", `color:red{display:flex`, []string{"css/syntax", "css/unsupported-value"}},
+		{"media rule", `@media print { p { display: flex } }`, []string{"css/unsupported-at-rule"}},
+		{"page rule", `@page { size: A4 }`, []string{"css/unsupported-at-rule"}},
+		{"well-formed", `color:#c00;font-size:10pt`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "<html><body>\n  <p style=\"" + tc.style + "\">x</p>\n</body></html>"
+			l := validate(t, src)
+			var codes []string
+			for _, d := range l {
+				codes = append(codes, d.Code)
+			}
+			if strings.Join(codes, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("diagnostics = %v, want codes %v", l.Lines(), tc.want)
+			}
+			for _, d := range l {
+				if d.Pos.File != "doc.html" || d.Pos.Line != 2 || d.Pos.Col != 3 {
+					t.Fatalf("diagnostic position = %+v, want doc.html:2:3", d.Pos)
+				}
+				if !strings.Contains(d.Element, "p") {
+					t.Fatalf("diagnostic does not name the element path: %q", d.Element)
+				}
+				switch d.Code {
+				case "css/syntax":
+					if !strings.ContainsAny(d.Message, "{}") {
+						t.Fatalf("the syntax problem does not name the brace: %q", d.Message)
+					}
+				case "css/unsupported-value":
+					if !strings.Contains(d.Message, "display") {
+						t.Fatalf("the value problem does not name the declaration: %q", d.Message)
+					}
+				case "css/unsupported-at-rule":
+					if !strings.Contains(d.Message, "@") {
+						t.Fatalf("the at-rule problem does not name the at-rule: %q", d.Message)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestGeneratedContentRules(t *testing.T) {
 	ok := validate(t, `<style>a.toc::after { content: target-counter(attr(href), page) }</style><a class="toc" href="#s">Раздел</a>`)
 	if ok.HasErrors() {
