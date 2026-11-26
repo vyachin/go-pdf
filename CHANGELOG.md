@@ -14,6 +14,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   continuations instead of the later one overwriting the earlier one. A cell
   whose content cannot be fragmented reports `layout/overflow` once instead of
   losing the remaining content silently.
+- **Minified source positions.** A position on a UTF-8 document without a byte
+  order mark resumes from the last position on its line instead of rescanning the
+  line from the start, and the scanned bytes and every path byte are charged to
+  the work budget. A one-line document no longer makes diagnostics or layout
+  provenance quadratic, and an element with tens of thousands of classes builds
+  its path in linear time.
+- **Class tokens and no-break spaces.** A class attribute now splits on ASCII
+  whitespace only, as HTML defines it, so `class="a&#160;b"` is one token that
+  `.a` does not match; the split is cached on the element and reused by every
+  selector.
 - **Text source positions.** A text node written with a character reference
   (`&amp;`), one whose first newline `pre`/`listing`/`textarea` drops, or one
   around a NUL now carries its own token's range, so a diagnostic names the text

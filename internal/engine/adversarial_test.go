@@ -66,7 +66,10 @@ func adversarialCases() []adversarialCase {
 			ID:      "P1-many-spelling-image",
 			Fixture: "p1-many-spellings.html",
 			Options: func(t *testing.T, dir string) Options {
-				return Options{BaseDir: dir, File: "spellings.html", Limits: Limits{MaxOperations: 5000}}
+				// The fixture is one long line, so the charged positions and
+				// paths need the one pass over it that the work budget now
+				// counts.
+				return Options{BaseDir: dir, File: "spellings.html", Limits: Limits{MaxOperations: 8000}}
 			},
 			Check: func(t *testing.T, res Result) {
 				if n := bytes.Count(res.PDF, []byte("/Subtype /Image")); n != 1 {

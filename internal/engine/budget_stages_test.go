@@ -94,6 +94,41 @@ func buildTestFont(gpos []byte) []byte {
 	return out
 }
 
+// TestDiagnosticPathIsCharged guards the path charge end to end: a budget tiny
+// against the byte length of a diagnostic element path stops while that path is
+// built, so the conversion reports resource/limit instead of building the
+// string for free.
+func TestDiagnosticPathIsCharged(t *testing.T) {
+	var classes strings.Builder
+	for i := 0; i < 20_000; i++ {
+		fmt.Fprintf(&classes, "c%d ", i)
+	}
+	src := []byte(`<div data-x class="` + classes.String() + `">x</div>`)
+
+	res, err := Convert(context.Background(), src, Options{
+		FallbackFont: testFontPath(t),
+		File:         "path-budget.html",
+		Limits:       Limits{MaxOperations: 5_000},
+	})
+	if err == nil || !hasCode(res.Diagnostics, "resource/limit") || len(res.PDF) != 0 {
+		t.Fatalf("the diagnostic path was not charged: err=%v diags=%v", err, res.Diagnostics.Lines())
+	}
+
+	// A budget that covers the path lets the same document complete and leaves
+	// the unsupported attribute as an ordinary warning.
+	res, err = Convert(context.Background(), src, Options{
+		FallbackFont: testFontPath(t),
+		File:         "path-budget.html",
+		Limits:       Limits{MaxOperations: 1_000_000},
+	})
+	if err != nil {
+		t.Fatalf("the conversion failed under a budget that covers the path: %v", err)
+	}
+	if !hasCode(res.Diagnostics, "html/unsupported-attribute") || len(res.PDF) == 0 {
+		t.Fatalf("the warning or the PDF is missing: %v", res.Diagnostics.Lines())
+	}
+}
+
 // TestCascadeMatchingIsCharged guards the cascade stage: matching many rules
 // against many elements must stop at MaxOperations instead of running the full
 // rule × element product.

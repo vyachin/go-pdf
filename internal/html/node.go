@@ -68,6 +68,11 @@ type Node struct {
 	// guard bounds the work of building a diagnostic path for this node. Nil
 	// means unlimited work and is what a manually built tree has.
 	guard *budget.Guard
+	// classes caches the split class attribute. Attributes are immutable after
+	// the tree is built, so the cache never needs invalidating. classesCached
+	// distinguishes "not split yet" from "split to no tokens".
+	classes       []string
+	classesCached bool
 }
 
 // attachBudget gives every node of a tree the parser's work guard, so Path can
@@ -103,13 +108,40 @@ func (n *Node) Attr(key string) (string, bool) {
 	return "", false
 }
 
-// Class returns the class attribute split into tokens.
+// Class returns the class attribute split into tokens. The split follows
+// HTML's rule: only ASCII whitespace separates tokens, so a no-break space
+// stays inside its token. The slice is computed once per node and shared;
+// callers must not modify it.
 func (n *Node) Class() []string {
-	v, ok := n.Attr("class")
-	if !ok || v == "" {
-		return nil
+	if n.classesCached {
+		return n.classes
 	}
-	return strings.Fields(v)
+	n.classesCached = true
+	if v, ok := n.Attr("class"); ok {
+		n.classes = splitClasses(v)
+	}
+	return n.classes
+}
+
+// splitClasses splits a class attribute on the ASCII whitespace characters
+// HTML defines: space, tab, line feed, form feed and carriage return. Every
+// other byte, including the no-break space U+00A0, belongs to its token.
+func splitClasses(v string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case ' ', '\t', '\n', '\f', '\r':
+			if i > start {
+				out = append(out, v[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(v) {
+		out = append(out, v[start:])
+	}
+	return out
 }
 
 // HasClass reports whether the element carries the given class.
@@ -251,6 +283,8 @@ func (n *Node) relinkFrom(i int) {
 
 // Path renders a human readable element path such as "body > div.invoice > p"
 // for use in diagnostics. The html element and the document root are omitted.
+// Every byte written is charged to the work budget, so an element with a very
+// long id or class list cannot build an unbounded diagnostic string for free.
 func (n *Node) Path() string {
 	var parts []string
 	for x := n; x != nil && x.Type != DocumentNode; x = x.Parent {
@@ -272,30 +306,50 @@ func (n *Node) Path() string {
 	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
 		parts[i], parts[j] = parts[j], parts[i]
 	}
-	return strings.Join(parts, " > ")
+	var b strings.Builder
+	for i, seg := range parts {
+		if i > 0 {
+			if !n.charge(uint64(len(pathSeparator))) {
+				return b.String()
+			}
+			b.WriteString(pathSeparator)
+		}
+		b.WriteString(seg)
+	}
+	return b.String()
 }
 
-// pathSegment builds "tag#id.class1.class2" and charges one unit per piece, so a
-// deeply annotated element cannot build an unbounded diagnostic string for
-// free.
+// pathSeparator joins two path segments.
+const pathSeparator = " > "
+
+// pathSegment builds "tag#id.class1.class2" with a builder and charges one
+// unit per byte it writes. The builder grows amortised linearly, so the cost
+// follows the length of the segment rather than the number of class tokens.
 func (x *Node) pathSegment() (string, bool) {
-	if !x.charge(1) {
+	var b strings.Builder
+	if !x.writePath(&b, x.Tag) {
 		return "", false
 	}
-	seg := x.Tag
 	if id := x.ID(); id != "" {
-		if !x.charge(1) {
+		if !x.writePath(&b, "#") || !x.writePath(&b, id) {
 			return "", false
 		}
-		seg += "#" + id
 	}
 	for _, c := range x.Class() {
-		if !x.charge(1) {
+		if !x.writePath(&b, ".") || !x.writePath(&b, c) {
 			return "", false
 		}
-		seg += "." + c
 	}
-	return seg, true
+	return b.String(), true
+}
+
+// writePath appends s to a path builder and charges one unit per byte written.
+func (x *Node) writePath(b *strings.Builder, s string) bool {
+	if !x.charge(uint64(len(s))) {
+		return false
+	}
+	b.WriteString(s)
+	return true
 }
 
 // Document is a parsed HTML document together with its source mapping.
@@ -312,6 +366,20 @@ type Document struct {
 	// when the two coordinate spaces are the same.
 	charset *charset.Encoding
 	mapper  *charset.Mapper
+	// guard is the parser's work guard. Position charges the bytes it scans to
+	// it, so a stage that reports many positions on one line cannot avoid the
+	// budget. Nil means unlimited work.
+	guard *budget.Guard
+	// Position keeps a cursor on the line of the last query, like
+	// charset.Mapper does, so the bytes between two positions on one line are
+	// scanned once instead of from the line start every time. The text and the
+	// line starts never change after the parse, so the cursor needs no
+	// invalidation. A Document belongs to one conversion: Position, like the
+	// rest of the parse, is not safe for concurrent use.
+	posLine  int // index into lines, meaningless unless posValid
+	posCol   int // byte offset into that line, always a rune boundary
+	posRunes int // runes from the line start to posCol
+	posValid bool
 }
 
 // Charset returns the encoding the document was decoded from.
@@ -323,11 +391,12 @@ func (d *Document) Charset() *charset.Encoding { return d.charset }
 // Cyrillic word names the column the author sees in an editor. A legacy
 // encoding decodes to one character per source byte, so the same rule holds for
 // both coordinate spaces.
+//
+// The bytes between the previous query and this one are scanned once and
+// charged to the work budget, so a minified document costs one pass over its
+// line rather than one pass per diagnostic. A query behind the cursor rescans
+// from the line start; diagnostics are normally in document order.
 func (d *Document) Position(offset int) diag.Position {
-	if d.mapper != nil {
-		line, col := d.mapper.Position(offset)
-		return diag.Position{File: d.File, Line: line, Col: col}
-	}
 	if offset < 0 {
 		offset = 0
 	}
@@ -341,8 +410,60 @@ func (d *Document) Position(offset int) diag.Position {
 		i = 0
 	}
 	line := i + 1
-	col := utf8.RuneCount(d.text[d.lines[i]:offset]) + 1
-	return diag.Position{File: d.File, Line: line, Col: col}
+	start := d.lines[i]
+	colByte := offset - start
+	if !d.posValid || d.posLine != i || colByte < d.posCol {
+		d.posLine, d.posCol, d.posRunes, d.posValid = i, 0, 0, true
+	}
+	if d.mapper != nil {
+		// The mapper keeps its own cursor on the decoded widths. Charge the
+		// decoded bytes since the previous query, which are proportional to the
+		// source bytes the mapper walks.
+		if colByte > d.posCol {
+			_ = d.guard.Add(uint64(colByte - d.posCol))
+			d.posCol = colByte
+		}
+		mapperLine, col := d.mapper.Position(offset)
+		return diag.Position{File: d.File, Line: mapperLine, Col: col}
+	}
+	colRunes := d.posRunes
+	if colByte > d.posCol {
+		from := start + d.posCol
+		// One unit per byte examined, so the charge follows the scanned span.
+		_ = d.guard.Add(uint64(colByte - d.posCol))
+		whole, end := countRunesTo(d.text, from, offset)
+		// An offset inside a character counts every remaining byte as one
+		// rune, the same way a RuneCount from the line start does.
+		colRunes += whole + (offset - end)
+		// Keep the cursor on a whole rune boundary: an offset inside a
+		// character must not make the next query start in the middle of one.
+		d.posRunes += whole
+		d.posCol = end - start
+	}
+	return diag.Position{File: d.File, Line: line, Col: colRunes + 1}
+}
+
+// countRunesTo counts the whole runes in text[from:to] and returns the last
+// rune boundary at or before to. It advances one character at a time, so it
+// allocates nothing, unlike utf8.RuneCount, whose non-ASCII path converts the
+// remaining bytes to a string. The text is valid UTF-8, so only the final
+// character can be truncated; the caller counts its bytes as RuneCount would.
+func countRunesTo(text []byte, from, to int) (whole, end int) {
+	end = from
+	for end < to {
+		if text[end] < utf8.RuneSelf {
+			end++
+			whole++
+			continue
+		}
+		if !utf8.FullRune(text[end:to]) {
+			return whole, end
+		}
+		_, size := utf8.DecodeRune(text[end:to])
+		whole++
+		end += size
+	}
+	return whole, end
 }
 
 // Pos returns the position of the node's start offset.

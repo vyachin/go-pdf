@@ -74,7 +74,7 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	// The scan and the tree construction run over the decoded text, so node
 	// ranges and inline <style> offsets share one coordinate space. A position
 	// is translated back to the source bytes through the mapper.
-	d := &Document{File: opts.File, src: src, text: dec.Text, charset: enc, Root: &Node{Type: DocumentNode}}
+	d := &Document{File: opts.File, src: src, text: dec.Text, charset: enc, guard: opts.Budget, Root: &Node{Type: DocumentNode}}
 	d.lines = lineStarts(dec.Text)
 	if dec.Widths != nil || dec.Skip != 0 {
 		d.mapper = charset.NewMapper(src, dec.Text, dec.Widths, dec.Skip)
