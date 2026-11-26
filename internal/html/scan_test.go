@@ -49,6 +49,60 @@ func TestScanSpansPartitionInput(t *testing.T) {
 	}
 }
 
+// TestScanRecordsDecodedText covers the token-pass decode: a token that decodes
+// to different bytes names an interned entry, while a raw-text token keeps its
+// literal ampersand and stores nothing.
+func TestScanRecordsDecodedText(t *testing.T) {
+	src := []byte("plain &amp; x\r\n<style>a&amp;b</style>")
+	sc, err := scan(src, ParseOptions{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	var texts []span
+	for _, s := range sc.spans {
+		if s.kind == spanText {
+			texts = append(texts, s)
+		}
+	}
+	if len(texts) != 2 {
+		t.Fatalf("text spans = %d, want 2", len(texts))
+	}
+	if texts[0].name == 0 {
+		t.Fatal("the entity text has no decoded entry")
+	}
+	if got, want := sc.textOf(src, texts[0]), "plain & x\n"; got != want {
+		t.Fatalf("decoded text = %q, want %q", got, want)
+	}
+	if texts[1].name != 0 {
+		t.Fatalf("the raw-text token was decoded to %q", sc.textOf(src, texts[1]))
+	}
+	if got, want := sc.textOf(src, texts[1]), "a&amp;b"; got != want {
+		t.Fatalf("raw text = %q, want %q", got, want)
+	}
+}
+
+// TestScanLeavesPlainTextUnindexed covers the cheap path: a text token with no
+// trigger byte keeps a zero id and compares as its raw slice.
+func TestScanLeavesPlainTextUnindexed(t *testing.T) {
+	src := []byte("<p>plain</p><p>&amp;</p>")
+	sc, err := scan(src, ParseOptions{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	ids := map[string]int32{}
+	for _, s := range sc.spans {
+		if s.kind == spanText {
+			ids[sc.textOf(src, s)] = s.name
+		}
+	}
+	if got, ok := ids["plain"]; !ok || got != 0 {
+		t.Fatalf("plain text id = %d (present %v), want 0", got, ok)
+	}
+	if got, ok := ids["&"]; !ok || got == 0 {
+		t.Fatalf("reference text id = %d (present %v), want a decoded entry", got, ok)
+	}
+}
+
 // TestScanChargesOneUnitPerSpan pins the work unit: one budget unit per recorded
 // span, so an operation budget keeps meaning what it meant before the change.
 func TestScanChargesOneUnitPerSpan(t *testing.T) {

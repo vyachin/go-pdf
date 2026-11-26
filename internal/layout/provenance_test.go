@@ -182,10 +182,9 @@ func TestProvenanceReportsTheOwningSourceNotACharacterOffset(t *testing.T) {
 		src  string
 		col  int
 	}{
-		// An entity-expanded text node has no span of its own, so the parser
-		// gives it its parent's range: the diagnostic names the element, not an
-		// invented character offset.
-		{"entity", "<p>&amp;" + missingGlyph + "</p>", 1},
+		// A reference-expanded text node now has its own span, so the diagnostic
+		// names the start of the text, not the paragraph's start tag.
+		{"entity", "<p>&amp;" + missingGlyph + "</p>", 4},
 		{"decomposed", "<p>e\u0301" + missingGlyph + "</p>", 4},
 		{"cyrillic", "<p>Привет " + missingGlyph + "</p>", 4},
 		{"nested-span", "<p><span>А" + missingGlyph + "</span></p>", 10},

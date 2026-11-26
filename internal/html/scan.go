@@ -34,7 +34,10 @@ type span struct {
 	start int32
 	end   int32
 	kind  spanKind
-	name  int32
+	// name is the interned tag name for spanStart, and the decoded text's id
+	// plus one for spanText. Zero on a text span means the token's bytes are
+	// already its decoded text.
+	name int32
 }
 
 // scanResult is the token pass: every token's range in document order, plus the
@@ -48,6 +51,11 @@ type scanResult struct {
 	// truncated is the offset where an incomplete tag begins, or -1 when the
 	// input ends between tokens.
 	truncated int
+	// decoded holds the text of the text tokens whose decoded bytes differ from
+	// the source, interned through decodedIndex; a text span refers to an entry
+	// by name-1. A token that decodes to itself stores nothing.
+	decoded      []string
+	decodedIndex map[string]int32
 }
 
 // neverImplicitlyClosed are elements a following start tag cannot close
@@ -70,7 +78,12 @@ var earlyDepthOff = map[string]bool{
 // before the tree is built, so a document over a limit fails without the tree
 // being allocated.
 func scan(src []byte, opts ParseOptions) (*scanResult, error) {
-	res := &scanResult{index: map[string]int32{}, startSpans: map[int32][]int{}, truncated: -1}
+	res := &scanResult{
+		index:        map[string]int32{},
+		startSpans:   map[int32][]int{},
+		decodedIndex: map[string]int32{},
+		truncated:    -1,
+	}
 	z := html.NewTokenizer(bytes.NewReader(src))
 	// earlyRun counts the current run of never-implicitly-closed start tags.
 	// It is a lower bound on the tree depth, so exceeding MaxDepth proves the
@@ -101,7 +114,17 @@ func scan(src []byte, opts ParseOptions) (*scanResult, error) {
 		}
 		switch tt {
 		case html.TextToken:
-			res.spans = append(res.spans, span{start: start, end: off, kind: spanText})
+			sp := span{start: start, end: off, kind: spanText}
+			// Only a trigger byte can make the decoded text differ from the
+			// source: an entity, a carriage return or a NUL in raw text. A
+			// raw-text token keeps its ampersand, so the tokenizer returns the
+			// source unchanged and no entry is stored.
+			if bytes.ContainsAny(src[start:off], "&\r\x00") {
+				if decoded := z.Text(); !bytes.Equal(decoded, src[start:off]) {
+					sp.name = res.internText(string(decoded)) + 1
+				}
+			}
+			res.spans = append(res.spans, sp)
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, _ := z.TagName()
 			tag := normalTagName(string(name))
@@ -153,4 +176,25 @@ func (s *scanResult) intern(name string) int32 {
 	i := int32(len(s.index))
 	s.index[name] = i
 	return i
+}
+
+// internText returns the id of a decoded text, adding it on first use. Repeated
+// references such as &amp; share one entry.
+func (s *scanResult) internText(text string) int32 {
+	if i, ok := s.decodedIndex[text]; ok {
+		return i
+	}
+	i := int32(len(s.decoded))
+	s.decoded = append(s.decoded, text)
+	s.decodedIndex[text] = i
+	return i
+}
+
+// textOf returns the decoded text of a text span. A span whose bytes decode to
+// themselves has no entry, so its raw slice is its decoded text.
+func (s *scanResult) textOf(src []byte, sp span) string {
+	if sp.name > 0 {
+		return s.decoded[sp.name-1]
+	}
+	return string(src[sp.start:sp.end])
 }

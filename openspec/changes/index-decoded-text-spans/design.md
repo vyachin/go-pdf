@@ -15,9 +15,10 @@ Three constraints shape the approach. Only the tokenizer knows whether a text
 token is raw text (`<style>`, `<script>`), RCDATA (`<title>`, `<textarea>`) or
 normal text; decoding `&amp;` in raw text would be wrong. The tree construction can
 change a token's text after decoding: it drops one leading newline in
-`pre`/`listing`/`textarea`, replaces a NUL with U+FFFD in body content and removes
-it in table content. Finally, the budget is a shared `*budget.Guard` that reaches
-the parser through `ParseOptions` but is not threaded into the conversion.
+`pre`/`listing`/`textarea`, removes a NUL in body and table content, and replaces
+it with U+FFFD in foreign content. Finally, the budget is a shared
+`*budget.Guard` that reaches the parser through `ParseOptions` but is not threaded
+into the conversion.
 
 ## Goals / Non-Goals
 
