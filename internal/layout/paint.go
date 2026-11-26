@@ -45,12 +45,12 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 	if b.Style.Background.Set && bottom > top {
 		ops = append(ops, Op{
 			Kind:  FillOpKind,
-			Rect:  Rect{X: b.x, Y: top, W: b.width, H: bottom - top},
+			Rect:  Rect{X: b.x, Y: top, W: b.width, H: satSub(bottom, top)},
 			Color: b.Style.Background,
 		})
 	}
 	if b.Background != nil && bottom > top {
-		if op, ok := backgroundOp(b.Background, Rect{X: b.x, Y: top, W: b.width, H: bottom - top}); ok {
+		if op, ok := backgroundOp(b.Background, Rect{X: b.x, Y: top, W: b.width, H: satSub(bottom, top)}); ok {
 			ops = append(ops, op)
 		}
 	}
@@ -74,7 +74,7 @@ func (l *layouter) decorationOps(b *Box, top, bottom int32, first, completed boo
 		paintBorder(0, Rect{X: b.x, Y: top, W: b.width, H: bt})
 	}
 	if completed {
-		paintBorder(2, Rect{X: b.x, Y: bottom - bb, W: b.width, H: bb})
+		paintBorder(2, Rect{X: b.x, Y: satSub(bottom, bb), W: b.width, H: bb})
 	}
 	return ops
 }
@@ -117,18 +117,18 @@ func inlineBaseline(line *Line, it LineItem) int32 {
 		}
 	}
 	boxH := it.Style.LineHeightMP()
-	leading := boxH - (it.Face.Ascent + it.Face.Descent)
+	leading := satSub(boxH, satAdd(it.Face.Ascent, it.Face.Descent))
 	if leading < 0 {
 		leading = 0
 	}
-	inBox := leading/2 + it.Face.Ascent
+	inBox := satAdd(leading/2, it.Face.Ascent)
 	switch it.Style.VerticalAlign {
 	case css.VATop:
 		return inBox
 	case css.VABottom:
-		return line.Height - boxH + inBox
+		return satAdd(satSub(line.Height, boxH), inBox)
 	case css.VAMiddle:
-		return (line.Height-boxH)/2 + inBox
+		return satAdd(satSub(line.Height, boxH)/2, inBox)
 	default:
 		return line.Ascent
 	}
@@ -190,7 +190,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 	// Natural already contains the indent, so the free space is measured from
 	// the full content width. Subtracting the indent again shifted every
 	// right-aligned and centred line that had a text-indent.
-	extra := width - line.Natural
+	extra := satSub(width, line.Natural)
 	if extra < 0 {
 		extra = 0
 	}
@@ -203,9 +203,9 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 	justify := int32(0)
 	switch st.TextAlign {
 	case css.AlignRight:
-		x += extra
+		x = satAdd(x, extra)
 	case css.AlignCenter:
-		x += extra / 2
+		x = satAdd(x, extra/2)
 	case css.AlignJustify:
 		if !last && !line.ForcedBreak && spaces > 0 && extra > 0 {
 			justify = extra
@@ -229,8 +229,8 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 			if it.Kind == SpaceItem && justify > 0 && remaining > 0 {
 				share := justify / int32(remaining)
 				remaining--
-				w += share
-				justify -= share
+				w = satAdd(w, share)
+				justify = satSub(justify, share)
 			}
 			baseline := satAdd(y, inlineBaseline(line, it))
 			if len(it.Run.Glyphs) > 0 {
@@ -239,7 +239,7 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 			if it.Style != nil {
 				l.paintDecoration(page, x, w, baseline, it.Face, it.Style.TextDecoration, it.Color)
 			}
-			x += w
+			x = satAdd(x, w)
 		}
 	}
 }
