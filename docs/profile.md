@@ -141,6 +141,9 @@ an optional space, a backslash-newline continuation, and a backslash before any 
 character. `content` and `font-family` see the decoded text, so `"\2014"` is an em
 dash. An escaped character in a selector names the character and does not change the
 selector's structure: `.a\.b` is one class named `a.b`, while `.a.b` is two classes.
+A class attribute splits on ASCII whitespace only — space, tab, line feed, form feed
+and carriage return, as HTML defines it — so a no-break space stays inside its token:
+`class="a&#160;b"` is one token that contains `U+00A0`, and `.a` does not match it.
 A `url()` argument decodes the same escapes as a string before it reaches the
 resolver, so `url("a\20 b.png")` names the file `a b.png`; an unescaped `)` ends an
 unquoted argument and an escaped `\)` stays in the path. The `border` shorthand accepts every colour form `color` accepts, including
@@ -397,13 +400,14 @@ memory within a constant multiple of `N`:
 | Stage | One unit is |
 |---|---|
 | HTML parsing | one token, plus one text span indexed or looked up while matching a position |
+| Source positions | one byte scanned since the previous position query on the same line |
 | CSS tokenizing and parsing | one token, one rule or declaration, one stored problem |
 | Cascade | one compound of a rule's selector, per element |
 | Font parsing | one GiB/1024 of file, one GPOS lookup, subtable, pairing or coverage entry, one charstring instruction or converted glyph |
 | Text shaping and line building | one rune, one built line |
 | Image decoding | one image plus one unit per 64 KiB of pixels |
 | Layout | one box, one placed line, one drawing operation, one table grid slot |
-| Diagnostics | one path segment of a diagnostic element path |
+| Diagnostics | one byte of a diagnostic element path |
 | PDF writing | one written glyph, CID, page operation, or 4 KiB of serialised bytes |
 
 The first stage to exhaust the budget stops with `resource/limit`, and a
