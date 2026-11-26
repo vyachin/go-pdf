@@ -468,9 +468,58 @@ func parseCompound(s string) (Compound, int, error) {
 }
 
 func readIdent(s string) (string, int) {
+	src := []byte(s)
 	i := 0
-	for i < len(s) && isNameChar(s[i]) {
+	for i < len(src) {
+		if src[i] == '\\' && i+1 < len(src) {
+			_, i = escapeAt(src, i)
+			continue
+		}
+		if !isNameChar(src[i]) {
+			break
+		}
 		i++
 	}
-	return s[:i], i
+	return decodeEscapes(s[:i]), i
+}
+
+// escapeSelectorName re-escapes a decoded name for selector text, so a decoded
+// punctuation character cannot be read as selector grammar when the text is
+// parsed again.
+func escapeSelectorName(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if isNameChar(c) {
+			b.WriteByte(c)
+			continue
+		}
+		if c >= 0x20 && c <= 0x7e {
+			b.WriteByte('\\')
+			b.WriteByte(c)
+			continue
+		}
+		fmt.Fprintf(&b, "\\%x ", c)
+	}
+	return b.String()
+}
+
+// stringifySelector rebuilds selector text from tokens, escaping the decoded
+// names so an escaped dot or space stays one name instead of becoming grammar.
+func stringifySelector(toks []Token) string {
+	var b strings.Builder
+	for _, tok := range toks {
+		switch tok.Kind {
+		case EOFToken:
+			continue
+		case IdentToken:
+			b.WriteString(escapeSelectorName(tok.Text))
+		case HashToken:
+			b.WriteByte('#')
+			b.WriteString(escapeSelectorName(strings.TrimPrefix(tok.Text, "#")))
+		default:
+			b.WriteString(tok.Text)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }

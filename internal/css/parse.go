@@ -600,7 +600,7 @@ func (p *parser) parseQualifiedRule() ([]Rule, []Problem) {
 	for _, nr := range nested {
 		p.addProblem(&probs, Problem{Message: "nested at-rules are not supported here", Offset: nr.Offset})
 	}
-	selText := stringify(prelude)
+	selText := stringifySelector(prelude)
 	parts := splitTopLevelComma(selText)
 	if len(parts) == 0 {
 		p.addProblem(&probs, Problem{Message: "rule without a selector", Offset: start})

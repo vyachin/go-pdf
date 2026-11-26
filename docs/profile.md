@@ -133,7 +133,11 @@ The soft hyphen `U+00AD` (`&shy;`) is an invisible break point: the engine does 
 Quoted CSS strings decode backslash escapes: one to six hexadecimal digits followed by
 an optional space, a backslash-newline continuation, and a backslash before any other
 character. `content` and `font-family` see the decoded text, so `"\2014"` is an em
-dash. The `border` shorthand accepts every colour form `color` accepts, including
+dash. An escaped character in a selector names the character and does not change the
+selector's structure: `.a\.b` is one class named `a.b`, while `.a.b` is two classes.
+A `url()` argument decodes the same escapes as a string before it reaches the
+resolver, so `url("a\20 b.png")` names the file `a b.png`; an unescaped `)` ends an
+unquoted argument and an escaped `\)` stays in the path. The `border` shorthand accepts every colour form `color` accepts, including
 `rgb()` and hexadecimal values; a `transparent` border keeps its layout width but paints
 no pixels.
 
@@ -219,7 +223,7 @@ implementation used by both stylesheet collection and validation:
 shared keywords (`inherit`, `initial`, `unset`, `revert`, rejected by every
 property that cannot implement them, including `font-family`), and the
 tokenizer's escape decoder is the only place a backslash sequence is decoded, for
-strings, identifiers and hashes alike.
+strings, identifiers, hashes, selectors and `url()` alike.
 
 ## What is missing and why
 
