@@ -20,6 +20,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Malformed CSS escapes.** A style attribute or stylesheet that ends with a
   lone `\` now reports `css/syntax` instead of hanging, and declaration parsing is
   charged to the work budget like stylesheet parsing.
+- **CSS escapes in selectors and `url()`.** An escaped character in a selector now
+  names the character (`.a\.b` is one class named `a.b`) instead of changing the
+  selector's structure, and a `url()` argument decodes escapes before it reaches
+  the resolver (`url("a\20 b.png")` names `a b.png`).
 - **Saturated layout arithmetic.** A box whose padding or declared height is near
   the int32 limit no longer measures a negative height or paints following content
   above itself; measurement, placement and painting saturate, and a box that

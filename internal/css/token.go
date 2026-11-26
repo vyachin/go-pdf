@@ -47,7 +47,8 @@ const (
 	LBracketToken
 	// RBracketToken is "]".
 	RBracketToken
-	// URLToken is an unquoted url(...) value; Text holds the raw contents.
+	// URLToken is a url(...) value. Text holds its decoded contents; a quoted
+	// argument keeps its quotes, which trimURLQuotes removes.
 	URLToken
 	// AtKeywordToken is "@name".
 	AtKeywordToken
@@ -243,14 +244,34 @@ func (l *lexer) next() (Token, error) {
 					i++
 				}
 				vStart := i
-				for i < len(src) && src[i] != ')' {
+				quote := byte(0)
+				for i < len(src) {
+					if src[i] == '\\' && i+1 < len(src) {
+						_, i = escapeAt(src, i)
+						continue
+					}
+					if quote != 0 {
+						if src[i] == quote {
+							quote = 0
+						}
+						i++
+						continue
+					}
+					if src[i] == '"' || src[i] == '\'' {
+						quote = src[i]
+						i++
+						continue
+					}
+					if src[i] == ')' {
+						break
+					}
 					i++
 				}
 				raw := strings.TrimSpace(string(src[vStart:i]))
 				if i < len(src) {
 					i++
 				}
-				tok = Token{Kind: URLToken, Text: raw, Offset: start}
+				tok = Token{Kind: URLToken, Text: decodeEscapes(raw), Offset: start}
 			} else {
 				tok = Token{Kind: IdentToken, Text: name, Offset: start}
 			}
