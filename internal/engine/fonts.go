@@ -52,10 +52,21 @@ type fontRegistry struct {
 	// maxTotalFontBytes is passed to every read so the registry enforces the
 	// conversion total before a file is opened.
 	maxTotalFontBytes int
-	systemOnce        sync.Once
+	// loadFont is the font-parser entry point. It is font.LoadWithOptions
+	// unless a test injects a counting wrapper for this registry instance; the
+	// seam is per registry, so no global state or public API is involved.
+	loadFont   func([]byte, font.ParseOptions) (*font.Font, error)
+	systemOnce sync.Once
 }
 
 func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Stylesheet, opts Options, reg *assets.Registry) (*fontRegistry, error) {
+	return newFontRegistryWithLoader(ctx, guard, sheets, opts, reg, nil)
+}
+
+// newFontRegistryWithLoader is newFontRegistry with an instance-local parser
+// entry point. A nil loader uses font.LoadWithOptions, so a production
+// conversion is unchanged; a test passes a wrapper that counts actual parses.
+func newFontRegistryWithLoader(ctx context.Context, guard *budget.Guard, sheets []*css.Stylesheet, opts Options, reg *assets.Registry, loadFont func([]byte, font.ParseOptions) (*font.Font, error)) (*fontRegistry, error) {
 	limits := opts.Limits.resolved()
 	if reg == nil {
 		reg = assets.New(guard)
@@ -65,6 +76,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 		guard:             guard,
 		reg:               reg,
 		parsed:            map[string]*font.Font{},
+		loadFont:          loadFont,
 		maxFontBytes:      limits.MaxFontBytes,
 		maxTotalFontBytes: limits.MaxTotalFontBytes,
 	}
@@ -176,7 +188,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			if err := guard.Add(uint64(len(rec.Bytes))/1024 + 1); err != nil {
 				return nil, err
 			}
-			loaded, parseErr := font.LoadWithOptions(rec.Bytes, font.ParseOptions{Guard: guard})
+			loaded, parseErr := r.parseFont(rec.Bytes, font.ParseOptions{Guard: guard})
 			if parseErr != nil {
 				// A font that does not parse must not consume the total a later
 				// valid font needs.
@@ -220,7 +232,7 @@ func newFontRegistry(ctx context.Context, guard *budget.Guard, sheets []*css.Sty
 			if err := guard.Add(uint64(len(rec.Bytes))/1024 + 1); err != nil {
 				return nil, err
 			}
-			loaded, parseErr := font.LoadWithOptions(rec.Bytes, font.ParseOptions{Guard: guard})
+			loaded, parseErr := r.parseFont(rec.Bytes, font.ParseOptions{Guard: guard})
 			if parseErr != nil {
 				reg.Discard(rec)
 				if errors.Is(parseErr, font.ErrLimit) {
@@ -244,6 +256,16 @@ type fontSourceError struct {
 
 func (e *fontSourceError) Error() string { return e.err.Error() }
 func (e *fontSourceError) Unwrap() error { return e.err }
+
+// parseFont parses one font through the registry's entry point. The default is
+// font.LoadWithOptions; an instance-local test wrapper counts actual parses so
+// one parse can be proven independently of the shared *font.Font pointer.
+func (r *fontRegistry) parseFont(data []byte, opts font.ParseOptions) (*font.Font, error) {
+	if r.loadFont != nil {
+		return r.loadFont(data, opts)
+	}
+	return font.LoadWithOptions(data, opts)
+}
 
 // parsedFont returns a font another reference already parsed under this
 // identity.
@@ -504,7 +526,7 @@ func (r *fontRegistry) loadFontFile(path string) (*font.Font, error) {
 		r.reg.Discard(rec)
 		return nil, err
 	}
-	f, err := font.LoadWithOptions(rec.Bytes, font.ParseOptions{Guard: r.guard})
+	f, err := r.parseFont(rec.Bytes, font.ParseOptions{Guard: r.guard})
 	if err != nil {
 		r.reg.Discard(rec)
 		if errors.Is(err, font.ErrLimit) {

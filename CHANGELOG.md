@@ -75,6 +75,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only a height or a background (or an image with no visible data but a height,
   background or border) still consumes it. A table whose declared widths fit
   keeps byte-identical layout.
+- **Asset admission.** Concurrent reads of one asset identity now share one
+  read and one charge: eight readers of one 1 MiB file under a 1.5 MiB total all
+  succeed with the file read once and 1 MiB counted, instead of seven being
+  refused while the first reservation was pending. The aggregate total is
+  charged for the bytes actually admitted, so a file whose reported size differs
+  from its contents is reconciled or refused instead of being returned for free,
+  and a discarded record refunds exactly the amount it was charged, so totals
+  cannot drift or go negative. A failed open is classified by the containment
+  check instead of its message, so a mode-000 file named `escapes.css` inside
+  the root reports `css/link-load` and only a reference that really leaves the
+  root reports `css/link-path`. The document metadata that produces
+  `options/title`, `options/author`, `options/subject` and `options/keywords` is
+  validated with the other options before any linked asset or font is opened, so
+  an invalid title is reported even when a linked stylesheet is missing.
 - **Combining marks after a new base.** A combining mark now attaches to the
   base that immediately precedes it instead of reusing an anchor from an earlier
   cluster: in `о́о́` and `а́б́` the second acute is painted over the second

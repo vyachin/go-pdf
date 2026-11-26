@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/pdfdebug"
 )
@@ -378,5 +379,38 @@ func TestTruncatedJPEGIsRejected(t *testing.T) {
 	writeTemp(t, dir, "ok.jpg", full)
 	if _, err := loader.Load("ok.jpg"); err != nil {
 		t.Fatalf("a complete JPEG was rejected: %v", err)
+	}
+}
+
+// TestRepeatedDecodeFailuresRefundExactly guards the discard half of RV5-38 at
+// the decode stage: an admitted image that cannot be decoded returns the total
+// to its previous value, and two failures in a row cannot drive it below zero
+// or stop a later valid image.
+func TestRepeatedDecodeFailuresRefundExactly(t *testing.T) {
+	png := readFixture(t, "adversarial", "a.png")
+	dir := t.TempDir()
+	corrupt := bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 100) // 400 bytes of damage
+	writeTemp(t, dir, "corrupt.png", corrupt)
+	writeTemp(t, dir, "good.png", png)
+	guard := budget.New(context.Background(), 0)
+	reg := assets.New(guard)
+	defer func() { _ = reg.Close() }()
+	loader := &imageLoader{baseDir: dir, maxBytes: len(png), guard: guard, reg: reg}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if _, err := loader.Load("corrupt.png"); err == nil {
+			t.Fatalf("attempt %d accepted the corrupt image", attempt)
+		}
+		if got := reg.Total(assets.Image); got != 0 {
+			t.Fatalf("after failure %d the total is %d, want 0", attempt, got)
+		}
+		if got := reg.Reads(assets.Image); got != 0 {
+			t.Fatalf("after failure %d there are %d successful reads, want 0", attempt, got)
+		}
+	}
+	if _, err := loader.Load("good.png"); err != nil {
+		t.Fatalf("the valid image after two failures was refused: %v", err)
+	}
+	if got := reg.Total(assets.Image); got != int64(len(png)) {
+		t.Fatalf("the good image left the total at %d, want %d", got, len(png))
 	}
 }

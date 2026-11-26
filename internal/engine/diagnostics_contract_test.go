@@ -2,11 +2,15 @@ package engine
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/html"
 )
 
 // TestCreationDateRange guards the date option: an unrepresentable year is an
@@ -283,4 +287,194 @@ func diagWithCode(t *testing.T, l diag.List, code string) diag.Diagnostic {
 	}
 	t.Fatalf("no %s diagnostic:\n%s", code, strings.Join(l.Lines(), "\n"))
 	return diag.Diagnostic{}
+}
+
+// metadataDocument builds the head metadata of a document without a parser, so
+// every metadata code the gate declares can be checked. The HTML parser keeps
+// attribute values valid UTF-8, so only a synthetic tree can drive the other
+// three codes; the gate must not depend on where the value came from.
+func metadataDocument(title, author, subject, keywords string) *html.Document {
+	head := &html.Node{Type: html.ElementNode, Tag: "head"}
+	if title != "" {
+		head.Children = append(head.Children, &html.Node{
+			Type:     html.ElementNode,
+			Tag:      "title",
+			Children: []*html.Node{{Type: html.TextNode, Data: title}},
+		})
+	}
+	for _, meta := range []struct{ name, value string }{
+		{"author", author},
+		{"description", subject},
+		{"keywords", keywords},
+	} {
+		if meta.value == "" {
+			continue
+		}
+		head.Children = append(head.Children, &html.Node{
+			Type:  html.ElementNode,
+			Tag:   "meta",
+			Attrs: []html.Attr{{Key: "name", Value: meta.name}, {Key: "content", Value: meta.value}},
+		})
+	}
+	root := &html.Node{
+		Type: html.DocumentNode,
+		Children: []*html.Node{{
+			Type:     html.ElementNode,
+			Tag:      "html",
+			Children: []*html.Node{head},
+		}},
+	}
+	return &html.Document{Root: root, File: "meta.html"}
+}
+
+// TestMetadataOptionGateReportsAllFourCodes guards RV5-40's scope: the title,
+// author, subject and keywords values are validated together, so each code is
+// decided by the same gate.
+func TestMetadataOptionGateReportsAllFourCodes(t *testing.T) {
+	cases := []struct {
+		name                          string
+		title, author, subject, words string
+		want                          string
+	}{
+		{"title", "bad \xff", "", "", "", "options/title"},
+		{"author", "", "bad \xff", "", "", "options/author"},
+		{"subject", "", "", "bad \xff", "", "options/subject"},
+		{"keywords", "", "", "", "bad \xff", "options/keywords"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var diags diag.List
+			doc := metadataDocument(tc.title, tc.author, tc.subject, tc.words)
+			validateMetadata(doc, Options{}, &diags)
+			if len(diags) != 1 || string(diags[0].Code) != tc.want {
+				t.Fatalf("diagnostics = %v, want one %s", diags.Lines(), tc.want)
+			}
+		})
+	}
+}
+
+// TestMetadataOptionGatePrecedesAssets guards RV5-40: the document metadata is
+// validated with the other options, before any linked asset is opened. The
+// scenarios cover a missing stylesheet, a valid stylesheet whose opens are
+// counted, and a valid metadata set that keeps the existing missing-stylesheet
+// report.
+func TestMetadataOptionGatePrecedesAssets(t *testing.T) {
+	t.Run("invalid title and a missing stylesheet", func(t *testing.T) {
+		dir := t.TempDir()
+		src := []byte(`<style>p{display:flex}</style><link rel="stylesheet" href="missing.css"><p>x</p>`)
+		res, err := Convert(context.Background(), src, Options{
+			File:         "meta.html",
+			BaseDir:      dir,
+			FallbackFont: testFontPath(t),
+			Title:        "bad \xff",
+		})
+		if err == nil {
+			t.Fatal("an invalid title was accepted")
+		}
+		if !hasCode(res.Diagnostics, "options/title") {
+			t.Fatalf("the option error is missing: %v", res.Diagnostics.Lines())
+		}
+		if !hasCode(res.Diagnostics, "css/unsupported-value") {
+			t.Fatalf("inline styles were not validated: %v", res.Diagnostics.Lines())
+		}
+		if hasCode(res.Diagnostics, "css/link-load") {
+			t.Fatalf("the missing stylesheet was opened for a request that cannot proceed: %v", res.Diagnostics.Lines())
+		}
+		if hasCode(res.Diagnostics, "font/unavailable") {
+			t.Fatalf("a font was opened for a request that cannot proceed: %v", res.Diagnostics.Lines())
+		}
+		if len(res.PDF) != 0 {
+			t.Fatal("a PDF was produced for an invalid option")
+		}
+	})
+
+	t.Run("invalid title and a valid stylesheet", func(t *testing.T) {
+		// The source counts actual opens, so the test proves the linked
+		// stylesheet and the font are not opened, not merely that no diagnostic
+		// was reported.
+		files := fstest.MapFS{"present.css": &fstest.MapFile{Data: []byte("p { color: #ff0000 }")}}
+		addTestFont(t, files)
+		source := newCountingFS(files)
+		src := []byte(`<style>p{display:flex}</style><link rel="stylesheet" href="present.css"><p>x</p>`)
+		res, err := Convert(context.Background(), src, Options{
+			Source:       source,
+			File:         "meta.html",
+			FallbackFont: "DejaVuSans.ttf",
+			Title:        "bad \xff",
+		})
+		if err == nil {
+			t.Fatal("an invalid title was accepted")
+		}
+		if !hasCode(res.Diagnostics, "options/title") {
+			t.Fatalf("the option error is missing: %v", res.Diagnostics.Lines())
+		}
+		if got := source.opens["present.css"]; got != 0 {
+			t.Fatalf("the linked stylesheet was opened %d times", got)
+		}
+		if got := source.opens["DejaVuSans.ttf"]; got != 0 {
+			t.Fatalf("the font was opened %d times", got)
+		}
+		if reads := source.readFiles(); len(reads) != 0 {
+			t.Fatalf("an asset was read for a request that cannot proceed: %v", reads)
+		}
+		if len(res.PDF) != 0 {
+			t.Fatal("a PDF was produced for an invalid option")
+		}
+	})
+
+	t.Run("valid metadata and a missing stylesheet", func(t *testing.T) {
+		dir := t.TempDir()
+		valid := []byte(`<html><head><title>Invoice</title>
+<meta name="author" content="Acme"><meta name="description" content="Q1">
+<meta name="keywords" content="invoice, q1"></head>
+<body><link rel="stylesheet" href="missing.css"><p>x</p></body></html>`)
+		res, err := Convert(context.Background(), valid, Options{
+			File:         "meta.html",
+			BaseDir:      dir,
+			FallbackFont: testFontPath(t),
+		})
+		if err == nil || !hasCode(res.Diagnostics, "css/link-load") {
+			t.Fatalf("a missing stylesheet was not reported: err=%v diags=%v", err, res.Diagnostics.Lines())
+		}
+		for _, code := range []string{"options/title", "options/author", "options/subject", "options/keywords"} {
+			if hasCode(res.Diagnostics, code) {
+				t.Fatalf("valid metadata produced %s: %v", code, res.Diagnostics.Lines())
+			}
+		}
+	})
+}
+
+// TestPermissionFailureOnEscapesNamedStylesheetIsLoadFailure guards RV5-39 at
+// the conversion level: a file named escapes.css whose mode denies reading is a
+// load failure, not a path escape.
+func TestPermissionFailureOnEscapesNamedStylesheetIsLoadFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "escapes.css")
+	if err := os.WriteFile(path, []byte("p { color: #ff0000 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(path, 0o644) }()
+	res, err := Convert(context.Background(), []byte(`<link rel="stylesheet" href="escapes.css"><p>x</p>`), Options{
+		File:         "escapes.html",
+		BaseDir:      dir,
+		FallbackFont: testFontPath(t),
+	})
+	if err == nil {
+		t.Fatal("an unreadable stylesheet was accepted")
+	}
+	if !hasCode(res.Diagnostics, "css/link-load") {
+		t.Fatalf("a permission failure inside the root was not a load failure: %v", res.Diagnostics.Lines())
+	}
+	if hasCode(res.Diagnostics, "css/link-path") {
+		t.Fatalf("a permission failure was reported as a path escape: %v", res.Diagnostics.Lines())
+	}
+	if len(res.PDF) != 0 {
+		t.Fatal("a PDF was produced without the stylesheet")
+	}
 }

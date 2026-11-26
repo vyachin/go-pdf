@@ -112,6 +112,31 @@ type Record struct {
 	// Cached reports that an earlier call already read and admitted these
 	// bytes, so the adapter does not charge or count them again.
 	Cached bool
+	// charged is the number of bytes this record admitted to the kind's total.
+	// It is the bytes actually read, which can differ from the size reported
+	// before the read, and Discard refunds exactly this amount.
+	charged int64
+}
+
+// readCall is one in-flight read of one identity. The first caller creates it,
+// later callers find it and wait on done, and the leader publishes the record
+// or the typed failure before closing done. A call is never cached: it is
+// removed when it ends, so a transient failure stays retryable.
+type readCall struct {
+	done chan struct{}
+	rec  *Record
+	err  error
+}
+
+// readHooks are instance-local synchronization points for tests of concurrent
+// reads. Production leaves them nil; no global state or environment switch is
+// involved.
+type readHooks struct {
+	// join runs when a caller joins another caller's in-flight read.
+	join func()
+	// beforeRead runs in the leader after the admission checks and before the
+	// bytes are read.
+	beforeRead func()
 }
 
 // Registry is the conversion-scoped asset registry. One registry reads images,
@@ -126,12 +151,16 @@ type Registry struct {
 	// instead of the host filesystem. The registry never closes it.
 	source fs.FS
 
-	mu     sync.Mutex
-	roots  map[string]*fsx.Root
-	cache  map[string]*Record
-	totals map[Kind]int64
-	pixels int64
-	reads  map[Kind]int
+	mu       sync.Mutex
+	roots    map[string]*fsx.Root
+	cache    map[string]*Record
+	inflight map[string]*readCall
+	totals   map[Kind]int64
+	pixels   int64
+	reads    map[Kind]int
+	// hooks are test-only synchronization points. They belong to this registry
+	// instance, so parallel conversions never share them.
+	hooks  *readHooks
 	closed bool
 }
 
@@ -139,11 +168,12 @@ type Registry struct {
 // unlimited, like the rest of the engine.
 func New(guard *budget.Guard) *Registry {
 	return &Registry{
-		guard:  guard,
-		roots:  map[string]*fsx.Root{},
-		cache:  map[string]*Record{},
-		totals: map[Kind]int64{},
-		reads:  map[Kind]int{},
+		guard:    guard,
+		roots:    map[string]*fsx.Root{},
+		cache:    map[string]*Record{},
+		inflight: map[string]*readCall{},
+		totals:   map[Kind]int64{},
+		reads:    map[Kind]int{},
 	}
 }
 
@@ -258,11 +288,15 @@ func (r *Registry) Reads(kind Kind) int {
 // and reserves their size against the conversion total. A reference whose
 // record is already cached returns the cached record without reading again.
 //
-// The bytes are reserved, not committed: the adapter calls Discard when it
-// cannot use them, so a failed parse does not consume the total a later valid
-// asset needs. Before the bytes are read, the work of materialising them is
-// charged to the conversion's guard in proportion to the size, so a budget
-// that cannot pay for the read refuses it instead of allocating the file.
+// Concurrent callers of one identity share one read: the first caller reads,
+// admits and charges the bytes and every caller receives an equivalent record
+// or the same typed failure, so a peer is never rejected because another peer's
+// reservation is pending. The bytes are reserved, not committed: the adapter
+// calls Discard when it cannot use them, so a failed parse does not consume the
+// total a later valid asset needs. Before the bytes are read, the work of
+// materialising them is charged to the conversion's guard in proportion to the
+// size, so a budget that cannot pay for the read refuses it instead of
+// allocating the file.
 func (r *Registry) Read(req Request) (*Record, error) {
 	if r != nil && r.source != nil {
 		return r.readSource(req)
@@ -272,9 +306,27 @@ func (r *Registry) Read(req Request) (*Record, error) {
 		return nil, err
 	}
 	key := req.KeyFor(path, canonical)
-	if rec, ok := r.cached(key); ok {
+	rec, call, leader, hook, err := r.acquire(key)
+	if err != nil {
+		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: path, Err: err}
+	}
+	if rec != nil {
 		return rec, nil
 	}
+	if !leader {
+		return awaitRead(call, hook)
+	}
+	rec, err = r.readHost(req, key, path, canonical, explicit)
+	r.finishRead(key, call, rec, err)
+	if err != nil {
+		return nil, err
+	}
+	out := *rec
+	return &out, nil
+}
+
+// readHost performs the leader half of Read on the host filesystem.
+func (r *Registry) readHost(req Request, key, path, canonical string, explicit bool) (*Record, error) {
 	size, err := r.size(req, canonical, path, explicit)
 	if err != nil {
 		return nil, err
@@ -283,6 +335,9 @@ func (r *Registry) Read(req Request) (*Record, error) {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference,
 			Err: fmt.Errorf("%w: the file is %d bytes, the limit is %d", ErrTooLarge, size, req.MaxBytes)}
 	}
+	// The reported size is reserved before the read, so a file that cannot fit
+	// the total is refused before it is opened. The reservation is reconciled
+	// with the bytes actually read below.
 	if err := r.reserve(req.Kind, size, req.MaxTotalBytes); err != nil {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
@@ -290,29 +345,115 @@ func (r *Registry) Read(req Request) (*Record, error) {
 		r.refund(req.Kind, size)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
+	r.beforeRead()
 	bytes, err := r.readBytes(req, canonical, explicit)
 	if err != nil {
 		r.refund(req.Kind, size)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
-	rec := &Record{Kind: req.Kind, Key: key, Path: path, Canonical: canonical, Bytes: bytes}
+	actual := int64(len(bytes))
+	if err := r.reconcile(req.Kind, size, actual, req.MaxTotalBytes); err != nil {
+		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
+	}
+	rec := &Record{Kind: req.Kind, Key: key, Path: path, Canonical: canonical, Bytes: bytes, charged: actual}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		r.refund(req.Kind, size)
+		r.refund(req.Kind, actual)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: fmt.Errorf("the asset registry is closed")}
 	}
 	r.cache[key] = rec
 	r.reads[req.Kind]++
 	r.mu.Unlock()
-	out := *rec
+	return rec, nil
+}
+
+// acquire returns the committed record for a key, the in-flight call that owns
+// it, or a new call the caller must lead. A caller that joins an in-flight call
+// also receives the registry's test hook to run before it waits.
+func (r *Registry) acquire(key string) (rec *Record, call *readCall, leader bool, hook func(), err error) {
+	if r == nil {
+		return nil, nil, false, nil, errors.New("nil asset registry")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, nil, false, nil, errors.New("the asset registry is closed")
+	}
+	if cached, ok := r.cache[key]; ok {
+		out := *cached
+		out.Cached = true
+		return &out, nil, false, nil, nil
+	}
+	if pending, ok := r.inflight[key]; ok {
+		if r.hooks != nil {
+			hook = r.hooks.join
+		}
+		return nil, pending, false, hook, nil
+	}
+	call = &readCall{done: make(chan struct{})}
+	r.inflight[key] = call
+	return nil, call, true, nil, nil
+}
+
+// finishRead publishes the outcome of an in-flight read: every waiter sees the
+// record or the typed failure when done closes, and the in-flight entry is then
+// removed so the next caller retries instead of inheriting a transient failure.
+func (r *Registry) finishRead(key string, call *readCall, rec *Record, err error) {
+	call.rec, call.err = rec, err
+	close(call.done)
+	r.mu.Lock()
+	delete(r.inflight, key)
+	r.mu.Unlock()
+}
+
+// awaitRead waits for another caller's in-flight read and returns its outcome.
+// A waiter gets a copy of the record, marked cached because another caller read
+// and admitted the bytes.
+func awaitRead(call *readCall, hook func()) (*Record, error) {
+	if hook != nil {
+		hook()
+	}
+	<-call.done
+	if call.err != nil {
+		return nil, call.err
+	}
+	out := *call.rec
+	out.Cached = true
 	return &out, nil
+}
+
+// beforeRead runs the registry's test barrier, when one is installed.
+func (r *Registry) beforeRead() {
+	if r != nil && r.hooks != nil && r.hooks.beforeRead != nil {
+		r.hooks.beforeRead()
+	}
+}
+
+// reconcile replaces the pre-read reservation with the bytes actually admitted.
+// A shortfall is refunded at once; a surplus is checked against the remaining
+// total and charged, or the whole reservation is refunded and the read refused.
+func (r *Registry) reconcile(kind Kind, reserved, actual, max int64) error {
+	switch {
+	case actual == reserved:
+		return nil
+	case actual < reserved:
+		r.refund(kind, reserved-actual)
+		return nil
+	default:
+		if err := r.reserve(kind, actual-reserved, max); err != nil {
+			r.refund(kind, reserved)
+			return err
+		}
+		return nil
+	}
 }
 
 // AdmitData records bytes the caller already holds — a data: URI payload — and
 // reserves them against the conversion total. The identity is the SHA-256 of
 // the payload, so repeating one URI counts once. The caller calls Discard when
-// the payload cannot be used.
+// the payload cannot be used. Admission is one atomic step, so concurrent
+// callers of one payload reserve it once.
 func (r *Registry) AdmitData(kind Kind, reference string, data []byte, maxBytes int, maxTotalBytes int64) (*Record, error) {
 	if maxBytes > 0 && len(data) > maxBytes {
 		return nil, &Error{Kind: kind, Reference: reference,
@@ -320,28 +461,35 @@ func (r *Registry) AdmitData(kind Kind, reference string, data []byte, maxBytes 
 	}
 	sum := sha256.Sum256(data)
 	key := string(kind) + "|sha256:" + hex.EncodeToString(sum[:])
-	if rec, ok := r.cached(key); ok {
-		return rec, nil
-	}
-	if err := r.reserve(kind, int64(len(data)), maxTotalBytes); err != nil {
-		return nil, &Error{Kind: kind, Reference: reference, Err: err}
-	}
-	rec := &Record{Kind: kind, Key: key, Bytes: data}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		r.refundLocked(kind, int64(len(data)))
 		return nil, &Error{Kind: kind, Reference: reference, Err: fmt.Errorf("the asset registry is closed")}
 	}
+	if cached, ok := r.cache[key]; ok {
+		out := *cached
+		out.Cached = true
+		return &out, nil
+	}
+	n := int64(len(data))
+	if maxTotalBytes > 0 && r.totals[kind]+n > maxTotalBytes {
+		return nil, &Error{Kind: kind, Reference: reference,
+			Err: fmt.Errorf("%w: the document's %s exceed %d bytes in total", budget.ErrExceeded, kind, maxTotalBytes)}
+	}
+	r.totals[kind] += n
+	rec := &Record{Kind: kind, Key: key, Bytes: data, charged: n}
 	r.cache[key] = rec
 	r.reads[kind]++
 	out := *rec
 	return &out, nil
 }
 
-// Discard releases a record the adapter could not use: its bytes are refunded
-// from the kind's total and the record stops being shared. A record that was
-// already closed by another adapter's success is left alone.
+// Discard releases a record the adapter could not use: the bytes it admitted
+// are refunded from the kind's total and the record stops being shared. The
+// refund is the amount the record was charged, so a read whose size was
+// reconciled after the read cannot drift the total. A record that was already
+// released by another adapter's success is left alone, and the total never goes
+// below zero.
 func (r *Registry) Discard(rec *Record) {
 	if r == nil || rec == nil {
 		return
@@ -350,7 +498,7 @@ func (r *Registry) Discard(rec *Record) {
 	defer r.mu.Unlock()
 	if r.cache[rec.Key] != nil {
 		delete(r.cache, rec.Key)
-		r.refundLocked(rec.Kind, int64(len(rec.Bytes)))
+		r.refundLocked(rec.Kind, rec.charged)
 		r.reads[rec.Kind]--
 	}
 }
@@ -498,22 +646,6 @@ func (r *Registry) readBytes(req Request, canonical string, explicit bool) ([]by
 		return nil, fmt.Errorf("%w: %v", ErrTooLarge, err)
 	}
 	return data, err
-}
-
-// cached returns a committed record, marked as cached.
-func (r *Registry) cached(key string) (*Record, bool) {
-	if r == nil {
-		return nil, false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rec, ok := r.cache[key]
-	if !ok {
-		return nil, false
-	}
-	out := *rec
-	out.Cached = true
-	return &out, true
 }
 
 // reserve adds n to the kind's total, checking the limit first.

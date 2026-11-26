@@ -168,7 +168,14 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		MaxTotalStylesheetBytes: limits.MaxTotalStylesheetBytes,
 		Assets:                  reg,
 	}
-	if optionInvalid {
+	// The document metadata is part of the option gate: it depends only on the
+	// parsed document, which exists before any asset, so an invalid title
+	// cannot be hidden by a missing stylesheet or a broken font. The values are
+	// kept for the PDF info dictionary; metadata errors join the other option
+	// errors and follow the same invalid-option path below.
+	title, author, subject, keywords := validateMetadata(doc, opts, &diags)
+	metadataInvalid := diags.HasErrors()
+	if optionInvalid || metadataInvalid {
 		// The options are already wrong, but the document is still validated so
 		// its inline CSS and attributes are reported in the same pass. Linked
 		// stylesheets and fonts are not opened: no asset is read for a request
@@ -179,7 +186,6 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		inline, inlineDiags := profile.CollectInlineStylesheets(doc, profileOpts)
 		diags = append(diags, inlineDiags...)
 		diags = append(diags, profile.ValidateSheets(doc, profileOpts, inline, nil)...)
-		validateMetadata(doc, opts, &diags)
 		diags.Sort()
 		return nil, diags, nil
 	}
@@ -235,11 +241,6 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 			return nil, diags, nil
 		}
 		diags.Errorf(diag.FontUnavailable, diag.Position{}, "", "%v", err)
-		return nil, diags, nil
-	}
-	title, author, subject, keywords := validateMetadata(doc, opts, &diags)
-	if diags.HasErrors() {
-		diags.Sort()
 		return nil, diags, nil
 	}
 	return &prepared{

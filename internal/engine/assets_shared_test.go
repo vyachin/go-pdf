@@ -2,20 +2,45 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/font"
 )
 
+// countingParser wraps the real font parser for one registry and counts actual
+// parses, so one parse is proven independently of the shared *font.Font
+// pointer.
+func countingParser(parses *atomic.Int32) func([]byte, font.ParseOptions) (*font.Font, error) {
+	return func(data []byte, opts font.ParseOptions) (*font.Font, error) {
+		parses.Add(1)
+		return font.LoadWithOptions(data, opts)
+	}
+}
+
+// requestFace asks the registry for one family at one size, exercising the
+// layout adapter path without running layout.
+func requestFace(t *testing.T, registry *fontRegistry, family string, size int32) {
+	t.Helper()
+	if _, err := registry.Face([]string{family}, 400, false, size); err != nil {
+		t.Fatalf("Face(%q, %d): %v", family, size, err)
+	}
+}
+
 // TestDeclaredAndFallbackShareOneFont guards the sharing contract: one file
-// named by @font-face and by the explicit fallback is read, parsed and counted
-// once, while both roles still resolve.
+// named by two @font-face families, one canonical alias and the explicit
+// fallback is read, parsed and charged once, while both families still resolve
+// at every requested size. The independent counters prove one read, one actual
+// parse and one byte admission: a shared pointer alone is not evidence of one
+// parse.
 func TestDeclaredAndFallbackShareOneFont(t *testing.T) {
 	dir := t.TempDir()
 	data, err := os.ReadFile(testFontPath(t))
@@ -26,24 +51,47 @@ func TestDeclaredAndFallbackShareOneFont(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	sheet := css.Parse([]byte(`@font-face { font-family: Shared; src: url(shared.ttf) }`))
+	sheet := css.Parse([]byte(`@font-face { font-family: Shared; src: url(shared.ttf) }
+@font-face { font-family: Alias; src: url(./shared.ttf) }`))
 	guard := budget.New(context.Background(), 0)
 	reg := assets.New(guard)
 	defer func() { _ = reg.Close() }()
-	if _, err := newFontRegistry(context.Background(), guard, []*css.Stylesheet{sheet},
-		Options{BaseDir: dir, FallbackFont: path}, reg); err != nil {
+	var parses atomic.Int32
+	registry, err := newFontRegistryWithLoader(context.Background(), guard, []*css.Stylesheet{sheet},
+		Options{BaseDir: dir, FallbackFont: path}, reg, countingParser(&parses))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := reg.Reads(assets.Font); got != 1 {
 		t.Fatalf("the shared font was read %d times, want 1", got)
 	}
+	if got := parses.Load(); got != 1 {
+		t.Fatalf("the shared font was parsed %d times, want 1", got)
+	}
 	if got := reg.Total(assets.Font); got != int64(len(data)) {
 		t.Fatalf("the shared font counted %d bytes, want %d", got, len(data))
+	}
+	// Repeated size requests resolve both families from the one record and add
+	// neither a read nor a parse.
+	for _, size := range []int32{12000, 12000, 24000, 12000} {
+		requestFace(t, registry, "Shared", size)
+		requestFace(t, registry, "Alias", size)
+	}
+	if got := reg.Reads(assets.Font); got != 1 {
+		t.Fatalf("the size requests read the font %d times, want 1", got)
+	}
+	if got := parses.Load(); got != 1 {
+		t.Fatalf("the size requests parsed the font %d times, want 1", got)
+	}
+	if got := reg.Total(assets.Font); got != int64(len(data)) {
+		t.Fatalf("the size requests charged %d bytes, want %d", got, len(data))
 	}
 }
 
 // TestFontSpellingsAndFallbackUseOneRecord covers the three spellings of one
-// file in one conversion: two @font-face sources and the explicit fallback.
+// file in one conversion — two @font-face sources and the explicit fallback —
+// plus a second canonical font: each canonical file is read, parsed and charged
+// once.
 func TestFontSpellingsAndFallbackUseOneRecord(t *testing.T) {
 	dir := t.TempDir()
 	data, err := os.ReadFile(testFontPath(t))
@@ -54,17 +102,102 @@ func TestFontSpellingsAndFallbackUseOneRecord(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "b.ttf"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	sheet := css.Parse([]byte(`@font-face { font-family: A; src: url(a.ttf) }
-@font-face { font-family: B; src: url(./a.ttf) }`))
+@font-face { font-family: B; src: url(./a.ttf) }
+@font-face { font-family: C; src: url(b.ttf) }`))
 	guard := budget.New(context.Background(), 0)
 	reg := assets.New(guard)
 	defer func() { _ = reg.Close() }()
-	if _, err := newFontRegistry(context.Background(), guard, []*css.Stylesheet{sheet},
-		Options{BaseDir: dir, FallbackFont: path}, reg); err != nil {
+	var parses atomic.Int32
+	registry, err := newFontRegistryWithLoader(context.Background(), guard, []*css.Stylesheet{sheet},
+		Options{BaseDir: dir, FallbackFont: path}, reg, countingParser(&parses))
+	if err != nil {
 		t.Fatal(err)
 	}
+	if got := reg.Reads(assets.Font); got != 2 {
+		t.Fatalf("two canonical files under three families were read %d times, want 2", got)
+	}
+	if got := parses.Load(); got != 2 {
+		t.Fatalf("two canonical files were parsed %d times, want 2", got)
+	}
+	if got := reg.Total(assets.Font); got != int64(2*len(data)) {
+		t.Fatalf("the fonts counted %d bytes, want %d", got, 2*len(data))
+	}
+	for _, family := range []string{"A", "B", "C"} {
+		requestFace(t, registry, family, 12000)
+		requestFace(t, registry, family, 12000)
+		requestFace(t, registry, family, 24000)
+	}
+	if got := reg.Reads(assets.Font); got != 2 {
+		t.Fatalf("the size requests read the fonts %d times, want 2", got)
+	}
+	if got := parses.Load(); got != 2 {
+		t.Fatalf("the size requests parsed the fonts %d times, want 2", got)
+	}
+}
+
+// TestFailedFontParseRefundsAndRetries guards the failure half of the sharing
+// contract: a parse that fails leaves no successful read and no retained
+// charge, and a later conversion invokes the parser again instead of inheriting
+// the failure. A successful retry is then reused without another parse.
+func TestFailedFontParseRefundsAndRetries(t *testing.T) {
+	dir := t.TempDir()
+	data, err := os.ReadFile(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken.ttf"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sheet := css.Parse([]byte(`@font-face { font-family: Broken; src: url(broken.ttf) }`))
+	var parses atomic.Int32
+	loader := func(data []byte, opts font.ParseOptions) (*font.Font, error) {
+		if parses.Add(1) == 1 {
+			return nil, errors.New("corrupt font")
+		}
+		return font.LoadWithOptions(data, opts)
+	}
+	guard := budget.New(context.Background(), 0)
+	reg := assets.New(guard)
+	if _, err := newFontRegistryWithLoader(context.Background(), guard, []*css.Stylesheet{sheet},
+		Options{BaseDir: dir}, reg, loader); err == nil {
+		t.Fatal("the failing parse was accepted")
+	}
+	if got := reg.Reads(assets.Font); got != 0 {
+		t.Fatalf("the failed parse kept %d successful reads", got)
+	}
+	if got := reg.Total(assets.Font); got != 0 {
+		t.Fatalf("the failed parse retained %d bytes", got)
+	}
+	if err := reg.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The retry is a new conversion with its own registry; it invokes the
+	// failed stage again and succeeds.
+	guard = budget.New(context.Background(), 0)
+	reg = assets.New(guard)
+	defer func() { _ = reg.Close() }()
+	registry, err := newFontRegistryWithLoader(context.Background(), guard, []*css.Stylesheet{sheet},
+		Options{BaseDir: dir}, reg, loader)
+	if err != nil {
+		t.Fatalf("the retry failed: %v", err)
+	}
+	if got := parses.Load(); got != 2 {
+		t.Fatalf("the retry parsed %d times, want 2 attempts in total", got)
+	}
 	if got := reg.Reads(assets.Font); got != 1 {
-		t.Fatalf("one file under three roles was read %d times, want 1", got)
+		t.Fatalf("the retry recorded %d successful reads, want 1", got)
+	}
+	if got := reg.Total(assets.Font); got != int64(len(data)) {
+		t.Fatalf("the retry charged %d bytes, want %d", got, len(data))
+	}
+	requestFace(t, registry, "Broken", 12000)
+	if got := parses.Load(); got != 2 {
+		t.Fatalf("a face request parsed the font again: %d parses", got)
 	}
 }
 
