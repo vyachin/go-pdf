@@ -8,6 +8,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 // missingGlyph is a code point no test font provides. It is written as a raw
@@ -151,10 +152,10 @@ func TestLegacyEncodingKeepsOriginalBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diags := profile.Validate(doc, profile.Options{}); diags.HasErrors() {
+	sheets, sheetDiags := stylesheet.Collect(doc, stylesheet.Options{})
+	if diags := profile.ValidateSheets(doc, profile.Options{}, sheets, sheetDiags); diags.HasErrors() {
 		t.Fatalf("validation: %v", diags.Lines())
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
 	ctx := Context{
 		Fonts:    failingFontsWithError{},
 		PageSize: css.PageSize{Width: 595276, Height: 841890},

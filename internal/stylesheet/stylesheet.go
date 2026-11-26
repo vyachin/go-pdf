@@ -1,41 +1,41 @@
-package profile
+// Package stylesheet loads and decodes the stylesheets a document references.
+//
+// It is the stage between the CSS parser and profile validation: it walks the
+// document in cascade order, reads every local <link rel="stylesheet"> through
+// the conversion's asset registry, decodes the bytes with the document's
+// encoding, consumes a leading @charset rule and returns the parsed sheets.
+// Validation stays in internal/profile, which reads no asset and opens no file.
+package stylesheet
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/vyachin/go-pdf/internal/asset"
 	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
-	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/fsx"
 	"github.com/vyachin/go-pdf/internal/html"
 )
 
-// Options controls validation and stylesheet collection.
+// Options controls stylesheet collection.
 type Options struct {
 	// BaseDir is the directory used to resolve relative stylesheet paths and
 	// to confine them. When empty, paths resolve from the working directory.
 	BaseDir string
-	// Strict turns profile warnings into errors.
-	Strict bool
-	// Budget records collection and validation work and reports cancellation.
-	// Nil means unlimited work and no cancellation.
+	// Budget records collection work and reports cancellation. Nil means
+	// unlimited work and no cancellation.
 	Budget *budget.Guard
 	// MaxStylesheetBytes bounds one external stylesheet. Zero means unlimited.
 	MaxStylesheetBytes int
 	// MaxTotalStylesheetBytes bounds the encoded bytes of every linked
 	// stylesheet one conversion reads. Zero means unlimited.
 	MaxTotalStylesheetBytes int
-	// Assets is the conversion's asset registry. A nil registry makes the
-	// profile create and close its own, which is what a standalone validation
-	// does.
+	// Assets is the conversion's asset registry. A nil registry makes Collect
+	// create and close its own, which is what a standalone collection does.
 	Assets *assets.Registry
 }
 
@@ -50,15 +50,15 @@ type linkError struct {
 
 func (e *linkError) Error() string { return e.msg }
 
-// CollectStylesheets walks the document in order and returns every stylesheet
-// it finds: inline <style> elements and local <link rel="stylesheet"> files.
-// The slice order is the cascade order.
-func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
+// Collect walks the document in order and returns every stylesheet it finds:
+// inline <style> elements and local <link rel="stylesheet"> files. The slice
+// order is the cascade order.
+func Collect(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
 	var sheets []*css.Stylesheet
 	var out diag.List
 	reg := opts.Assets
 	if reg == nil {
-		// A standalone validation owns its registry and closes it here; a
+		// A standalone collection owns its registry and closes it here; a
 		// conversion passes the registry it already opened.
 		reg = assets.New(opts.Budget)
 		defer func() { _ = reg.Close() }()
@@ -102,7 +102,7 @@ func CollectStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, di
 				sheets = append(sheets, sheet)
 				return
 			case "link":
-				sheet, key, err := loadStylesheet(doc, n, opts, reg)
+				sheet, key, err := loadSheet(doc, n, opts, reg)
 				if err != nil {
 					var le *linkError
 					if errors.As(err, &le) {
@@ -175,11 +175,11 @@ func parseInlineSheet(doc *html.Document, n *html.Node, opts Options) *css.Style
 	}, src)
 }
 
-// CollectInlineStylesheets returns the sheets of the document's <style>
-// elements without opening a linked asset. A request whose options are already
-// invalid uses it to report the document's own CSS in the same pass, as the
-// library contract requires.
-func CollectInlineStylesheets(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
+// CollectInline returns the sheets of the document's <style> elements without
+// opening a linked asset. A request whose options are already invalid uses it
+// to report the document's own CSS in the same pass, as the library contract
+// requires.
+func CollectInline(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
 	var sheets []*css.Stylesheet
 	var out diag.List
 	stopped := false
@@ -216,11 +216,14 @@ func mediaAppliesToPrint(n *html.Node) bool {
 	return css.MediaAppliesToPrint(media)
 }
 
-// loadStylesheet resolves one link element. A non stylesheet rel, or a media
-// query that does not apply to print, returns nil without an error. It also
-// returns the record identity, so a repeated inclusion reuses the immutable
-// parse while keeping its place in the cascade.
-func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.Registry) (*css.Stylesheet, string, error) {
+// loadSheet resolves one link element. A non stylesheet rel, or a media query
+// that does not apply to print, returns nil without an error. It also returns
+// the record identity, so a repeated inclusion reuses the immutable parse while
+// keeping its place in the cascade.
+//
+// The registry is the only path resolver: the loader passes the reference as
+// the document wrote it and never resolves or joins it itself.
+func loadSheet(doc *html.Document, n *html.Node, opts Options, reg *assets.Registry) (*css.Stylesheet, string, error) {
 	rel, _ := n.Attr("rel")
 	if !strings.EqualFold(strings.TrimSpace(rel), "stylesheet") {
 		return nil, "", nil
@@ -229,11 +232,6 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 		return nil, "", nil
 	}
 	href, _ := n.Attr("href")
-	if _, err := resolveStylesheetPath(href, opts.BaseDir, reg.IsSource()); err != nil {
-		// The resolver's failures carry the link codes (remote, data:, empty);
-		// its path is not needed because the registry resolves the reference.
-		return nil, "", err
-	}
 	// The document encoding is part of the identity: one file decoded with two
 	// encodings is two records.
 	decoding := ""
@@ -249,12 +247,12 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 		Decoding:      decoding,
 	})
 	if err != nil {
-		return nil, "", stylesheetReadError(err, href)
+		return nil, "", readError(err, href)
 	}
 	path := rec.Path
 	// A linked sheet is read with the document's encoding: CSS 2.1 gives a
 	// sheet without its own @charset the encoding of the referring document.
-	text, mapper, err := decodeSheet(doc.Charset(), path, rec.Bytes, opts.Budget)
+	text, mapper, err := decode(doc.Charset(), path, rec.Bytes, opts.Budget)
 	if err != nil {
 		reg.Discard(rec)
 		return nil, "", err
@@ -271,9 +269,10 @@ func loadStylesheet(doc *html.Document, n *html.Node, opts Options, reg *assets.
 	return css.ParseSheet(opts2, text), rec.Key, nil
 }
 
-// stylesheetReadError maps one registry failure to the link diagnostic the
-// profile reports.
-func stylesheetReadError(err error, href string) error {
+// readError maps one registry failure to the link diagnostic the profile
+// reports. The registry already resolved the reference, so the loader maps its
+// typed failure instead of resolving the same reference again.
+func readError(err error, href string) error {
 	var assetErr *assets.Error
 	if errors.As(err, &assetErr) {
 		switch {
@@ -294,139 +293,33 @@ func stylesheetReadError(err error, href string) error {
 			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err)}
 		}
 	}
+	if refErr := referenceError(href); refErr != nil {
+		return refErr
+	}
 	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err)}
 }
 
-// decodeSheet decodes one linked stylesheet and consumes a @charset rule at its
-// start. A rule that names the document's encoding is accepted and blanked, so
-// that the parser sees whitespace where the rule was and every later offset
-// stays where it was; a rule that names another encoding is an error. The
-// returned mapper is nil when the decoded text is the source byte for byte.
-func decodeSheet(enc *charset.Encoding, path string, data []byte, guard *budget.Guard) ([]byte, *charset.Mapper, error) {
-	dec, err := charset.DecodeWithGuard(enc, data, guard)
-	if err != nil {
-		var encErr *charset.Error
-		if errors.As(err, &encErr) {
-			pos := diag.Position{File: path, Line: encErr.Line, Col: encErr.Col}
-			return nil, nil, &linkError{
-				code: diag.CSSLinkEncoding,
-				msg:  fmt.Sprintf("cannot decode stylesheet %q: %s", path, encErr.Msg),
-				pos:  &pos,
-			}
-		}
-		return nil, nil, err
+// referenceError names the references that cannot denote a local file. The
+// registry classifies the same forms before it opens anything, but its typed
+// failure keeps that classification opaque; repeating it after a failed read
+// keeps the codes and messages this stage has always reported without
+// resolving the reference to a path. The empty and no-file checks mirror the
+// shared URL resolver, including its messages.
+func referenceError(href string) error {
+	s := strings.TrimSpace(href)
+	if s == "" {
+		return &linkError{code: diag.CSSLinkLoad, msg: "stylesheet link has no href"}
 	}
-	documentEncoding := charset.UTF8
-	if enc != nil {
-		documentEncoding = enc.Name()
-	}
-	text := dec.Text
-	if label, end, ok := charsetRule(text); ok {
-		named, err := charset.Validate(label)
-		if err != nil || named.Name() != documentEncoding {
-			pos := diag.Position{File: path, Line: 1, Col: 1}
-			return nil, nil, &linkError{
-				code: diag.CSSLinkEncoding,
-				msg:  fmt.Sprintf("stylesheet %q declares @charset %q but the document encoding is %q", path, label, documentEncoding),
-				pos:  &pos,
-			}
-		}
-		// Blank the rule instead of removing it: same length, same line
-		// structure, the parser sees whitespace, and every later offset stays
-		// where the author wrote it.
-		text = bytes.Clone(text)
-		for i := 0; i < end; i++ {
-			if text[i] != '\n' && text[i] != '\r' {
-				text[i] = ' '
-			}
-		}
-	}
-	if dec.Widths == nil && dec.Skip == 0 {
-		// The decoded text is the source byte for byte, so offsets already
-		// point into the file the author edits.
-		return text, nil, nil
-	}
-	return text, charset.NewMapperWithGuard(data, text, dec.Widths, dec.Skip, guard), nil
-}
-
-// charsetRule returns the encoding label of a @charset rule at the very start
-// of a stylesheet and the offset just past the rule. The rule must be the first
-// thing in the file, as CSS requires.
-func charsetRule(text []byte) (label string, end int, ok bool) {
-	const prefix = "@charset"
-	if len(text) < len(prefix) || !strings.EqualFold(string(text[:len(prefix)]), prefix) {
-		return "", 0, false
-	}
-	i := len(prefix)
-	for i < len(text) && isCSSSpace(text[i]) {
-		i++
-	}
-	if i >= len(text) || (text[i] != '"' && text[i] != '\'') {
-		return "", 0, false
-	}
-	quote := text[i]
-	j := i + 1
-	for j < len(text) && text[j] != quote {
-		j++
-	}
-	if j >= len(text) {
-		return "", 0, false
-	}
-	label = string(text[i+1 : j])
-	j++
-	for j < len(text) && isCSSSpace(text[j]) {
-		j++
-	}
-	if j >= len(text) || text[j] != ';' {
-		return "", 0, false
-	}
-	return label, j + 1, true
-}
-
-// isCSSSpace reports whether b is CSS whitespace.
-func isCSSSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
-}
-
-// resolveStylesheetPath turns an href into a readable local path. Remote and
-// data: URLs are rejected here; whether the path stays inside the base
-// directory is decided by the caller when it reads through fsx.Root, the same
-// rule the image loader uses. When source is true the path is a name inside the
-// caller's fs.FS, so no host filesystem rule is applied to it: the registry
-// validates and resolves it on the read.
-func resolveStylesheetPath(href, baseDir string, source bool) (string, error) {
-	href = strings.TrimSpace(href)
-	if href == "" {
-		return "", &linkError{code: diag.CSSLinkLoad, msg: "stylesheet link has no href"}
-	}
-	// The reference is a URL path: the query, the fragment, percent encoding
-	// and surrounding whitespace are handled by the shared resolver.
-	ref, err := asset.Resolve(href)
-	if err != nil {
-		return "", &linkError{code: diag.CSSLinkLoad, msg: err.Error()}
-	}
+	lower := strings.ToLower(s)
 	switch {
-	case ref.Remote:
-		return "", &linkError{code: diag.CSSLinkRemote, msg: fmt.Sprintf("remote stylesheets are not supported: %s", href)}
-	case ref.Data:
-		return "", &linkError{code: diag.CSSLinkUnsupported, msg: "data: stylesheets are not supported"}
+	case strings.HasPrefix(lower, "data:"):
+		return &linkError{code: diag.CSSLinkUnsupported, msg: "data: stylesheets are not supported"}
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(s, "//"), strings.HasPrefix(lower, "ftp://"):
+		return &linkError{code: diag.CSSLinkRemote, msg: fmt.Sprintf("remote stylesheets are not supported: %s", s)}
 	}
-	if source {
-		return ref.Path, nil
+	if strings.IndexAny(s, "?#") == 0 {
+		return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("asset reference %q names no file", s)}
 	}
-	path := ref.Path
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(baseDir, path)
-	}
-	path = filepath.Clean(path)
-	if baseDir == "" {
-		return path, nil
-	}
-	// The absolute form is the stable name a diagnostic and a stylesheet
-	// position report; the boundary is not decided here but by fsx.Root.
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("cannot resolve stylesheet path: %v", err)}
-	}
-	return abs, nil
+	return nil
 }

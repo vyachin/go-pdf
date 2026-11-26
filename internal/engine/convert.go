@@ -23,6 +23,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/pdf"
 	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 // Convert renders a template into a PDF.
@@ -160,13 +161,16 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		}
 		return nil, diags, err
 	}
-	profileOpts := profile.Options{
+	sheetOpts := stylesheet.Options{
 		BaseDir:                 opts.BaseDir,
-		Strict:                  opts.Strict,
 		Budget:                  guard,
 		MaxStylesheetBytes:      limits.MaxStylesheetBytes,
 		MaxTotalStylesheetBytes: limits.MaxTotalStylesheetBytes,
 		Assets:                  reg,
+	}
+	profileOpts := profile.Options{
+		Strict: opts.Strict,
+		Budget: guard,
 	}
 	// The document metadata is part of the option gate: it depends only on the
 	// parsed document, which exists before any asset, so an invalid title
@@ -183,7 +187,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		// Inline rules are validated even though an option is wrong: the
 		// document's own CSS needs no asset, and the author must see both
 		// problems in one pass.
-		inline, inlineDiags := profile.CollectInlineStylesheets(doc, profileOpts)
+		inline, inlineDiags := stylesheet.CollectInline(doc, sheetOpts)
 		diags = append(diags, inlineDiags...)
 		diags = append(diags, profile.ValidateSheets(doc, profileOpts, inline, nil)...)
 		diags.Sort()
@@ -214,7 +218,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 			return nil, diags, nil
 		}
 	}
-	sheets, sheetDiags := profile.CollectStylesheets(doc, profileOpts)
+	sheets, sheetDiags := stylesheet.Collect(doc, sheetOpts)
 	strictDiags := profile.ValidateSheets(doc, profileOpts, sheets, nil)
 	diags = append(diags, sheetDiags...)
 	diags = append(diags, strictDiags...)

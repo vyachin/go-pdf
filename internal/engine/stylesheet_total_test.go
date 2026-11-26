@@ -14,7 +14,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/assets"
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/html"
-	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 // countingFS wraps a file system and counts, per file, the bytes the
@@ -214,7 +214,7 @@ func TestOneStylesheetLinkedTwiceCountsOnce(t *testing.T) {
 	guard := budget.New(context.Background(), 0)
 	reg := assets.NewWithSource(guard, cfs)
 	defer func() { _ = reg.Close() }()
-	sheets, diags := profile.CollectStylesheets(doc, profile.Options{
+	sheets, diags := stylesheet.Collect(doc, stylesheet.Options{
 		Budget:                  guard,
 		Assets:                  reg,
 		MaxTotalStylesheetBytes: 16 << 20,
