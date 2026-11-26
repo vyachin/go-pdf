@@ -1149,8 +1149,8 @@ func TestTruncatedMarkupIsReported(t *testing.T) {
 }
 
 // TestPrevElementSiblingIsMaintained guards the constant-time `+` selector hop:
-// the tree records the preceding element sibling when a child is appended or
-// inserted, and foster parenting inserts instead of scanning.
+// the tree records the preceding element sibling when a child is appended
+// during construction.
 func TestPrevElementSiblingIsMaintained(t *testing.T) {
 	doc, err := Parse([]byte(`<div><a id="a"></a>text<b id="b"></b><!--c--><i id="i"></i></div>`), "test.html")
 	if err != nil {
@@ -1170,9 +1170,10 @@ func TestPrevElementSiblingIsMaintained(t *testing.T) {
 	}
 }
 
-// TestPrevElementSiblingSurvivesFosterParenting guards the insertion path: a
-// fostered element is inserted before the table, so the hop from the table and
-// from a later fostered element must follow the new order.
+// TestPrevElementSiblingSurvivesFosterParenting guards the construction order:
+// the standard parser places a fostered element before the table, and the
+// builder appends nodes in that final order, so the hop from the table and
+// from a later fostered element must follow it.
 func TestPrevElementSiblingSurvivesFosterParenting(t *testing.T) {
 	doc, err := Parse([]byte(`<div><table><style>p{color:red}</style><tr><td>x</td></tr></table><b id="after"></b></div>`), "test.html")
 	if err != nil {
@@ -1181,9 +1182,9 @@ func TestPrevElementSiblingSurvivesFosterParenting(t *testing.T) {
 	style := mustFindElement(t, doc.Root, "style")
 	table := mustFindElement(t, doc.Root, "table")
 	after := mustFindElement(t, doc.Root, "b")
-	// The parser builds an implied <tbody> by insertion, and the fostered text
-	// is moved out of the table; both rewrite the child list, so the hop from
-	// every following element must follow the new order.
+	// The parser builds an implied <tbody> and moves the fostered text out of
+	// the table; both change the order the builder walks, so the hop from
+	// every following element must follow it.
 	tbody := mustFindElement(t, doc.Root, "tbody")
 	if style.PrevElementSibling() != nil {
 		t.Fatalf("the first table child points at %v", style.PrevElementSibling().Tag)

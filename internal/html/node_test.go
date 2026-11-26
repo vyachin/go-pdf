@@ -3,6 +3,10 @@ package html
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -223,4 +227,128 @@ func TestClassCacheIsShared(t *testing.T) {
 	if &first[0] != &second[0] {
 		t.Fatal("the class attribute was split again on the second call")
 	}
+}
+
+// TestChildMutatorsHaveCallers guards RV5-45: every helper that works on the
+// child list must be called by production code or by a test, so a newly added
+// dead helper fails the suite. It reads the package source because an
+// unreferenced method on an unexported type is invisible to staticcheck.
+func TestChildMutatorsHaveCallers(t *testing.T) {
+	paths, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("listing the package files: %v", err)
+	}
+	fset := token.NewFileSet()
+	type method struct {
+		pos     token.Position
+		name    string
+		calls   []string
+		touches bool
+	}
+	var methods []method
+	calls := make(map[string]int)
+	selfCalls := make(map[string]int)
+	for _, path := range paths {
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			onNode := isNodeReceiver(fn.Recv)
+			var called []string
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				calls[sel.Sel.Name]++
+				called = append(called, sel.Sel.Name)
+				if onNode && sel.Sel.Name == fn.Name.Name {
+					selfCalls[sel.Sel.Name]++
+				}
+				return true
+			})
+			if onNode {
+				methods = append(methods, method{
+					pos:     fset.Position(fn.Pos()),
+					name:    fn.Name.Name,
+					calls:   called,
+					touches: touchesChildList(fn.Body),
+				})
+			}
+		}
+	}
+	helpers := make(map[string]bool)
+	for _, m := range methods {
+		if m.touches {
+			helpers[m.name] = true
+		}
+	}
+	// A method that only delegates to a child-list helper is a helper too, so a
+	// dead wrapper cannot hide behind a live method.
+	for changed := true; changed; {
+		changed = false
+		for _, m := range methods {
+			if helpers[m.name] {
+				continue
+			}
+			for _, name := range m.calls {
+				if helpers[name] {
+					helpers[m.name] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	if len(helpers) == 0 {
+		t.Fatal("the source declares no helper on Node that works on the child list")
+	}
+	for _, m := range methods {
+		if !helpers[m.name] {
+			continue
+		}
+		if calls[m.name]-selfCalls[m.name] == 0 {
+			t.Errorf("%s: child-list helper Node.%s has no caller or test", m.pos, m.name)
+		}
+	}
+}
+
+// isNodeReceiver reports whether a method receiver is Node or *Node.
+func isNodeReceiver(recv *ast.FieldList) bool {
+	if recv == nil || len(recv.List) == 0 {
+		return false
+	}
+	typ := recv.List[0].Type
+	if star, ok := typ.(*ast.StarExpr); ok {
+		typ = star.X
+	}
+	ident, ok := typ.(*ast.Ident)
+	return ok && ident.Name == "Node"
+}
+
+// touchesChildList reports whether a method body reads or writes the child list
+// fields Children, Parent or prevElement. A dead method that only calls one of
+// these helpers is found by the transitive pass in the test.
+func touchesChildList(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if ok {
+			switch sel.Sel.Name {
+			case "Children", "Parent", "prevElement":
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
