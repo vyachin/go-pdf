@@ -59,7 +59,7 @@ func DecodeWithGuard(enc *Encoding, src []byte, guard *budget.Guard) (*Decoded, 
 		b := body[i]
 		r := enc.table[b]
 		if r == nil {
-			return nil, newError(src, skip, skip+i, "byte %#02x is not defined in %s", b, enc.name)
+			return nil, newError(src, skip, skip+i, false, "byte %#02x is not defined in %s", b, enc.name)
 		}
 		text = append(text, r...)
 		widths[skip+i] = uint8(len(r))
@@ -72,7 +72,7 @@ func decodeUTF8(src []byte) (*Decoded, error) {
 	skip, _ := byteOrderMark(src)
 	body := src[skip:]
 	if off := invalidOffset(body); off >= 0 {
-		return nil, newError(src, skip, skip+off, "%s", invalidUTF8Message())
+		return nil, newError(src, skip, skip+off, true, "%s", invalidUTF8Message())
 	}
 	if skip == 0 {
 		return &Decoded{Text: src}, nil

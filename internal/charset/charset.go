@@ -87,7 +87,7 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 		// UTF-8. A declaration is rejected whatever its bytes happen to be: only
 		// the no-declaration fallback may be accepted as UTF-8.
 		if label, offset := declaredCharset(src); label != "" {
-			return nil, newError(src, 0, offset, "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", label, supportedClause())
+			return nil, newError(src, 0, offset, utf8.Valid(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", label, supportedClause())
 		}
 		// ASCII is identical in every supported encoding, so a document that
 		// declares nothing and decodes as UTF-8 is accepted; anything else is
@@ -97,17 +97,19 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 			return &Encoding{name: UTF8, utf8: true}, nil
 		}
 		off := invalidOffset(src)
-		return nil, newError(src, 0, off, "%s", undecodableMessage())
+		// Everything before the first invalid byte is valid UTF-8, so the
+		// character column of that byte is defined: count it as one.
+		return nil, newError(src, 0, off, true, "%s", undecodableMessage())
 	default:
 		if strings.HasPrefix(name, "utf-16") {
 			skip, off := byteOrderMark(src)
-			return nil, newError(src, skip, off, "UTF-16 input is not supported: convert the document to one of %s", supportedClause())
+			return nil, newError(src, skip, off, false, "UTF-16 input is not supported: convert the document to one of %s", supportedClause())
 		}
 		// A declaration the set does not accept. The prescan names the <meta>
 		// that carries it; when it does not recognise one, the diagnostic has
 		// no position rather than pointing at an ignored tag.
 		_, offset := declaredCharset(src)
-		return nil, newError(src, 0, offset, "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", name, supportedClause())
+		return nil, newError(src, 0, offset, utf8.Valid(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", name, supportedClause())
 	}
 }
 
@@ -193,20 +195,57 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Msg }
 
+// utf8ByteOrderMark is the UTF-8 byte order mark. Decode strips it from the
+// text, but a position still maps back to source bytes that include it.
+var utf8ByteOrderMark = []byte{0xEF, 0xBB, 0xBF}
+
+// Column returns the 1-based character column of offset within the line that
+// starts at lineStart. Both are byte offsets into src, which is UTF-8 text.
+// The count is of Unicode code points, not bytes, so a diagnostic after a
+// Cyrillic word names the column the author sees in an editor.
+//
+// A leading UTF-8 byte order mark is not a character: the first line starts
+// after it, so an offset before or inside the mark names column 1 and adding
+// or removing the mark never shifts a column. An offset before lineStart or
+// past the end of src is clamped.
+func Column(src []byte, lineStart, offset int) int {
+	if lineStart < 0 {
+		lineStart = 0
+	}
+	if lineStart > len(src) {
+		lineStart = len(src)
+	}
+	if offset < lineStart {
+		offset = lineStart
+	}
+	if offset > len(src) {
+		offset = len(src)
+	}
+	if lineStart < len(utf8ByteOrderMark) && bytes.HasPrefix(src, utf8ByteOrderMark) {
+		lineStart = len(utf8ByteOrderMark)
+		if offset < lineStart {
+			offset = lineStart
+		}
+	}
+	return utf8.RuneCount(src[lineStart:offset]) + 1
+}
+
 // newError builds an Error with the position of offset in src. skip is the
 // number of bytes covered by a stripped byte order mark, which a position does
-// not count: the mark is invisible in the document.
-func newError(src []byte, skip, offset int, format string, args ...any) *Error {
+// not count: the mark is invisible in the document. utf8Source reports whether
+// src is UTF-8; a single-byte encoding has one character per byte, so its
+// column is the byte count and existing numbers do not move.
+func newError(src []byte, skip, offset int, utf8Source bool, format string, args ...any) *Error {
 	e := &Error{Msg: fmt.Sprintf(format, args...), Offset: offset}
 	if offset >= 0 {
-		e.Line, e.Col = sourcePosition(src, skip, offset)
+		e.Line, e.Col = sourcePosition(src, skip, offset, utf8Source)
 	}
 	return e
 }
 
 // sourcePosition converts a byte offset into a 1-based line and column, with
 // line 1 starting after the bytes a byte order mark covered.
-func sourcePosition(src []byte, skip, offset int) (line, col int) {
+func sourcePosition(src []byte, skip, offset int, utf8Source bool) (line, col int) {
 	if offset > len(src) {
 		offset = len(src)
 	}
@@ -216,7 +255,11 @@ func sourcePosition(src []byte, skip, offset int) (line, col int) {
 			line, start = line+1, i+1
 		}
 	}
-	col = offset - start + 1
+	if utf8Source {
+		col = Column(src, start, offset)
+	} else {
+		col = offset - start + 1
+	}
 	if col < 1 {
 		col = 1
 	}

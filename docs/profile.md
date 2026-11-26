@@ -92,7 +92,9 @@ document that declares nothing.
 A position inside a decoded document or stylesheet names a line and a character
 column: the column counts characters, not bytes, so a diagnostic after a
 Cyrillic word names the column the author sees in an editor — in a UTF-8
-document and in a legacy one alike.
+document and in a legacy one alike. A leading UTF-8 byte order mark is not a
+character, so adding or removing it never shifts a column. A linked stylesheet
+and an encoding error follow the same rule.
 
 ## Properties
 
@@ -342,7 +344,9 @@ Three classes of location exist, and a code belongs to exactly one of them:
   identifies the problem. It never stands for a location the source does
   provide: a known position is not discarded and reclassified as unknown.
 
-A column counts characters, not bytes (see "Input encodings").
+A column counts characters, not bytes (see "Input encodings"). A leading UTF-8
+byte order mark is not a character, so adding or removing it never shifts a
+column.
 
 The catalogue below is generated from the registry in `internal/diag/codes.go`;
 a code cannot be emitted or documented without the other side, because a test

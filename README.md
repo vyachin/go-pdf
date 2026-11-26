@@ -278,7 +278,8 @@ fails with `css/link-encoding`. Every diagnostic still points at the original
 file: a position inside a decoded document or stylesheet is translated back to
 its line and column, and a column counts characters, not bytes, so a diagnostic
 after a Cyrillic word names the column the author sees in an editor in a UTF-8
-and in a legacy document alike.
+and in a legacy document alike. A leading UTF-8 byte order mark is not a
+character, so adding or removing it never shifts a column.
 
 ## Reference command
 

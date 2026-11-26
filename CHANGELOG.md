@@ -136,6 +136,13 @@ needs no change.
   rendered with clamped, non-negative geometry instead of an
   architecture-dependent value. A line exactly at the limit is not reported, and
   documents whose geometry fits keep byte-identical output.
+- **Diagnostic columns.** A diagnostic column now counts characters, not bytes,
+  in every path that derives it from the source: a leading UTF-8 byte order mark
+  is not a character, so adding or removing it never shifts a column, and a
+  linked stylesheet and an `html/encoding` error name the column the author sees.
+  A single-byte encoding still counts one byte per character. A declaration in a
+  stylesheet is reported at its value rather than at the whitespace after the
+  colon. No API change and no diagnostic code, severity or message change.
 - **Charged GDEF parsing.** GDEF class ranges are now charged to the
   conversion's shared work budget before their mark map grows: one unit per
   class-3 range plus one per entry written, with a guard check between ranges

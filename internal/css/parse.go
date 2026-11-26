@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vyachin/go-pdf/internal/budget"
+	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
 )
 
@@ -177,7 +178,7 @@ func (s *Stylesheet) Position(offset int) Position {
 		offset = len(s.src)
 	}
 	line, start := s.lines.Resolve(offset)
-	return Position{File: s.File, Line: line + 1, Col: offset - start + 1}
+	return Position{File: s.File, Line: line + 1, Col: charset.Column(s.src, start, offset)}
 }
 
 // tokenReader supplies the parser's tokens. The lexer path reads the source on
@@ -719,6 +720,10 @@ func (p *parser) parseDeclaration() (Declaration, bool) {
 		return Declaration{}, false
 	}
 	p.next()
+	// A declaration is reported at its first value token, not at the
+	// whitespace between the colon and the value: the whitespace is not part
+	// of what the author reads as the declaration.
+	p.skipTrivia()
 	start := p.peek().Offset
 	var value []Token
 	depth := 0
