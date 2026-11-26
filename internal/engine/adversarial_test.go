@@ -286,6 +286,22 @@ func adversarialCases() []adversarialCase {
 				}
 			},
 		},
+		{
+			ID:      "P1-trailing-backslash-style",
+			Fixture: "p1-trailing-backslash-style.html",
+			Want:    "css/syntax",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{BaseDir: dir, File: "trailing-style.html"}
+			},
+		},
+		{
+			ID:      "P1-trailing-backslash-sheet",
+			Fixture: "p1-trailing-backslash-sheet.html",
+			Want:    "css/syntax",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{BaseDir: dir, File: "trailing-sheet.html"}
+			},
+		},
 	}
 }
 

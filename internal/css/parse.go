@@ -302,6 +302,10 @@ func guardProblem(err error) []Problem {
 			Message: fmt.Sprintf("the stylesheet exceeds the work budget: %v", err),
 		}}
 	}
+	var syn *syntaxError
+	if errors.As(err, &syn) {
+		return []Problem{{Message: syn.Msg, Offset: syn.Offset}}
+	}
 	return nil
 }
 
@@ -355,14 +359,32 @@ func (p *parser) mergeProblems(dst *[]Problem, src []Problem) {
 	}
 }
 
-// ParseDeclarations parses a declaration list such as a style attribute.
+// ParseDeclarations parses a declaration list such as a style attribute with no
+// work limit.
 func ParseDeclarations(src string) ([]Declaration, []Problem) {
-	toks := Tokenize([]byte(src))
+	return ParseDeclarationsWithGuard(src, nil)
+}
+
+// ParseDeclarationsWithGuard parses a declaration list and charges the guard for
+// every token it consumes. A syntax error or an exhausted budget returns the one
+// problem it caused; a cancellation leaves the reason on the guard for the caller
+// to report.
+func ParseDeclarationsWithGuard(src string, guard *budget.Guard) ([]Declaration, []Problem) {
+	if err := guard.Err(); err != nil {
+		return nil, guardProblem(err)
+	}
+	toks, err := TokenizeWithGuard([]byte(src), guard)
+	if err != nil {
+		return nil, guardProblem(err)
+	}
 	if len(toks) > 0 {
 		toks[len(toks)-1] = Token{Kind: RBraceToken, Offset: len(src)}
 	}
-	p := &parser{reader: &sliceReader{toks: toks}}
+	p := &parser{reader: &sliceReader{toks: toks}, guard: guard}
 	decls, _, probs := p.parseBlockContents()
+	if p.fail != nil {
+		return nil, guardProblem(p.fail)
+	}
 	return decls, probs
 }
 

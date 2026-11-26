@@ -197,6 +197,18 @@ func TestCancellationDuringSelectorMatching(t *testing.T) {
 	}
 }
 
+// TestValidateCancelledContextStopsStyleAttribute guards the document entry
+// point for a cancellation before declaration parsing: the context error is
+// returned instead of a document diagnostic.
+func TestValidateCancelledContextStopsStyleAttribute(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Validate(ctx, []byte(`<p style="color:red">x</p>`), Options{File: "cancel-style.html"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Validate returned %v, want context.Canceled", err)
+	}
+}
+
 // TestNestedAvoidBuildsLinesOnce per RV4-03: the lines a measurement builds are
 // the lines the placement paints, so a document of nested break-inside: avoid
 // blocks paginates like the same paragraphs without the nesting, and no page is

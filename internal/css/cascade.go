@@ -196,7 +196,7 @@ func (c *Cascade) cascadeEntries(n *html.Node) []styleEntry {
 	// The style attribute participates in the cascade with a specificity above
 	// any selector, and with its own !important declarations.
 	if attr, ok := n.Attr("style"); ok {
-		decls, _ := ParseDeclarations(attr)
+		decls, _ := ParseDeclarationsWithGuard(attr, c.guard)
 		for _, d := range decls {
 			entries = append(entries, styleEntry{decl: d, spec: [3]int{1 << 20, 0, 0}, ord: 1 << 30, origin: originAuthor})
 		}
