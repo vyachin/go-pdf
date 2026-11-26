@@ -254,6 +254,76 @@ func TestJustifiedLineReachesContentWidth(t *testing.T) {
 	}
 }
 
+// lineExtents returns the right edge of every line a page paints, in painting
+// order. All runs of one line share a baseline, so the baseline identifies the
+// line even when justification split it into several runs.
+func lineExtents(page *Page) []int32 {
+	var order []int32
+	right := map[int32]int32{}
+	for _, op := range page.Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		y := op.Text.Y
+		if _, ok := right[y]; !ok {
+			order = append(order, y)
+		}
+		if end := op.Text.X + op.Text.Run.Width; end > right[y] {
+			right[y] = end
+		}
+	}
+	out := make([]int32, len(order))
+	for i, y := range order {
+		out[i] = right[y]
+	}
+	return out
+}
+
+// TestJustifiedPageEndingLinesAreNotStretched guards RV5-42: placeText passed
+// "last" only for the paragraph's final line, so the closing line of every page
+// was stretched to the content edge. Only the paragraph's own last line and a
+// line ended by a forced break may stay unstretched.
+func TestJustifiedPageEndingLinesAreNotStretched(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 90000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	src := `<style>
+		@page { size: 200pt 90pt; margin: 10pt }
+		p { margin: 0; text-align: justify; font-size: 10pt }
+	</style><p>` + strings.Repeat("word ", 80) + `</p>`
+	doc := h.runWithSize(src, size, margin)
+	if len(doc.Pages) != 3 {
+		t.Fatalf("the fixture spilled over %d pages, want 3", len(doc.Pages))
+	}
+	contentRight := size.Width - margin[3]
+	const slack = int32(3000)
+	for _, page := range doc.Pages {
+		extents := lineExtents(page)
+		if len(extents) < 2 {
+			t.Fatalf("page %d has %d lines, want at least 2", page.Number, len(extents))
+		}
+		last := extents[len(extents)-1]
+		if last > contentRight-slack {
+			t.Fatalf("page %d closes at %d, want narrower than %d", page.Number, last, contentRight-slack)
+		}
+		// Every line before the closing one is still justified.
+		justified := false
+		for _, right := range extents[:len(extents)-1] {
+			if abs32(right-contentRight) <= slack {
+				justified = true
+			}
+		}
+		if !justified {
+			t.Fatalf("page %d has no justified line: %v", page.Number, extents)
+		}
+	}
+	// The paragraph's final line is the article's last line and stays short too.
+	final := lineExtents(doc.Pages[len(doc.Pages)-1])
+	if got := final[len(final)-1]; got > contentRight-slack {
+		t.Fatalf("the final line ends at %d, want narrower than %d", got, contentRight-slack)
+	}
+}
+
 func TestAnchorsAreRecorded(t *testing.T) {
 	h := newHarness(t)
 	size, margin := smallPage()
@@ -996,6 +1066,166 @@ func TestInlineAnchorsAreRegistered(t *testing.T) {
 	}
 }
 
+// TestEmptyInlineAnchorsAreRegistered guards RV5-41: an inline element with no
+// content produced no box, so its id never reached the anchor map, and
+// buildLines dropped a line that carried only anchors.
+func TestEmptyInlineAnchorsAreRegistered(t *testing.T) {
+	h := newHarness(t)
+	doc := h.run(`<p>text <a id="x"></a></p><p><span id="split"></span>tail</p>`)
+	for _, id := range []string{"x", "split"} {
+		anchor, ok := doc.Anchors[id]
+		if !ok {
+			t.Fatalf("the empty %q anchor is missing: %v", id, doc.Anchors)
+		}
+		if anchor.Page != 1 {
+			t.Fatalf("anchor %q points at page %d, want 1", id, anchor.Page)
+		}
+	}
+	// An empty anchor adds neither a visible line nor a page.
+	plain := h.run(`<p>text</p><p>tail</p>`)
+	if len(doc.Pages) != len(plain.Pages) {
+		t.Fatalf("the empty anchors changed the page count: %d vs %d", len(doc.Pages), len(plain.Pages))
+	}
+	if got, want := len(textOps(doc)), len(textOps(plain)); got != want {
+		t.Fatalf("the empty anchors changed the visible line count: %d runs vs %d", got, want)
+	}
+	// A paragraph holding nothing but an anchor still resolves, and the
+	// zero-height carrier line it needs paints nothing.
+	only := h.run(`<p><span id="empty"></span></p>`)
+	bare := h.run(`<p></p>`)
+	anchor, ok := only.Anchors["empty"]
+	if !ok || anchor.Page != 1 {
+		t.Fatalf("the anchor of an empty paragraph is %+v (present %v), want page 1", anchor, ok)
+	}
+	if got := len(textOps(only)); got != 0 {
+		t.Fatalf("the empty anchor painted %d runs, want none", got)
+	}
+	if len(only.Pages) != len(bare.Pages) {
+		t.Fatalf("the empty anchor changed the page count: %d vs %d", len(only.Pages), len(bare.Pages))
+	}
+}
+
+// TestEmptyAnchorBeforeAWrappingWord covers the wrapping case of RV5-41: an
+// anchor waits for the first item it introduces, so a word that moves to the
+// next line (and the next page) takes the anchor with it.
+func TestEmptyAnchorBeforeAWrappingWord(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 90000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	word := strings.Repeat("\u0436", 18)
+	src := `<style>
+		@page { size: 200pt 90pt; margin: 10pt }
+		p { margin: 0; font-size: 10pt; line-height: 40pt }
+	</style><p>filler <span id="wrap"></span>` + word + `</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("the fixture overflows: %v", diags.Lines())
+	}
+	anchor, ok := doc.Anchors["wrap"]
+	if !ok {
+		t.Fatalf("the empty anchor is missing: %v", doc.Anchors)
+	}
+	// The word does not fit after "filler" and moves to the next page; the
+	// anchor must follow it and not stay on the line it was written after.
+	fillerPage, wordPage := 0, 0
+	var wrapped *TextOp
+	for _, page := range doc.Pages {
+		for _, op := range page.Ops {
+			if op.Kind != TextOpKind || op.Text == nil {
+				continue
+			}
+			var b strings.Builder
+			for _, g := range op.Text.Run.Glyphs {
+				b.WriteRune(g.Rune)
+			}
+			switch b.String() {
+			case "filler":
+				fillerPage = page.Number
+			case word:
+				wordPage, wrapped = page.Number, op.Text
+			}
+		}
+	}
+	if fillerPage == 0 || wordPage == 0 {
+		t.Fatalf("the fixture did not paint both lines (filler page %d, word page %d)", fillerPage, wordPage)
+	}
+	if wordPage == fillerPage {
+		t.Fatalf("the long word stayed on page %d, want it to wrap to the next page", wordPage)
+	}
+	if anchor.Page != wordPage {
+		t.Fatalf("the anchor points at page %d, want the wrapped word's page %d", anchor.Page, wordPage)
+	}
+	// The anchor is the top of the line the word starts on.
+	if want := wrapped.Y - wrapped.Face.Ascent; anchor.Y != want {
+		t.Fatalf("the anchor is at y=%d, the wrapped word's line starts at %d", anchor.Y, want)
+	}
+}
+
+// layoutWithTargets lays out src with a known target map, the way the engine's
+// second pass resolves target-counter().
+func layoutWithTargets(t *testing.T, h *harness, src string, size css.PageSize, margin [4]int32, targets map[string]int) (*Document, diag.List) {
+	t.Helper()
+	doc, err := html.Parse([]byte(src), "test.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
+	ps := ParsePageStyle(sheets, size, margin)
+	ctx := h.ctx
+	ctx.Cascade = cascade
+	ctx.PageStyle = ps
+	ctx.PageSize = size
+	ctx.Margin = margin
+	ctx.TargetPages = targets
+	return Run(doc, ctx)
+}
+
+// TestEmptyAnchorOnTheSecondPageResolves guards RV5-41 on a two-page document:
+// a reference to an empty id on page 2 must show page 2 instead of the
+// pagination/unknown-target the engine reports for an id missing from the
+// anchor map.
+func TestEmptyAnchorOnTheSecondPageResolves(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	src := `<style>
+		@page { size: 200pt 200pt; margin: 10pt }
+		p { margin: 0 }
+		a::after { content: " " target-counter(attr(href), page) }
+	</style>
+	<p><a href="#target">Target page</a></p>
+	<p style="break-after: page">first page</p>
+	<p><span id="target"></span>second page</p>`
+	first, _ := layoutWithTargets(t, h, src, size, margin, nil)
+	targets := map[string]int{}
+	for id, anchor := range first.Anchors {
+		targets[id] = anchor.Page
+	}
+	doc, diags := layoutWithTargets(t, h, src, size, margin, targets)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("got %d pages, want 2", len(doc.Pages))
+	}
+	anchor, ok := doc.Anchors["target"]
+	if !ok {
+		t.Fatalf("the empty anchor on page 2 is missing: %v", doc.Anchors)
+	}
+	if anchor.Page != 2 {
+		// The engine warns pagination/unknown-target exactly when the anchor
+		// page is 0, so a non-zero page here rules that diagnostic out.
+		t.Fatalf("the empty anchor points at page %d, want 2", anchor.Page)
+	}
+	if !doc.Targets["target"] {
+		t.Fatal("the target-counter reference did not consume the target")
+	}
+	if text := pageText(doc, 1); !strings.Contains(text, "Target page 2") {
+		t.Fatalf("the reference shows %q, want %q", text, "Target page 2")
+	}
+	if len(diags.Lines()) != 0 {
+		t.Fatalf("unexpected layout diagnostics: %v", diags.Lines())
+	}
+}
+
 func TestSpacesCollapseAcrossInlineNodes(t *testing.T) {
 	h := newHarness(t)
 	count := func(doc *Document) int {
@@ -1535,5 +1765,126 @@ func TestTableGridLimitCountsRowspanShift(t *testing.T) {
 	}
 	if !strings.Contains(pageText(doc, 1), "d") {
 		t.Fatalf("the small table did not render: %q", pageText(doc, 1))
+	}
+}
+
+// TestTableBottomDecorationIsClipped guards RV5-43: finishFragment added the
+// table's bottom padding and border to the fragment bottom and painted them
+// without comparing with the page, so a 200 pt padding painted 220 pt of
+// background on a 100 pt page with no diagnostic.
+func TestTableBottomDecorationIsClipped(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 100000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	contentBottom := size.Height - margin[2]
+	src := `<style>
+		table { width: 100pt; padding-bottom: 200pt; background-color: #0000ff; border: 2pt solid #000000 }
+		td { padding: 0 }
+	</style><table><tr><td>ROW</td></tr></table>`
+	doc, diags := h.runRaw(src, size, margin)
+	if n := countOverflow(diags); n != 1 {
+		t.Fatalf("the clipped table reported %d layout/overflow, want 1: %v", n, diags.Lines())
+	}
+	assertInsideContentBox(t, doc)
+	blue := css.Color{B: 255, Set: true}
+	fill := spanFill(doc.Pages[0], blue)
+	if fill == nil {
+		t.Fatal("the table background was not painted")
+	}
+	if bottom := fill.Y + fill.H; bottom != contentBottom {
+		t.Fatalf("the table background ends at %d, want the page content bottom %d", bottom, contentBottom)
+	}
+	// The bottom border is clipped to the same edge instead of crossing it.
+	if !hasFill(doc.Pages[0], css.Color{Set: true}, Rect{X: fill.X, Y: contentBottom - 2000, W: fill.W, H: 2000}) {
+		t.Fatalf("the clipped bottom border is missing from %+v", *fill)
+	}
+}
+
+// TestOrdinaryTableDecorationIsUnchanged guards the ordinary case of RV5-43: a
+// bottom padding and border that fit are painted in full and report nothing.
+func TestOrdinaryTableDecorationIsUnchanged(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	blue := css.Color{B: 255, Set: true}
+	table := func(decoration string) (*Document, diag.List) {
+		return h.runRaw(`<style>
+			table { width: 100pt; background-color: #0000ff; `+decoration+` }
+			td { padding: 0 }
+		</style><table><tr><td>ROW</td></tr></table>`, size, margin)
+	}
+	plain, _ := table("")
+	plainFill := spanFill(plain.Pages[0], blue)
+	if plainFill == nil {
+		t.Fatal("the plain table background was not painted")
+	}
+	doc, diags := table("padding-bottom: 2pt; border: 2pt solid #000000")
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("an ordinary table reported %d layout/overflow: %v", n, diags.Lines())
+	}
+	fill := spanFill(doc.Pages[0], blue)
+	if fill == nil {
+		t.Fatal("the table background was not painted")
+	}
+	// The fragment background covers the whole border box: the row plus the
+	// 2 pt padding and both 2 pt borders.
+	if got, want := fill.H, plainFill.H+6000; got != want {
+		t.Fatalf("the table background is %d high, want %d (row + 2pt padding + 2pt borders)", got, want)
+	}
+	if !hasFill(doc.Pages[0], css.Color{Set: true}, Rect{X: fill.X, Y: fill.Y + fill.H - 2000, W: fill.W, H: 2000}) {
+		t.Fatalf("the bottom border is missing from %+v", *fill)
+	}
+}
+
+// TestSplitTableKeepsDecorationPerPage guards the split case of RV5-43: only the
+// last fragment owns the table's bottom border, and no fragment paints its
+// decoration past the page content bottom.
+func TestSplitTableKeepsDecorationPerPage(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 90000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	var rows strings.Builder
+	for i := 0; i < 30; i++ {
+		rows.WriteString("<tr><td>row " + itoa(i) + "</td></tr>")
+	}
+	src := `<style>
+		table { width: 100pt; padding-bottom: 4pt; border: 2pt solid #000000; background-color: #0000ff }
+		td { padding: 0; line-height: 12pt; font-size: 8pt }
+	</style><table>` + rows.String() + `</table>`
+	doc, diags := h.runRaw(src, size, margin)
+	if len(doc.Pages) < 2 {
+		t.Fatalf("the table did not split: %d page(s)", len(doc.Pages))
+	}
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("the split table reported %d layout/overflow: %v", n, diags.Lines())
+	}
+	assertInsideContentBox(t, doc)
+	blue := css.Color{B: 255, Set: true}
+	// A bottom border spans the table width and sits on the fragment's bottom
+	// edge; the top border, painted on the first fragment, sits on its top edge.
+	bottomPage := 0
+	for _, page := range doc.Pages {
+		fill := spanFill(page, blue)
+		if fill == nil {
+			t.Fatalf("page %d has no table background", page.Number)
+		}
+		for _, op := range page.Ops {
+			if op.Kind != FillOpKind || op.Color != (css.Color{Set: true}) {
+				continue
+			}
+			r := op.Rect
+			if r.W != fill.W || r.H != 2000 || fill.H <= 2000 {
+				continue
+			}
+			if r.Y+r.H == fill.Y+fill.H {
+				if bottomPage != 0 {
+					t.Fatalf("the table's bottom border is painted on pages %d and %d", bottomPage, page.Number)
+				}
+				bottomPage = page.Number
+			}
+		}
+	}
+	if bottomPage != len(doc.Pages) {
+		t.Fatalf("the bottom border belongs to page %d, want the last page %d", bottomPage, len(doc.Pages))
 	}
 }

@@ -565,18 +565,25 @@ func (l *layouter) placeText(f *flow, b *Box, width int32) bool {
 		}
 		line := &b.lines[b.cursor.line]
 		last := b.cursor.line == len(b.lines)-1
+		// The closing line of a page is not justified, whether or not the
+		// paragraph continues on the next page.
+		endOfPage := k == fits-1 && b.cursor.line < len(b.lines)-1
 		lineX, overflow := satAddChecked(satAdd(b.x, b.borderLeft()), b.padLeft())
 		if overflow {
 			l.warnOverflow(b, "the box's geometry exceeds the page bounds and is clamped")
 		}
-		l.paintLineAt(f.page, b, line, lineX, f.y, width, last)
+		l.paintLineAt(f.page, b, line, lineX, f.y, width, last || endOfPage)
 		for _, id := range line.Anchors {
 			if _, ok := l.anchors[id]; !ok {
 				l.anchors[id] = Anchor{Page: f.pageNum, Y: f.y}
 			}
 		}
 		f.y = satAdd(f.y, line.Height)
-		f.pageHasBody = true
+		// A zero-height carrier line only holds anchors: it advances nothing and
+		// must not make the page look like it carries body content.
+		if line.Height > 0 {
+			f.pageHasBody = true
+		}
 		b.cursor.line++
 	}
 	return b.cursor.line >= len(b.lines)

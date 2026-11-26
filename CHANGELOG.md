@@ -8,6 +8,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Empty inline anchors.** An inline element with an `id` and no content now
+  keeps a zero-content inline box and a zero-height carrier line, so its id lands
+  in the anchor map on the page it occupies instead of making a `target-counter`
+  print 0 and warn `pagination/unknown-target`. The carrier line paints nothing
+  and is not page body, so the page and line counts of a document are unchanged.
+- **Justified page endings.** The closing line of every page keeps its natural
+  width under `text-align: justify` instead of being stretched to the content
+  edge; only a paragraph's final line and a line ended by a forced break stay
+  unstretched, as before.
+- **Table bottom decoration.** A completed table's bottom padding and border are
+  clipped to the page content bottom and report `layout/overflow` once, instead
+  of painting past the MediaBox when the page is too short for them. The flow
+  still advances by the declared insets, so following content starts on the next
+  page.
+- **Margin box geometry.** Margin box content width and origins are computed with
+  saturating arithmetic and clamped into the page; a box whose label cannot be
+  placed reports `layout/overflow` naming the box instead of painting at a
+  wrapped coordinate.
 - **Spanning cell continuation across pages.** A `rowspan` cell that crosses a
   page break now continues every fragment with its text, background and all four
   border sides, and two spanning cells in the same row keep independent

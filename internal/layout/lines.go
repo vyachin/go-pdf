@@ -244,7 +244,18 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				lines = append(lines, cur)
 				cur = Line{}
 				x = 0
+				return
 			}
+			if len(cur.Anchors) == 0 {
+				return
+			}
+			// An anchor with no content after it keeps a zero-height carrier
+			// line: pagination registers the id at this flow position without
+			// painting anything or counting the line as page body.
+			cur.Natural = x
+			lines = append(lines, cur)
+			cur = Line{}
+			x = 0
 			return
 		}
 		cur.Natural = x

@@ -511,3 +511,121 @@ func firstBaseline(t *testing.T, page *Page, word string) int32 {
 	}
 	return -1
 }
+
+// TestMarginBoxWithHugeMarginStaysOnPage guards RV5-44: the margin box content
+// width and positions were plain int32 arithmetic, so a horizontal margin larger
+// than the page moved the footer to a wrapped coordinate with no diagnostic.
+func TestMarginBoxWithHugeMarginStaysOnPage(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 10000, 10000, 10000}
+	cases := []struct{ name, value string }{
+		{"huge horizontal margin", "10pt 2000000pt"},
+		{"no content width", "0 300pt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<style>
+				@page { size: 200pt 200pt; margin: ` + tc.value + ` }
+				@page { @bottom-center { content: "FOOT" } }
+			</style><p></p>`
+			doc, diags := h.runRaw(src, size, margin)
+			if len(doc.Pages) == 0 {
+				t.Fatal("no pages produced")
+			}
+			painted := false
+			for _, page := range doc.Pages {
+				for _, op := range page.Ops {
+					if op.Kind != TextOpKind || op.Text == nil {
+						continue
+					}
+					if op.Text.X < 0 || op.Text.X+op.Text.Run.Width > page.Size.Width {
+						t.Fatalf("page %d paints a run at x=%d w=%d outside the page",
+							page.Number, op.Text.X, op.Text.Run.Width)
+					}
+					if op.Text.Y < 0 || op.Text.Y > page.Size.Height {
+						t.Fatalf("page %d paints a run at y=%d outside the page", page.Number, op.Text.Y)
+					}
+					painted = true
+				}
+			}
+			if !painted {
+				t.Fatal("the footer was dropped instead of clamped")
+			}
+			named := 0
+			for _, d := range diags {
+				if d.Code == "layout/overflow" && strings.Contains(d.String(), "bottom-center") {
+					named++
+				}
+			}
+			if named != 1 {
+				t.Fatalf("the unplaceable margin box reported %d named diagnostics, want 1: %v", named, diags.Lines())
+			}
+		})
+	}
+}
+
+// TestOrdinaryMarginBoxesAreUnchanged guards the ordinary case of RV5-44: the
+// six margin boxes keep the origins the plain arithmetic produced and report
+// nothing.
+func TestOrdinaryMarginBoxesAreUnchanged(t *testing.T) {
+	h := newHarness(t)
+	size := css.PageSize{Width: 200000, Height: 200000}
+	margin := [4]int32{10000, 20000, 30000, 40000}
+	src := `<style>
+		@page { size: 200pt 200pt; margin: 10pt 20pt 30pt 40pt }
+		@page {
+			@top-left { content: "TL" } @top-center { content: "TC" } @top-right { content: "TR" }
+			@bottom-left { content: "BL" } @bottom-center { content: "BC" } @bottom-right { content: "BR" }
+		}
+		p { margin: 0 }
+	</style><p>BODY</p>`
+	doc, diags := h.runRaw(src, size, margin)
+	if len(diags.Lines()) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diags.Lines())
+	}
+	byLabel := map[string]*TextOp{}
+	for _, op := range doc.Pages[0].Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, g := range op.Text.Run.Glyphs {
+			b.WriteRune(g.Rune)
+		}
+		byLabel[b.String()] = op.Text
+	}
+	for _, label := range []string{"TL", "TC", "TR", "BL", "BC", "BR"} {
+		if byLabel[label] == nil {
+			t.Fatalf("margin box %s was not painted", label)
+		}
+	}
+	contentLeft := int32(40000)
+	contentWidth := size.Width - margin[1] - margin[3]
+	ascent := byLabel["TL"].Face.Ascent
+	topY := margin[0]/2 + ascent/2
+	bottomY := size.Height - margin[2]/2 + ascent/2
+	boxes := []struct{ name, label string }{
+		{"top-left", "TL"}, {"top-center", "TC"}, {"top-right", "TR"},
+		{"bottom-left", "BL"}, {"bottom-center", "BC"}, {"bottom-right", "BR"},
+	}
+	for _, box := range boxes {
+		op := byLabel[box.label]
+		var wantX int32
+		switch {
+		case strings.HasSuffix(box.name, "left"):
+			wantX = contentLeft
+		case strings.HasSuffix(box.name, "center"):
+			wantX = contentLeft + (contentWidth-op.Run.Width)/2
+		default:
+			wantX = contentLeft + contentWidth - op.Run.Width
+		}
+		wantY := topY
+		if strings.HasPrefix(box.name, "bottom") {
+			wantY = bottomY
+		}
+		if op.X != wantX || op.Y != wantY {
+			t.Fatalf("margin box %s is at (%d, %d), want (%d, %d)", box.name, op.X, op.Y, wantX, wantY)
+		}
+	}
+}
