@@ -15,6 +15,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/html"
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // Kind classifies a box in the layout tree.
@@ -237,12 +238,10 @@ type TextRun struct {
 	Width  int32
 }
 
-// Glyph mirrors text.Glyph to keep the drawing API independent.
-type Glyph struct {
-	GID     uint16
-	Advance int32
-	Rune    rune
-}
+// Glyph is a shaped glyph as it is painted. It is the shaper's glyph: a run
+// that carries no mark offset is painted straight from the shaped slice, so the
+// type must keep the shaper's fields rather than mirror a subset.
+type Glyph = text.Glyph
 
 // ImageOp draws an image scaled into Rect.
 type ImageOp struct {

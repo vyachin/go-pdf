@@ -1,6 +1,10 @@
 package charset
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/vyachin/go-pdf/internal/budget"
+)
 
 // Decoded is a source decoded to UTF-8 together with what a Mapper needs to
 // translate a decoded offset back to the bytes it came from.
@@ -24,8 +28,23 @@ type Decoded struct {
 // define, or at the first byte that is not valid UTF-8. A byte is never
 // replaced with U+FFFD and passed on.
 func Decode(enc *Encoding, src []byte) (*Decoded, error) {
+	return DecodeWithGuard(enc, src, nil)
+}
+
+// DecodeWithGuard is Decode with the conversion's work guard. A legacy encoding
+// materialises a decoded copy and a width table, so the memory the decode may
+// allocate is charged before the buffers exist: at most three decoded bytes per
+// source byte and one width byte, plus the append growth. A UTF-8 source is used
+// as is, so it costs no unit.
+func DecodeWithGuard(enc *Encoding, src []byte, guard *budget.Guard) (*Decoded, error) {
 	if enc == nil || enc.utf8 {
 		return decodeUTF8(src)
+	}
+	// Each source byte becomes at most three decoded bytes; the width table is
+	// one byte per source byte, and append may grow the buffer like a slice.
+	const bytesPerSourceByte = 4
+	if err := guard.ChargeBytes(len(src) * bytesPerSourceByte); err != nil {
+		return nil, err
 	}
 	// An explicit legacy encoding must not turn a UTF-8 byte order mark into
 	// visible "п»ї" text: the mark is not part of the document.
@@ -59,15 +78,4 @@ func decodeUTF8(src []byte) (*Decoded, error) {
 		return &Decoded{Text: src}, nil
 	}
 	return &Decoded{Text: body, Skip: skip}, nil
-}
-
-// lineStarts returns the offset of every line start in src.
-func lineStarts(src []byte) []int {
-	starts := []int{0}
-	for i, b := range src {
-		if b == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
 }

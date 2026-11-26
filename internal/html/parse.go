@@ -67,7 +67,7 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
-	dec, err := charset.Decode(enc, src)
+	dec, err := charset.DecodeWithGuard(enc, src, opts.Budget)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +75,15 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	// ranges and inline <style> offsets share one coordinate space. A position
 	// is translated back to the source bytes through the mapper.
 	d := &Document{File: opts.File, src: src, text: dec.Text, charset: enc, guard: opts.Budget, Root: &Node{Type: DocumentNode}}
-	d.lines = lineStarts(dec.Text)
+	lines, lineErr := budget.NewLines(dec.Text, opts.Budget)
+	if lineErr != nil {
+		// The index charges every stored start before it grows; a refused
+		// charge stops the parse instead of indexing for free.
+		return nil, lineErr
+	}
+	d.lines = lines
 	if dec.Widths != nil || dec.Skip != 0 {
-		d.mapper = charset.NewMapper(src, dec.Text, dec.Widths, dec.Skip)
+		d.mapper = charset.NewMapperWithGuard(src, dec.Text, dec.Widths, dec.Skip, opts.Budget)
 	}
 	sc, err := scan(dec.Text, opts)
 	if err != nil {
@@ -108,16 +114,6 @@ func ParseWithOptions(src []byte, opts ParseOptions) (*Document, error) {
 	}
 	attachBudget(d.Root, opts.Budget)
 	return d, nil
-}
-
-func lineStarts(src []byte) []int {
-	starts := []int{0}
-	for i, b := range src {
-		if b == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	return starts
 }
 
 // ParseError reports a failure of the standard tree construction that has no

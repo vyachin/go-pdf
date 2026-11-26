@@ -1,6 +1,6 @@
 package charset
 
-import "slices"
+import "github.com/vyachin/go-pdf/internal/budget"
 
 // Mapper translates an offset in a decoded text back to the line and column of
 // the source bytes it came from. A single-byte encoding changes neither the
@@ -22,8 +22,12 @@ type Mapper struct {
 	widths []uint8 // nil means one decoded byte per source byte
 	skip   int
 
-	srcLines []int
-	decLines []int
+	// srcLines and decLines are bounded line indexes of the two coordinate
+	// spaces. A legacy document can be made of newlines, so the indexes must
+	// not grow with one entry per input line; a lookup past the stored part
+	// scans and charges the bytes.
+	srcLines *budget.Lines
+	decLines *budget.Lines
 
 	cached bool
 	line   int
@@ -33,11 +37,19 @@ type Mapper struct {
 
 // NewMapper builds the mapper of a decoded source. widths is the Decoded
 // widths, and skip is the number of bytes a stripped byte order mark covered.
+// It builds the line indexes without a work limit; NewMapperWithGuard charges
+// them to the conversion.
 func NewMapper(src, text []byte, widths []uint8, skip int) *Mapper {
+	return NewMapperWithGuard(src, text, widths, skip, nil)
+}
+
+// NewMapperWithGuard is NewMapper with the conversion's work guard. The
+// bounded line indexes charge one unit per stored line start and the bytes a
+// position past their cap scans.
+func NewMapperWithGuard(src, text []byte, widths []uint8, skip int, guard *budget.Guard) *Mapper {
 	m := &Mapper{src: src, text: text, widths: widths, skip: skip}
-	m.srcLines = lineStarts(src)
-	m.srcLines[0] = skip // the mark is not part of the document
-	m.decLines = lineStarts(text)
+	m.srcLines, _ = budget.NewLines(src, guard)
+	m.decLines, _ = budget.NewLines(text, guard)
 	return m
 }
 
@@ -51,12 +63,20 @@ func (m *Mapper) Position(offset int) (line, col int) {
 	if offset > len(m.text) {
 		offset = len(m.text)
 	}
-	i := lineIndex(m.decLines, offset)
-	decCol := offset - m.decLines[i]
+	i, decStart := m.decLines.Resolve(offset)
+	decCol := offset - decStart
 	if !m.cached || m.line != i || decCol < m.decCol {
 		m.cached, m.line, m.decCol, m.srcCol = true, i, 0, 0
 	}
-	srcBase := m.srcLines[i]
+	srcBase, ok := m.srcLines.StartAt(i)
+	if !ok {
+		srcBase = len(m.src)
+	}
+	if i == 0 {
+		// The mark is not part of the document, so its first line starts after
+		// it even though the source line index stores zero.
+		srcBase = m.skip
+	}
 	srcCol := m.srcCol
 	j := m.decCol
 	for j < decCol {
@@ -86,14 +106,4 @@ func (m *Mapper) widthAt(i int) int {
 		return 1
 	}
 	return int(m.widths[i])
-}
-
-// lineIndex returns the index of the line that contains offset.
-func lineIndex(lines []int, offset int) int {
-	i, _ := slices.BinarySearch(lines, offset+1)
-	i--
-	if i < 0 {
-		return 0
-	}
-	return i
 }

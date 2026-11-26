@@ -21,6 +21,9 @@ type adversarialCase struct {
 	ID      string
 	Fixture string
 	Want    string
+	// Stage names the byte-proportional stage the fixture exercises, so the
+	// proportional-spend test can say which stage crossed its bound.
+	Stage   string
 	Options func(t *testing.T, dir string) Options
 	Check   func(t *testing.T, res Result)
 }
@@ -159,6 +162,7 @@ func adversarialCases() []adversarialCase {
 			ID:      "P2-huge-word",
 			Fixture: "p2-huge-word.html",
 			Want:    "resource/limit",
+			Stage:   "glyph copy",
 			Options: func(t *testing.T, dir string) Options {
 				return Options{File: "word.html", FallbackFont: testFontPath(t), Limits: Limits{MaxOperations: 1000}}
 			},
@@ -303,6 +307,49 @@ func adversarialCases() []adversarialCase {
 			Want:    "css/syntax",
 			Options: func(t *testing.T, dir string) Options {
 				return Options{BaseDir: dir, File: "trailing-sheet.html"}
+			},
+		},
+		{
+			// RV5-12: a 7 MiB stylesheet made of newlines. The bounded line
+			// index stops at its cap with resource/limit instead of storing one
+			// entry per newline.
+			ID:      "P3-newline-stylesheet",
+			Fixture: "p3-newline-stylesheet.html",
+			Want:    "resource/limit",
+			Stage:   "line index",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{BaseDir: dir, File: "newlines.html"}
+			},
+		},
+		{
+			// RV5-13: sixty unique linked stylesheets cross a small aggregate
+			// total, so the read is refused before the total is exceeded.
+			ID:      "P3-aggregate-stylesheets",
+			Fixture: "p3-aggregate-stylesheets.html",
+			Want:    "resource/limit",
+			Stage:   "asset read",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					BaseDir: dir,
+					File:    "aggregate.html",
+					Limits:  Limits{MaxTotalStylesheetBytes: 16 << 10},
+				}
+			},
+		},
+		{
+			// RV5-11: 8 MiB of text under a small budget. Shaping charges the
+			// runes before the glyph slice exists, so the budget stops the
+			// conversion.
+			ID:      "P3-huge-text",
+			Fixture: "p3-huge-text.html",
+			Want:    "resource/limit",
+			Stage:   "decoded text",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					File:         "huge-text.html",
+					FallbackFont: testFontPath(t),
+					Limits:       Limits{MaxInputBytes: 16 << 20, MaxOperations: 100_000},
+				}
 			},
 		},
 	}

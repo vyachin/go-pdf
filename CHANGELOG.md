@@ -28,6 +28,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (reported as `pdf/write`) or a cancelled context can leave a prefix of the PDF
   in `dst`, which the caller must discard.
 
+### Changed
+
+- **Byte-aware work budget.** The work budget now charges memory as well as CPU:
+  every stage whose memory grows with the input charges `ceil(n / 4096) + 1`
+  units before it allocates, so one unit stands for at most 4096 bytes of
+  materialised input. Line indexes, decoded text, asset reads and offset-bearing
+  glyph copies are charged, and a document that is cheap in tokens but allocates
+  hundreds of megabytes now stops with `resource/limit`. Documents inside the
+  limits keep byte-identical output.
+- **Bounded line index.** The HTML and stylesheet line indexes store at most
+  65,536 starts and charge each stored entry; a position past the cap scans and
+  charges the bytes it reads. A stylesheet made of newlines fails with
+  `resource/limit` once the cap is reached instead of allocating one entry per
+  newline.
+- **Aggregate stylesheet bytes.** `pdfgen.Limits.MaxTotalStylesheetBytes` is a
+  new field (default 16 MiB) that bounds the encoded bytes of every linked
+  stylesheet in one conversion, in addition to `MaxStylesheetBytes` per file. A
+  document that crosses the total fails with `resource/limit` before the next
+  sheet is read. The field is additive; a zero value selects the default.
+
 ### Fixed
 
 - **Combining marks after a new base.** A combining mark now attaches to the

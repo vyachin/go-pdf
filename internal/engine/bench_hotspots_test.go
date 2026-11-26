@@ -48,3 +48,24 @@ func nestedAvoidDocument(depth, words int) string {
 	}
 	return b.String()
 }
+
+// BenchmarkHugeWordConvert measures the 8 MiB single-word profile. Painting
+// reuses the shaped glyph slice when no glyph needs an offset, so the reported
+// allocation does not include a second glyph slice per rune.
+func BenchmarkHugeWordConvert(b *testing.B) {
+	src := []byte("<p>" + strings.Repeat("x", 8<<20) + "</p>")
+	opts := Options{
+		File:         "word.html",
+		FallbackFont: testFontPath(b),
+		Limits:       Limits{MaxInputBytes: 16 << 20},
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(len(src)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		res, err := Convert(context.Background(), src, opts)
+		if err != nil {
+			b.Fatalf("the default budget refused the profile: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+		}
+	}
+}

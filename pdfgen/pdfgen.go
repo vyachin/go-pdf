@@ -98,6 +98,11 @@ type Limits struct {
 	MaxInputBytes int
 	// MaxStylesheetBytes bounds one external stylesheet. Default 8 MiB.
 	MaxStylesheetBytes int
+	// MaxTotalStylesheetBytes bounds the encoded bytes of every linked
+	// stylesheet one conversion reads, in addition to MaxStylesheetBytes per
+	// file. A stylesheet that would cross it is rejected before it is read.
+	// Default 16 MiB.
+	MaxTotalStylesheetBytes int
 	// MaxPages is the largest number of pages a document may produce.
 	// Default 5000.
 	MaxPages int
@@ -414,37 +419,39 @@ func DefaultLimits() Limits {
 
 func (l Limits) toEngine() engine.Limits {
 	return engine.Limits{
-		MaxInputBytes:       l.MaxInputBytes,
-		MaxStylesheetBytes:  l.MaxStylesheetBytes,
-		MaxPages:            l.MaxPages,
-		MaxImagePixels:      l.MaxImagePixels,
-		MaxImageBytes:       l.MaxImageBytes,
-		MaxRasterPixels:     l.MaxRasterPixels,
-		MaxFontBytes:        l.MaxFontBytes,
-		MaxTotalImageBytes:  l.MaxTotalImageBytes,
-		MaxTotalImagePixels: l.MaxTotalImagePixels,
-		MaxTotalFontBytes:   l.MaxTotalFontBytes,
-		MaxDOMDepth:         l.MaxDOMDepth,
-		MaxTableCells:       l.MaxTableCells,
-		MaxOperations:       l.MaxOperations,
+		MaxInputBytes:           l.MaxInputBytes,
+		MaxStylesheetBytes:      l.MaxStylesheetBytes,
+		MaxTotalStylesheetBytes: l.MaxTotalStylesheetBytes,
+		MaxPages:                l.MaxPages,
+		MaxImagePixels:          l.MaxImagePixels,
+		MaxImageBytes:           l.MaxImageBytes,
+		MaxRasterPixels:         l.MaxRasterPixels,
+		MaxFontBytes:            l.MaxFontBytes,
+		MaxTotalImageBytes:      l.MaxTotalImageBytes,
+		MaxTotalImagePixels:     l.MaxTotalImagePixels,
+		MaxTotalFontBytes:       l.MaxTotalFontBytes,
+		MaxDOMDepth:             l.MaxDOMDepth,
+		MaxTableCells:           l.MaxTableCells,
+		MaxOperations:           l.MaxOperations,
 	}
 }
 
 func fromEngineLimits(l engine.Limits) Limits {
 	return Limits{
-		MaxInputBytes:       l.MaxInputBytes,
-		MaxStylesheetBytes:  l.MaxStylesheetBytes,
-		MaxPages:            l.MaxPages,
-		MaxImagePixels:      l.MaxImagePixels,
-		MaxImageBytes:       l.MaxImageBytes,
-		MaxRasterPixels:     l.MaxRasterPixels,
-		MaxFontBytes:        l.MaxFontBytes,
-		MaxTotalImageBytes:  l.MaxTotalImageBytes,
-		MaxTotalImagePixels: l.MaxTotalImagePixels,
-		MaxTotalFontBytes:   l.MaxTotalFontBytes,
-		MaxDOMDepth:         l.MaxDOMDepth,
-		MaxTableCells:       l.MaxTableCells,
-		MaxOperations:       l.MaxOperations,
+		MaxInputBytes:           l.MaxInputBytes,
+		MaxStylesheetBytes:      l.MaxStylesheetBytes,
+		MaxTotalStylesheetBytes: l.MaxTotalStylesheetBytes,
+		MaxPages:                l.MaxPages,
+		MaxImagePixels:          l.MaxImagePixels,
+		MaxImageBytes:           l.MaxImageBytes,
+		MaxRasterPixels:         l.MaxRasterPixels,
+		MaxFontBytes:            l.MaxFontBytes,
+		MaxTotalImageBytes:      l.MaxTotalImageBytes,
+		MaxTotalImagePixels:     l.MaxTotalImagePixels,
+		MaxTotalFontBytes:       l.MaxTotalFontBytes,
+		MaxDOMDepth:             l.MaxDOMDepth,
+		MaxTableCells:           l.MaxTableCells,
+		MaxOperations:           l.MaxOperations,
 	}
 }
 

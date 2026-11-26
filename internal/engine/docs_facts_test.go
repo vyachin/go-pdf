@@ -40,6 +40,7 @@ func TestDocumentedLimitsMatchTheCode(t *testing.T) {
 		{"MaxTotalImageBytes", limits.MaxTotalImageBytes, []string{mib(limits.MaxTotalImageBytes)}},
 		{"MaxTotalImagePixels", limits.MaxTotalImagePixels, []string{formatThousands(limits.MaxTotalImagePixels)}},
 		{"MaxTotalFontBytes", limits.MaxTotalFontBytes, []string{mib(limits.MaxTotalFontBytes)}},
+		{"MaxTotalStylesheetBytes", limits.MaxTotalStylesheetBytes, []string{mib(limits.MaxTotalStylesheetBytes)}},
 	}
 	for _, c := range checks {
 		found := false

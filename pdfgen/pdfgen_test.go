@@ -691,3 +691,27 @@ func TestCharsetSupportedAcceptsTheEmptyName(t *testing.T) {
 		t.Fatal("a supported encoding reported false")
 	}
 }
+
+// TestTotalStylesheetLimitReachesTheEngine guards the Limits mapping: a
+// caller's aggregate stylesheet limit must reach the engine instead of being
+// dropped in the pdfgen wrapper, and the zero value must resolve to the
+// documented 16 MiB default.
+func TestTotalStylesheetLimitReachesTheEngine(t *testing.T) {
+	if got := pdfgen.DefaultLimits().MaxTotalStylesheetBytes; got != 16<<20 {
+		t.Fatalf("DefaultLimits().MaxTotalStylesheetBytes = %d, want 16777216", got)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.css"), []byte("p { color: #000 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := []byte(`<link rel="stylesheet" href="a.css"><p>x</p>`)
+	res, err := pdfgen.Convert(context.Background(), src, pdfgen.Options{
+		BaseDir:      dir,
+		File:         "total.html",
+		FallbackFont: filepath.Join("..", "testdata", "fonts", "DejaVuSans.ttf"),
+		Limits:       pdfgen.Limits{MaxTotalStylesheetBytes: 1},
+	})
+	if err == nil || len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != "resource/limit" {
+		t.Fatalf("the total stylesheet limit was not applied: err=%v diags=%v", err, res.Diagnostics)
+	}
+}

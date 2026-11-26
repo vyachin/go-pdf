@@ -134,6 +134,12 @@ func (r *Registry) readSource(req Request) (*Record, error) {
 		if err := r.reserve(req.Kind, reserved, req.MaxTotalBytes); err != nil {
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 		}
+		// The declared size is the memory the read will materialise, so it is
+		// charged before the read starts.
+		if err := r.guard.ChargeBytes(int(reserved)); err != nil {
+			r.refund(req.Kind, reserved)
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
+		}
 	}
 	data, readErr := readSourceLimited(f, req.MaxBytes)
 	if readErr != nil {
@@ -147,9 +153,14 @@ func (r *Registry) readSource(req Request) (*Record, error) {
 	}
 	if reserved < 0 {
 		// A source may not report a size; the bytes actually admitted are then
-		// what the conversion total counts.
+		// what the conversion total counts. The read already happened, so the
+		// charge follows it; a source that declares its size is charged first.
 		reserved = int64(len(data))
 		if err := r.reserve(req.Kind, reserved, req.MaxTotalBytes); err != nil {
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
+		}
+		if err := r.guard.ChargeBytes(int(reserved)); err != nil {
+			r.refund(req.Kind, reserved)
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
 		}
 	}

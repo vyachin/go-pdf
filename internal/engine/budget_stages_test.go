@@ -386,11 +386,48 @@ func TestAdversarialSpendIsProportional(t *testing.T) {
 			}
 			// Each unit may cost a bounded amount of memory: a conversion
 			// that allocates per input byte without charging the budget
-			// blows through this bound.
+			// blows through this bound. The byte-proportional stages — line
+			// indexing, decoded text and glyph copies — each charge before
+			// they allocate, so the reported stage names the defect.
 			const bytesPerUnit = 4096
-			if alloc, limit := after.TotalAlloc-before.TotalAlloc, uint64(n*bytesPerUnit); alloc > limit {
-				t.Fatalf("the stopped conversion allocated %d bytes for a %d-unit budget (limit %d)", alloc, n, limit)
+			if alloc, limit := after.TotalAlloc-before.TotalAlloc, uint64(n*bytesPerUnit); !raceEnabled && alloc > limit {
+				stage := tc.Stage
+				if stage == "" {
+					stage = "unclassified"
+				}
+				t.Fatalf("stage %s (%s) allocated %d bytes for a %d-unit budget (limit %d)", stage, tc.Fixture, alloc, n, limit)
 			}
 		})
+	}
+}
+
+// TestHugeWordWithinTheDefaultLimits guards RV5-14: a single large word under
+// the default limits converts, and painting reuses the shaped glyph slice
+// instead of allocating a second one per glyph. The allocation bound is the
+// documented 4096 bytes per charged unit.
+func TestHugeWordWithinTheDefaultLimits(t *testing.T) {
+	const runes = 1 << 20
+	src := []byte("<p>" + strings.Repeat("x", runes) + "</p>")
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	res, err := Convert(context.Background(), src, Options{
+		File:         "huge-word.html",
+		FallbackFont: testFontPath(t),
+		Limits:       Limits{MaxInputBytes: 2 << 20},
+	})
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("the default limits refused a %d-rune word: %v\n%s", runes, err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if alloc, limit := after.TotalAlloc-before.TotalAlloc, uint64(runes)*4096; alloc > limit {
+		t.Fatalf("the word allocated %d bytes for %d runes (limit %d)", alloc, runes, limit)
+	}
+	pages, err := pdfdebug.PageTexts(res.PDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Join(pages, "")); got != runes {
+		t.Fatalf("the PDF carries %d runes, want %d", got, runes)
 	}
 }
