@@ -206,3 +206,25 @@ func TestSourceExplicitPathIsFromTheRoot(t *testing.T) {
 		t.Fatalf("the source registry opened %d host roots", got)
 	}
 }
+
+// TestSourceReadRejectsNonRegular guards the source gate: a source that can stat
+// its files is classified before the Open, so a directory or FIFO is refused
+// without being opened and the typed cause is kept.
+func TestSourceReadRejectsNonRegular(t *testing.T) {
+	source := fstest.MapFS{
+		"dir/logo.png": {Data: []byte("image")},
+		"probe.fifo":   {Data: []byte("bytes"), Mode: fs.ModeNamedPipe},
+	}
+	reg := NewWithSource(nil, source)
+	defer func() { _ = reg.Close() }()
+	for _, req := range []Request{
+		{Kind: Image, Reference: "dir"},
+		{Kind: Stylesheet, Reference: "probe.fifo"},
+		{Kind: Font, Reference: "probe.fifo", Explicit: true},
+	} {
+		_, err := reg.Read(req)
+		if !errors.Is(err, fsx.ErrNotRegular) {
+			t.Fatalf("%s read of a non-regular source file = %v, want ErrNotRegular", req.Kind, err)
+		}
+	}
+}

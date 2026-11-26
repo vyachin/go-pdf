@@ -118,6 +118,15 @@ needs no change.
   200,000-glyph coverage cap, and a coverage `resource/limit` is propagated
   instead of being swallowed. A truncated GDEF still degrades to "no mark
   data"; fonts within the bounds load byte-identically.
+- **Non-regular asset files.** An image, stylesheet or font reference that
+  resolves to a directory, device, FIFO, socket or other non-regular file is now
+  refused with the resource's existing load diagnostic — `img/load`,
+  `css/link-load` or `font/unavailable` — instead of being opened and read. A
+  FIFO reference can no longer block the conversion in `open(2)` waiting for a
+  writer: the regular-file check runs before the open and again through the
+  opened descriptor, and the open is non-blocking on Unix. A symlink to a
+  regular file inside the root still reads, while a symlink to a FIFO or to a
+  file outside the root is rejected like its target.
 - **Table layout defects.** A table's declared column widths are now summed in
   64 bits and scaled against the true total, then clamped so the last column's
   right edge stays inside the content box; the single `layout/overflow` warning

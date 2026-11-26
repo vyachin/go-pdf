@@ -46,9 +46,16 @@ type linkError struct {
 	// pos overrides the link element's position when the problem is inside
 	// the stylesheet file rather than in the document that refers to it.
 	pos *diag.Position
+	// cause is the failure the diagnostic describes, when one is known. It is
+	// kept so a caller can still match a typed cause — fsx.ErrNotRegular, for
+	// example — instead of receiving only a message.
+	cause error
 }
 
 func (e *linkError) Error() string { return e.msg }
+
+// Unwrap returns the failure the diagnostic describes, when one is known.
+func (e *linkError) Unwrap() error { return e.cause }
 
 // Collect walks the document in order and returns every stylesheet it finds:
 // inline <style> elements and local <link rel="stylesheet"> files. The slice
@@ -278,6 +285,11 @@ func readError(err error, href string) error {
 		switch {
 		case errors.Is(assetErr.Err, fsx.ErrOutsideRoot):
 			return &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", href)}
+		case errors.Is(assetErr.Err, fsx.ErrNotRegular):
+			// The reference names something that is not a file. Name it as the
+			// document wrote it, like a path escape, and keep the typed cause
+			// for a caller that matches the failure.
+			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, assetErr.Err), cause: assetErr.Err}
 		case errors.Is(assetErr.Err, assets.ErrTooLarge):
 			return fmt.Errorf("%w: stylesheet %q exceeds the limit", budget.ErrExceeded, href)
 		case errors.Is(assetErr.Err, budget.ErrExceeded):
@@ -290,13 +302,13 @@ func readError(err error, href string) error {
 			return assetErr.Err
 		}
 		if assetErr.Path != "" {
-			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err)}
+			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", assetErr.Path, assetErr.Err), cause: assetErr.Err}
 		}
 	}
 	if refErr := referenceError(href); refErr != nil {
 		return refErr
 	}
-	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err)}
+	return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, err), cause: err}
 }
 
 // referenceError names the references that cannot denote a local file. The
