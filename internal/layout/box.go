@@ -114,14 +114,32 @@ type Box struct {
 	rowHeights  []int32
 	headerPage  int
 	headerCount int
-	// spanCell, spanX, spanW and spanRemain describe a rowspan cell whose
-	// fragment crossed a page break: the rest of it is painted at the top of
-	// the following page, so the cell continues instead of being lost.
-	spanCell   *Box
-	spanX      int32
-	spanW      int32
-	spanRemain int32
-	spanPage   int
+	// spanRecords holds the continuation state of the rowspan cells whose
+	// fragments crossed a page break, in grid order. A record follows its cell
+	// until the rows the cell covers have all been placed.
+	spanRecords []spanContinuation
+}
+
+// spanContinuation is the continuation state of one rowspan cell whose
+// fragment crossed a page break. The table keeps one record per such cell, so
+// two spanning cells in the same row continue independently.
+type spanContinuation struct {
+	cell *Box
+	// x and w are the cell's absolute horizontal geometry, which does not
+	// change between pages.
+	x, w int32
+	// remain is the height of the rows the cell covers that the following
+	// fragments still have to paint.
+	remain int32
+	// endRow is the first row the cell does not cover.
+	endRow int
+	// line is the index of the first line of the cell's text block that has not
+	// been painted yet, or -1 when the cell's content has no line cursor.
+	line int
+	// lineX, lineTop and lineWidth place the continued lines: lineX is
+	// absolute, lineTop is the offset from the fragment's top, and lineWidth is
+	// the width the lines were broken at.
+	lineX, lineTop, lineWidth int32
 }
 
 // Row is a table row.

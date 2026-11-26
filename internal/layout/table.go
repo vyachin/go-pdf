@@ -241,24 +241,10 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 	// the row loop skip header rows; on the first page they are placed normally.
 	repeated := l.paintRepeatedHeaders(f, t)
 	t.headerPage = f.pageNum
-	// A rowspan cell that crossed a page break continues here: the remainder
-	// of its background is painted before the rows that carry the rest of the
-	// span, so the cell has a visible fragment on the following page.
-	if t.spanCell != nil && t.spanPage == f.pageNum {
-		h := t.spanRemain
-		if space := satSub(f.bottom, f.y); h > space {
-			h = space
-		}
-		if h > 0 && t.spanCell.Style != nil && t.spanCell.Style.Background.Set {
-			l.ops++
-			f.page.Ops = append(f.page.Ops, Op{
-				Kind:  FillOpKind,
-				Rect:  Rect{X: t.spanX, Y: f.y, W: t.spanW, H: h},
-				Color: t.spanCell.Style.Background,
-			})
-		}
-		t.spanCell, t.spanRemain = nil, 0
-	}
+	// Every spanning cell whose fragment crossed the previous page break
+	// continues here, in grid order, before the rows that carry the rest of the
+	// span are painted.
+	l.paintSpanContinuations(f, t)
 
 	for t.cursor.row < len(t.Rows) {
 		if l.tick() != nil {
@@ -315,7 +301,140 @@ func (l *layouter) placeTable(f *flow, t *Box, width int32) bool {
 			// A trailing row break is taken only by the content that follows.
 		}
 	}
+	// The table is complete; a continuation that never got a fragment reports
+	// its loss instead of disappearing silently.
+	l.finishSpanRecords(t)
 	return true
+}
+
+// paintSpanContinuations paints the next fragment of every spanning cell that
+// crossed a page break, in the order paintRow recorded them. A record is kept
+// until the rows its cell covers have all been placed.
+func (l *layouter) paintSpanContinuations(f *flow, t *Box) {
+	if len(t.spanRecords) == 0 {
+		return
+	}
+	kept := t.spanRecords[:0]
+	for i := range t.spanRecords {
+		rec := &t.spanRecords[i]
+		if t.cursor.row >= rec.endRow {
+			// Every row the cell covers is placed, so its fragments are done.
+			l.reportSpanLoss(rec)
+			continue
+		}
+		// The rows that are still covered bound this fragment: it must not
+		// extend over the rows below the span.
+		var remain int32
+		for r := t.cursor.row; r < rec.endRow && r < len(t.rowHeights); r++ {
+			remain = satAdd(remain, t.rowHeights[r])
+		}
+		rec.remain = remain
+		space := satSub(f.bottom, f.y)
+		h := remain
+		if h > space {
+			h = space
+		}
+		if h > 0 {
+			l.paintSpanFragment(f, rec, h)
+		}
+		if h == remain {
+			// The remaining rows fit on this page: this is the cell's last
+			// fragment, so no line may be left unpainted.
+			l.reportSpanLoss(rec)
+		}
+		kept = append(kept, *rec)
+	}
+	t.spanRecords = kept
+}
+
+// paintSpanFragment paints one continuation fragment of a spanning cell: its
+// background, all four border sides and the lines that were not painted before.
+// The fragment never extends below the page content bottom.
+func (l *layouter) paintSpanFragment(f *flow, rec *spanContinuation, h int32) {
+	cell := rec.cell
+	top, bottom := f.y, satAdd(f.y, h)
+	// Decoration is per fragment: every fragment is a closed box at its own
+	// edges, so a continued cell never looks like an unbordered column of text.
+	cell.x, cell.width = rec.x, rec.w
+	ops := l.decorationOps(cell, top, bottom, true, true)
+	if len(ops) > 0 {
+		l.ops += len(ops)
+		f.page.Ops = append(f.page.Ops, ops...)
+		f.pageHasBody = true
+	}
+	if rec.line < 0 {
+		// The content is block-level and has no line cursor: it cannot be
+		// fragmented here. Report the loss once for the cell and keep the rest
+		// of the document rendering.
+		if cellHasContent(cell) {
+			l.warnOverflow(cell, "the remaining content of the spanning cell cannot be continued and is clipped")
+		}
+		return
+	}
+	block, ok := l.spanLineBlock(cell)
+	if !ok {
+		return
+	}
+	l.buildLines(block, rec.lineWidth)
+	next := l.paintBlockLines(f.page, block, rec.line, rec.lineX, satAdd(top, rec.lineTop), rec.lineWidth, bottom)
+	if next > rec.line {
+		f.pageHasBody = true
+		rec.line = next
+	}
+}
+
+// finishSpanRecords reports any content a completed table could not continue
+// and drops the records.
+func (l *layouter) finishSpanRecords(t *Box) {
+	for i := range t.spanRecords {
+		l.reportSpanLoss(&t.spanRecords[i])
+	}
+	t.spanRecords = nil
+}
+
+// reportSpanLoss reports the content of a spanning cell that no fragment can
+// paint. warnOverflow's per-box latch makes it one diagnostic per cell.
+func (l *layouter) reportSpanLoss(rec *spanContinuation) {
+	if rec.line < 0 {
+		if cellHasContent(rec.cell) {
+			l.warnOverflow(rec.cell, "the remaining content of the spanning cell cannot be continued and is clipped")
+		}
+		return
+	}
+	block, ok := l.spanLineBlock(rec.cell)
+	if !ok {
+		return
+	}
+	l.buildLines(block, rec.lineWidth)
+	if rec.line < len(block.lines) {
+		l.warnOverflow(rec.cell, "the remaining content of the spanning cell does not fit on a page and is clipped")
+	}
+}
+
+// spanLineBlock returns the single text block whose lines a spanning cell
+// continues across pages. A cell whose content is block-level (a nested table, a
+// list or several blocks) has no line cursor in this change, so the caller
+// reports the loss instead of dropping it silently.
+func (l *layouter) spanLineBlock(cell *Box) (*Box, bool) {
+	if len(cell.Children) != 1 {
+		return nil, false
+	}
+	block := cell.Children[0]
+	if block.Kind != Block || !l.isTextBlock(block) {
+		return nil, false
+	}
+	return block, true
+}
+
+// cellHasContent reports whether a cell has content that a fragment would have
+// to paint.
+func cellHasContent(cell *Box) bool {
+	for _, c := range cell.Children {
+		if boxHasContent(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // paintRepeatedHeaders paints the header rows when the table continues on a
@@ -325,7 +444,9 @@ func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
 		return false
 	}
 	for i := 0; i < t.headerCount; i++ {
-		f.y = satAdd(f.y, l.paintRow(f, t, i))
+		// A repeated header is painted again on every page, so it never needs a
+		// spanning-cell continuation of its own.
+		f.y = satAdd(f.y, l.paintRowAt(f.page, t, i, f.y, f.bottom, false))
 		f.empty = false
 	}
 	return true
@@ -334,12 +455,14 @@ func (l *layouter) paintRepeatedHeaders(f *flow, t *Box) bool {
 // paintRow draws a row and its cells and returns its height. The flow's bottom
 // is the limit: nothing in the row is painted below it.
 func (l *layouter) paintRow(f *flow, t *Box, index int) int32 {
-	return l.paintRowAt(f.page, t, index, f.y, f.bottom)
+	return l.paintRowAt(f.page, t, index, f.y, f.bottom, true)
 }
 
 // paintRowAt draws one row at an explicit page position, which is what a table
-// nested inside a cell needs.
-func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32) int32 {
+// nested inside a cell needs. record enables the continuation state of a
+// spanning cell that is clipped: a nested table is painted statically, so it
+// has no page to continue the cell on.
+func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32, record bool) int32 {
 	row := t.Rows[index]
 	h := t.rowHeights[index]
 	// The rows sit inside the table's padding box; the columns were already
@@ -385,33 +508,59 @@ func (l *layouter) paintRowAt(page *Page, t *Box, index int, y, limit int32) int
 		}
 		// A spanning cell that crosses the page break is clipped to the page:
 		// its background, border and content must not be painted outside the
-		// sheet. The remainder is recorded and painted at the top of the
-		// following page.
+		// sheet. Its continuation is recorded so every fragment of the cell is
+		// painted on the pages the span covers.
 		pageBottom := limit
 		visible := cellH
+		clipped := false
 		if satAdd(y, visible) > pageBottom {
 			visible = satSub(pageBottom, y)
 			if visible < 0 {
 				visible = 0
 			}
-			if rowspan > 1 {
-				t.spanCell, t.spanX, t.spanW = cell, x, w
-				t.spanRemain = satSub(cellH, visible)
-				t.spanPage = page.Number + 1
-			}
+			clipped = record && rowspan > 1
 		}
 		lastRow := index == len(t.Rows)-1
 		lastCol := cell.col+span >= len(t.columns)
-		l.paintCell(page, cell, x, y, w, visible, index == 0, cell.col == 0, lastRow, lastCol,
-			[4]int32{t.borderTop(), t.borderRight(), t.borderBottom(), t.borderLeft()}, limit)
+		cursor := l.paintCell(page, cell, x, y, w, visible, index == 0, cell.col == 0, lastRow, lastCol,
+			[4]int32{t.borderTop(), t.borderRight(), t.borderBottom(), t.borderLeft()}, limit, clipped)
+		if clipped {
+			endRow := index + rowspan
+			if endRow > len(t.Rows) {
+				endRow = len(t.Rows)
+			}
+			t.spanRecords = append(t.spanRecords, spanContinuation{
+				cell:      cell,
+				x:         x,
+				w:         w,
+				remain:    satSub(cellH, visible),
+				endRow:    endRow,
+				line:      cursor.line,
+				lineX:     cursor.x,
+				lineTop:   cursor.top,
+				lineWidth: cursor.width,
+			})
+		}
 	}
 	return h
 }
 
-// paintCell draws one cell: background, borders and content. With collapsed
-// borders each cell draws only the edges it owns, so a shared border is painted
-// exactly once.
-func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol, lastRow, lastCol bool, frame [4]int32, limit int32) {
+// cellCursor is the text continuation state of a clipped spanning cell: the
+// index of the first line that was not painted and the geometry the following
+// fragments paint the rest at. line is -1 when the cell has no line cursor.
+type cellCursor struct {
+	line   int
+	x, top int32
+	width  int32
+}
+
+// paintCell draws one cell: background, borders and content, and returns the
+// line cursor of a spanning cell that was clipped. With collapsed borders each
+// cell draws only the edges it owns, so a shared border is painted exactly once.
+// A clipped spanning cell paints all four of its sides instead: the fragment
+// ends at the page boundary, so it is a closed box at its own edges.
+func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, firstCol, lastRow, lastCol bool, frame [4]int32, limit int32, clipped bool) cellCursor {
+	cursor := cellCursor{line: -1}
 	cell.x = x
 	cell.width = w
 	if cell.Style.Background.Set {
@@ -445,24 +594,27 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		// the table's own border is the frame where it exists. A cell that
 		// inherits the frame does not reserve its own edge, so the border is
 		// neither doubled nor separated from the content by an empty stripe.
-		if firstCol && frame[3] > 0 {
-			leftInset = 0
-		}
-		if firstRow && frame[0] > 0 {
-			topInset = 0
-		}
-		if !lastCol || frame[1] > 0 {
-			rightInset = 0
-		}
-		if !lastRow || frame[2] > 0 {
-			bottomInset = 0
+		// A clipped fragment is not a true cell edge, so it keeps all four.
+		if !clipped {
+			if firstCol && frame[3] > 0 {
+				leftInset = 0
+			}
+			if firstRow && frame[0] > 0 {
+				topInset = 0
+			}
+			if !lastCol || frame[1] > 0 {
+				rightInset = 0
+			}
+			if !lastRow || frame[2] > 0 {
+				bottomInset = 0
+			}
 		}
 		paintSide(3, Rect{X: x, Y: y, W: leftInset, H: h})
 		paintSide(0, Rect{X: x, Y: y, W: w, H: topInset})
-		if lastCol && rightInset > 0 {
+		if (clipped || lastCol) && rightInset > 0 {
 			paintSide(1, Rect{X: x + w - rightInset, Y: y, W: rightInset, H: h})
 		}
-		if lastRow && bottomInset > 0 {
+		if (clipped || lastRow) && bottomInset > 0 {
 			paintSide(2, Rect{X: x, Y: y + h - bottomInset, W: w, H: bottomInset})
 		}
 	} else {
@@ -478,6 +630,20 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 	}
 	contentX := satAdd(satAdd(x, leftInset), cell.padLeft())
 	contentY := satAdd(satAdd(y, topInset), cell.padTop())
+	if clipped {
+		// A fragment that ends at the page boundary starts its content at the
+		// fragment's own top; its remaining lines are continued from there.
+		if block, ok := l.spanLineBlock(cell); ok {
+			return l.paintSpanCellText(page, block, contentX, contentY, inner, y, limit)
+		}
+		// The content is block-level and has no line cursor. Paint what fits
+		// quietly: the continuation reports the loss once for the cell instead
+		// of one diagnostic per painted line.
+		l.suppressOverflow++
+		l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner, limit)
+		l.suppressOverflow--
+		return cursor
+	}
 	contentH := int32(0)
 	for _, c := range cell.Children {
 		contentH = satAdd(contentH, l.measure(c, inner))
@@ -493,6 +659,47 @@ func (l *layouter) paintCell(page *Page, cell *Box, x, y, w, h int32, firstRow, 
 		contentY = y + bt + cell.padTop()
 	}
 	l.paintStaticBlocks(page, cell.Children, contentX, contentY, inner, limit)
+	return cursor
+}
+
+// paintSpanCellText paints the lines of a clipped spanning cell's text block
+// that fit before limit and returns the cursor of the rest.
+func (l *layouter) paintSpanCellText(page *Page, block *Box, contentX, contentY, inner, cellY, limit int32) cellCursor {
+	block.started = true
+	block.usedGeometry(contentX, inner)
+	blockY := satAdd(contentY, block.Style.Margin[0].Resolve(inner))
+	l.registerAnchor(block, page.Number, blockY)
+	lineX := satAdd(satAdd(block.x, block.borderLeft()), block.padLeft())
+	lineY := satAdd(satAdd(blockY, block.borderTop()), block.padTop())
+	lineWidth := block.contentWidth()
+	l.buildLines(block, lineWidth)
+	line := l.paintBlockLines(page, block, 0, lineX, lineY, lineWidth, limit)
+	return cellCursor{
+		line:  line,
+		x:     lineX,
+		top:   satSub(lineY, cellY),
+		width: lineWidth,
+	}
+}
+
+// paintBlockLines paints the lines of block from index from and stops before a
+// line that would start at or below limit. It returns the index of the first
+// line that was not painted.
+func (l *layouter) paintBlockLines(page *Page, block *Box, from int, x, y, width, limit int32) int {
+	for i := from; i < len(block.lines); i++ {
+		if y >= limit {
+			return i
+		}
+		line := &block.lines[i]
+		l.paintLineAt(page, block, line, x, y, width, i == len(block.lines)-1)
+		for _, id := range line.Anchors {
+			if _, ok := l.anchors[id]; !ok {
+				l.anchors[id] = Anchor{Page: page.Number, Y: y}
+			}
+		}
+		y = satAdd(y, line.Height)
+	}
+	return len(block.lines)
 }
 
 // paintStaticTable draws a table nested inside a cell: columns are computed for
@@ -523,7 +730,7 @@ func (l *layouter) paintStaticTable(page *Page, t *Box, x, y, width, limit int32
 	}
 	rowY := y + t.borderTop() + t.padTop()
 	for i := range t.Rows {
-		l.paintRowAt(page, t, i, rowY, limit)
+		l.paintRowAt(page, t, i, rowY, limit, false)
 		rowY += t.rowHeights[i]
 	}
 	return height

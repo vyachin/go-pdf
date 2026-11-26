@@ -669,6 +669,9 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 // clipped on several pages and can reach more than one call site; the reader
 // needs one report per box, not one per attempt.
 func (l *layouter) warnOverflow(b *Box, message string) {
+	if l.suppressOverflow > 0 {
+		return
+	}
 	if b.overflowWarned {
 		return
 	}
