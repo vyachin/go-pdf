@@ -14,6 +14,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of its parent element. Equal out-of-source-order texts keep distinct
   positions. Matching a text node to its token is indexed and charged to the work
   budget, so a document of references no longer does uncharged quadratic work.
+- **Malformed GPOS feature list.** A `FeatureList` offset outside a font's GPOS
+  table now disables that font's kerning instead of reading outside the table or
+  panicking; the font stays usable.
 
 ## [2.0.0] - 2026-11-25
 

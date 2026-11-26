@@ -684,6 +684,11 @@ func enabledLookups(gpos []byte) map[int]bool {
 	if len(offs) == 0 {
 		return nil
 	}
+	// A usable ScriptList with an out-of-bounds FeatureList names no ordinary
+	// feature. Return an empty set, not nil: nil means "every lookup applies".
+	if !fits(featureList, 0, 2, len(gpos)) {
+		return map[int]bool{}
+	}
 	out := map[int]bool{}
 	for _, off := range offs {
 		langSys := defaultLangSys(gpos, off)
@@ -747,6 +752,9 @@ func langSysFeatures(gpos []byte, langSys int) []int {
 // featureLookups returns the lookups of one feature record when the feature is
 // kern, mark or mkmk.
 func featureLookups(gpos []byte, featureList, index int) []int {
+	if !fits(featureList, 0, 2, len(gpos)) {
+		return nil
+	}
 	count := int(binary.BigEndian.Uint16(gpos[featureList : featureList+2]))
 	if index < 0 || index >= count {
 		return nil
