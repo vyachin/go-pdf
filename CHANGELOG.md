@@ -22,6 +22,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Combining marks after a new base.** A combining mark now attaches to the
+  base that immediately precedes it instead of reusing an anchor from an earlier
+  cluster: in `о́о́` and `а́б́` the second acute is painted over the second
+  letter, mark-to-mark stacking only follows a mark of the same cluster, and a
+  font without a mark-to-mark anchor falls back to the current base's anchor. An
+  anchor that would paint a mark outside its base's cell or outside the shaped
+  run reports `text/glyph` instead of drawing it there. Documents whose marks
+  already attached correctly are byte-identical.
 - **Font table defects.** A GPOS `ScriptList` that names only a non-ordinary
   script now enables no lookup instead of every lookup, so a pair declared under
   Arabic cannot kern Latin text. Crossing the glyph-coverage cap is
