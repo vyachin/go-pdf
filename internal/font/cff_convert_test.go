@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -69,8 +70,10 @@ func TestLoadAcceptsOpenType(t *testing.T) {
 }
 
 // TestConvertedFontKeepsTables proves the numbering is preserved by copying the
-// tables that depend on it: cmap, GPOS, hmtx and post come out of the converter
-// byte for byte, so a glyph id, an advance or a kerning pair cannot shift.
+// tables that depend on it: cmap, GPOS, GDEF, hmtx and post come out of the
+// converter byte for byte, so a glyph id, an advance, a kerning pair or a mark
+// class cannot shift. The table set is exact: GDEF appears only when the source
+// declares it.
 func TestConvertedFontKeepsTables(t *testing.T) {
 	for _, name := range cffCorpusFonts {
 		t.Run(name, func(t *testing.T) {
@@ -87,10 +90,24 @@ func TestConvertedFontKeepsTables(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, tag := range []string{"cmap", "GPOS", "hmtx", "post", "name", "OS/2", "hhea"} {
+			for _, tag := range []string{"cmap", "GPOS", "GDEF", "hmtx", "post", "name", "OS/2", "hhea"} {
 				if !bytes.Equal(out[tag], tables[tag]) {
 					t.Fatalf("the %q table changed during the conversion", tag)
 				}
+			}
+			// The corpus fonts declare GDEF, so the exact converted set
+			// includes it plus the tables this converter writes.
+			want := []string{
+				"GDEF", "GPOS", "OS/2", "cmap", "glyf", "head", "hhea",
+				"hmtx", "loca", "maxp", "name", "post",
+			}
+			got := make([]string, 0, len(out))
+			for tag := range out {
+				got = append(got, tag)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, want) {
+				t.Fatalf("converted tables = %v, want %v", got, want)
 			}
 			f, err := Parse(converted)
 			if err != nil {
@@ -111,6 +128,139 @@ func TestConvertedFontKeepsTables(t *testing.T) {
 				t.Fatal("no kerning pair survived the conversion")
 			}
 		})
+	}
+}
+
+// TestConvertedCFFKeepsGDEFMarkClasses guards RV5-32 on the corpus: the GDEF
+// table comes out byte for byte, so the mark classes that IgnoreMarks and the
+// mark filtering sets read survive the conversion.
+func TestConvertedCFFKeepsGDEFMarkClasses(t *testing.T) {
+	for _, name := range cffCorpusFonts {
+		t.Run(name, func(t *testing.T) {
+			data := readCorpusFont(t, name)
+			tables, err := tableDirectory(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sourceMarks, _ := parseGDEF(tables["GDEF"])
+			if len(sourceMarks) == 0 {
+				t.Fatal("the fixture declares GDEF but no mark glyphs")
+			}
+			converted, err := convertCFF(data, tables, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := tableDirectory(converted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(out["GDEF"], tables["GDEF"]) {
+				t.Fatal("the GDEF table changed during the conversion")
+			}
+			f, err := Parse(converted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.gpos == nil {
+				t.Fatal("the converted font has no GPOS")
+			}
+			for gid := range sourceMarks {
+				if !f.gpos.markGlyphs[gid] {
+					t.Fatalf("glyph %d lost its mark class in the conversion", gid)
+				}
+			}
+		})
+	}
+}
+
+// TestCFFConversionKeepsIgnoreMarksBehavior guards the behaviour half of
+// RV5-32 with a crafted CFF font: with GDEF, IgnoreMarks skips the mark, and
+// without GDEF the same pair would apply.
+func TestCFFConversionKeepsIgnoreMarksBehavior(t *testing.T) {
+	charstring := new(charstringBuilder).num(0, 0).op(21).op(14).bytes()
+	gpos := buildGPOS(
+		[]gposScript{{tag: "DFLT", features: []int{0}}},
+		[]gposFeature{{tag: "kern", lookups: []int{0}}},
+		[][]byte{pairLookupTable(pairPosFormat1Test(0, 0, -100), 0x0008, 0)},
+	)
+	gdef := buildGDEF([]uint16{0}, nil)
+	tables := map[string][]byte{
+		"CFF ": testCFFTable(charstring),
+		"maxp": []byte{0, 0, 0x50, 0x00, 0, 1}, // version 0.5, one glyph
+		"head": testHead(),
+		"hhea": testHhea(),
+		"hmtx": []byte{0x01, 0xf4, 0, 0},
+		"GDEF": gdef,
+		"GPOS": gpos,
+	}
+	data := assembleSFNT(0x4F54544F, tables)
+	converted, err := convertCFF(data, tables, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tableDirectory(converted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out["GDEF"], gdef) {
+		t.Fatal("the converted font does not carry the source GDEF")
+	}
+	f, err := Parse(converted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.gpos.markGlyphs[0] {
+		t.Fatal("glyph 0 is not a mark after the conversion")
+	}
+	if got := f.Kerning(0, 0); got != 0 {
+		t.Fatalf("IgnoreMarks applied the pair to a mark: %d", got)
+	}
+
+	// The same source without GDEF cannot know the glyph is a mark, so the
+	// pair applies. This is the behaviour the copied table prevents.
+	delete(tables, "GDEF")
+	withoutGDEF, err := convertCFF(data, tables, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := Parse(withoutGDEF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Kerning(0, 0); got != -100 {
+		t.Fatalf("without GDEF the pair = %d, want -100", got)
+	}
+}
+
+// TestConvertedCFFWithoutGDEFKeepsTheOldTableSet guards the conditional half of
+// RV5-32: a source without GDEF converts with the table set the converter wrote
+// before the change.
+func TestConvertedCFFWithoutGDEFKeepsTheOldTableSet(t *testing.T) {
+	charstring := new(charstringBuilder).num(0, 0).op(21).op(14).bytes()
+	data := testCFFFont(charstring)
+	tables, err := tableDirectory(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tables["GDEF"]; ok {
+		t.Fatal("the crafted font declares GDEF")
+	}
+	converted, err := convertCFF(data, tables, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := tableDirectory(converted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(out))
+	for tag := range out {
+		got = append(got, tag)
+	}
+	slices.Sort(got)
+	want := []string{"glyf", "head", "hhea", "hmtx", "loca", "maxp"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("converted tables = %v, want %v", got, want)
 	}
 }
 

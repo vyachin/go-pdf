@@ -67,19 +67,27 @@ func (f *Font) glyphPath(gid uint16, depth int, e *expander) ([]Contour, error) 
 		return cached, e.take(cached)
 	}
 	data := f.glyphData(gid)
-	if len(data) < 10 {
+	if len(data) == 0 {
+		// Equal loca offsets describe a legal empty glyph: space and some
+		// .notdef glyphs have no data at all. This is not a truncation.
 		return nil, nil
+	}
+	if len(data) < 10 {
+		return nil, fmt.Errorf("font: glyph %d is truncated: %d bytes of glyph data, want at least 10", gid, len(data))
 	}
 	numContours := int16(binary.BigEndian.Uint16(data[0:2]))
 	if numContours >= 0 {
-		contours := f.simpleGlyph(data, int(numContours))
+		contours, err := f.simpleGlyph(data, int(numContours), gid)
+		if err != nil {
+			return nil, err
+		}
 		if err := e.take(contours); err != nil {
 			return nil, err
 		}
 		e.cache[gid] = contours
 		return contours, nil
 	}
-	contours, err := f.compositeGlyph(data, depth, e)
+	contours, err := f.compositeGlyph(data, depth, e, gid)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +95,18 @@ func (f *Font) glyphPath(gid uint16, depth int, e *expander) ([]Contour, error) 
 	return contours, nil
 }
 
-func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
+func truncatedGlyph(gid uint16, where string) error {
+	return fmt.Errorf("font: glyph %d is truncated in its %s", gid, where)
+}
+
+func (f *Font) simpleGlyph(data []byte, numContours int, gid uint16) ([]Contour, error) {
 	if numContours <= 0 {
-		return nil
+		// A simple glyph with no contours is an empty outline with a header.
+		return nil, nil
 	}
 	endBase := 10
 	if endBase+numContours*2 > len(data) {
-		return nil
+		return nil, truncatedGlyph(gid, "contour endpoints")
 	}
 	endPts := make([]int, numContours)
 	for i := 0; i < numContours; i++ {
@@ -101,21 +114,21 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 	}
 	numPoints := endPts[numContours-1] + 1
 	if numPoints <= 0 {
-		return nil
+		return nil, fmt.Errorf("font: glyph %d declares no points", gid)
 	}
 	pos := endBase + numContours*2
 	if pos+2 > len(data) {
-		return nil
+		return nil, truncatedGlyph(gid, "instruction length")
 	}
 	instrLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 	pos += 2 + instrLen
 	if pos > len(data) {
-		return nil
+		return nil, truncatedGlyph(gid, "instructions")
 	}
 	flags := make([]byte, numPoints)
 	for i := 0; i < numPoints; {
 		if pos >= len(data) {
-			return nil
+			return nil, truncatedGlyph(gid, "flags")
 		}
 		fl := data[pos]
 		pos++
@@ -123,7 +136,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 		i++
 		if fl&0x08 != 0 { // repeat
 			if pos >= len(data) {
-				return nil
+				return nil, truncatedGlyph(gid, "flag repeat count")
 			}
 			repeat := int(data[pos])
 			pos++
@@ -140,7 +153,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 		switch {
 		case fl&0x02 != 0:
 			if pos >= len(data) {
-				return nil
+				return nil, truncatedGlyph(gid, "x coordinates")
 			}
 			d := int(data[pos])
 			pos++
@@ -151,7 +164,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 			}
 		case fl&0x10 == 0:
 			if pos+2 > len(data) {
-				return nil
+				return nil, truncatedGlyph(gid, "x coordinates")
 			}
 			x += int(int16(binary.BigEndian.Uint16(data[pos : pos+2])))
 			pos += 2
@@ -165,7 +178,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 		switch {
 		case fl&0x04 != 0:
 			if pos >= len(data) {
-				return nil
+				return nil, truncatedGlyph(gid, "y coordinates")
 			}
 			d := int(data[pos])
 			pos++
@@ -176,7 +189,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 			}
 		case fl&0x20 == 0:
 			if pos+2 > len(data) {
-				return nil
+				return nil, truncatedGlyph(gid, "y coordinates")
 			}
 			y += int(int16(binary.BigEndian.Uint16(data[pos : pos+2])))
 			pos += 2
@@ -187,7 +200,7 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 	start := 0
 	for _, end := range endPts {
 		if end < start || end >= numPoints {
-			return contours
+			return nil, fmt.Errorf("font: glyph %d has an inconsistent contour endpoint %d", gid, end)
 		}
 		c := make(Contour, 0, end-start+1)
 		for i := start; i <= end; i++ {
@@ -196,30 +209,33 @@ func (f *Font) simpleGlyph(data []byte, numContours int) []Contour {
 		contours = append(contours, c)
 		start = end + 1
 	}
-	return contours
+	return contours, nil
 }
 
-func (f *Font) compositeGlyph(data []byte, depth int, e *expander) ([]Contour, error) {
+func (f *Font) compositeGlyph(data []byte, depth int, e *expander, gid uint16) ([]Contour, error) {
 	pos := 10
 	var out []Contour
 	for {
 		if pos+4 > len(data) {
-			return out, nil
+			return nil, truncatedGlyph(gid, "component records")
 		}
 		flags := binary.BigEndian.Uint16(data[pos : pos+2])
 		component := binary.BigEndian.Uint16(data[pos+2 : pos+4])
+		if component >= f.numGlyphs {
+			return nil, fmt.Errorf("font: composite glyph %d references component %d outside the %d glyphs", gid, component, f.numGlyphs)
+		}
 		pos += 4
 		var dx, dy float32
 		if flags&0x0001 != 0 {
 			if pos+4 > len(data) {
-				return out, nil
+				return nil, truncatedGlyph(gid, "component offset")
 			}
 			dx = float32(int16(binary.BigEndian.Uint16(data[pos : pos+2])))
 			dy = float32(int16(binary.BigEndian.Uint16(data[pos+2 : pos+4])))
 			pos += 4
 		} else {
 			if pos+2 > len(data) {
-				return out, nil
+				return nil, truncatedGlyph(gid, "component offset")
 			}
 			dx = float32(int8(data[pos]))
 			dy = float32(int8(data[pos+1]))
@@ -236,21 +252,21 @@ func (f *Font) compositeGlyph(data []byte, depth int, e *expander) ([]Contour, e
 		switch {
 		case flags&0x0008 != 0:
 			if pos+2 > len(data) {
-				return out, nil
+				return nil, truncatedGlyph(gid, "component scale")
 			}
 			s := f2dot14(data[pos : pos+2])
 			pos += 2
 			a, d = s, s
 		case flags&0x0040 != 0:
 			if pos+4 > len(data) {
-				return out, nil
+				return nil, truncatedGlyph(gid, "component scale")
 			}
 			a = f2dot14(data[pos : pos+2])
 			d = f2dot14(data[pos+2 : pos+4])
 			pos += 4
 		case flags&0x0080 != 0:
 			if pos+8 > len(data) {
-				return out, nil
+				return nil, truncatedGlyph(gid, "component transform")
 			}
 			a = f2dot14(data[pos : pos+2])
 			b = f2dot14(data[pos+2 : pos+4])
@@ -288,37 +304,55 @@ func f2dot14(b []byte) float32 {
 	return float32(int16(binary.BigEndian.Uint16(b))) / 16384
 }
 
-// components returns the glyph indices referenced by a composite glyph.
-func (f *Font) components(gid uint16) []uint16 {
+// components returns the glyph indices referenced by a composite glyph. A
+// component id at or beyond numGlyphs, and a record that ends inside its data,
+// are errors: dropping either would leave a dangling or partial reference in
+// the subset.
+func (f *Font) components(gid uint16) ([]uint16, error) {
 	data := f.glyphData(gid)
-	if len(data) < 12 || int16(binary.BigEndian.Uint16(data[0:2])) >= 0 {
-		return nil
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if len(data) < 2 {
+		return nil, truncatedGlyph(gid, "glyph header")
+	}
+	if int16(binary.BigEndian.Uint16(data[0:2])) >= 0 {
+		return nil, nil
+	}
+	if len(data) < 10 {
+		return nil, truncatedGlyph(gid, "composite header")
 	}
 	pos := 10
 	var out []uint16
 	for {
 		if pos+4 > len(data) {
-			return out
+			return nil, truncatedGlyph(gid, "component records")
 		}
 		flags := binary.BigEndian.Uint16(data[pos : pos+2])
 		component := binary.BigEndian.Uint16(data[pos+2 : pos+4])
+		if component >= f.numGlyphs {
+			return nil, fmt.Errorf("font: composite glyph %d references component %d outside the %d glyphs", gid, component, f.numGlyphs)
+		}
 		out = append(out, component)
 		pos += 4
+		size := 2
 		if flags&0x0001 != 0 {
-			pos += 4
-		} else {
-			pos += 2
+			size = 4
 		}
 		switch {
 		case flags&0x0008 != 0:
-			pos += 2
+			size += 2
 		case flags&0x0040 != 0:
-			pos += 4
+			size += 4
 		case flags&0x0080 != 0:
-			pos += 8
+			size += 8
 		}
+		if pos+size > len(data) {
+			return nil, truncatedGlyph(gid, "component data")
+		}
+		pos += size
 		if flags&0x0020 == 0 {
-			return out
+			return out, nil
 		}
 	}
 }

@@ -27,7 +27,13 @@ func (f *Font) Subset(used map[uint16]bool) ([]byte, error) {
 			continue
 		}
 		need[gid] = true
-		stack = append(stack, f.components(gid)...)
+		components, err := f.components(gid)
+		if err != nil {
+			// Continuing would embed the glyph without a component it
+			// references, which paints incomplete.
+			return nil, err
+		}
+		stack = append(stack, components...)
 	}
 
 	newGlyf := make([]byte, 0, len(f.glyf)/4+1024)

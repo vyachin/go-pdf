@@ -200,8 +200,10 @@ func TestCoverageBudgetIsSharedAcrossSubtables(t *testing.T) {
 	if k.coverGlyphs != 3*65535 {
 		t.Fatalf("three subtables expanded %d glyphs, want %d", k.coverGlyphs, 3*65535)
 	}
-	if err := k.parsePairPos(body, 0); err != nil {
-		t.Fatalf("parsePairPos after the budget was spent: %v", err)
+	// The fourth subtable cannot fit: crossing the cap is an error, not a
+	// partial lookup set.
+	if err := k.parsePairPos(body, 0); !errors.Is(err, ErrLimit) {
+		t.Fatalf("parsePairPos after the budget was spent returned %v, want ErrLimit", err)
 	}
 	if k.coverGlyphs > maxKerningGlyphs {
 		t.Fatalf("shared budget was exceeded: %d", k.coverGlyphs)

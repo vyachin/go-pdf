@@ -43,11 +43,15 @@ for the angle.
 
 An `.otf` whose outlines are PostScript (CFF) is converted to TrueType in memory
 before layout. The glyph numbering and the tables that depend on it — `cmap`,
-`GPOS`, `hmtx`, `head`, `hhea`, `name`, `OS/2` and `post` — are kept, and `glyf`,
-`loca` and `maxp` are synthesized. Shaping, subsetting, `CIDFontType2` /
-`FontFile2` embedding and the copyable text layer then take the same path as a
-TrueType font, so the PDF object structure does not change and an existing
-template converts to the same bytes as before.
+`GPOS`, `GDEF` when the source has one, `hmtx`, `head`, `hhea`, `name`, `OS/2`
+and `post` — are kept, and `glyf`, `loca` and `maxp` are synthesized. Shaping,
+subsetting, `CIDFontType2` / `FontFile2` embedding and the copyable text layer
+then take the same path as a TrueType font, so the PDF object structure does not
+change and an existing template converts to the same bytes as before.
+
+`GDEF` travels with the font because the glyph ids do: its mark classes and mark
+filtering sets stay valid, so a `GPOS` lookup with `IgnoreMarks` or
+`UseMarkFilteringSet` skips the same marks as it does in the source.
 
 The engine reads the `CFF ` table and its Type 2 charstrings itself. It does not
 depend on an external decoder at run time: `golang.org/x/image`, the decoder the
@@ -98,6 +102,18 @@ A composite glyph component whose flags include `SCALED_COMPONENT_OFFSET`
 (0x0800) has its offset transformed by the component's scale before it is added,
 so a component at (100,0) with scale 0.5 lands at (50,0).
 
+A composite component id at or beyond `numGlyphs` is an error naming the
+composite glyph. The outline reader and the subsetter both refuse it, so a
+conversion never embeds a dangling component reference. The check is lazy: an
+unused broken glyph does not reject the font, but painting or subsetting the
+glyph that references it fails.
+
+Equal `loca` offsets are a legal empty glyph (`space` and some `.notdef` glyphs
+have no data) and render as an empty outline. A non-zero range that ends inside
+its contour or component data is an error naming the glyph instead of an empty
+or partial outline, so a malformed glyph cannot silently disappear from the
+page or from the subset.
+
 A CFF charstring delta whose magnitude does not fit an `int16` is rejected with
 a diagnostic instead of being truncated: the stored outline must stay consistent
 with the header bounding box. A CFF font whose Top DICT omits the `Private`
@@ -109,17 +125,31 @@ A font file is untrusted input even when it comes from the document. Parsing
 charges the conversion's shared work budget for every GPOS lookup, subtable and
 coverage entry it examines, and stops with `resource/limit` when the budget is
 exhausted. Independent caps bound the counts a font may declare: 4,096 lookups
-per font, 4,096 subtables per lookup and 1,000,000 scanned coverage entries.
-Real fonts are far below these numbers — DejaVu Sans declares two lookups.
+per font, 4,096 subtables per lookup, 200,000 expanded coverage glyph ids per
+font and 1,000,000 scanned coverage entries. Real fonts are far below these
+numbers — DejaVu Sans declares two lookups.
+
+Only the `kern`, `mark` and `mkmk` features referenced by the ordinary scripts
+apply. The ordinary scripts are `DFLT`, `latn`, `cyrl`, `grek` and `hebr`; a
+usable `ScriptList` that names none of them enables no lookup, so a pair
+declared only under another script (Arabic, Indic) cannot reach Latin or
+Cyrillic text. A missing or out-of-bounds `ScriptList` keeps the fallback the
+engine has always had: every lookup stays selectable, so a crafted or
+single-script table without a list still applies.
+
+Crossing the coverage cap is `resource/limit`: the parser aborts instead of
+keeping the lookups it managed to read, so a font cannot silently lose kerning
+by declaring more coverage than the cap. Truncated or inconsistent optional
+data is not a cap crossing; it keeps the "no lookups, font loads" behaviour.
 
 Offsets, lengths and counts are evaluated in 64-bit arithmetic before any slice,
 so a value that does not fit an `int` on a 32-bit build is rejected instead of
 wrapping; a `cmap` format 12 group that would map past glyph 65535 is refused.
 
 A malformed optional table degrades rather than rejecting the font. A `GPOS`
-`ScriptList` or `FeatureList` offset outside the table disables the lookups it
-would select: the font loads without kerning, no byte outside the table is read,
-and parsing never panics.
+`FeatureList` offset outside the table disables every lookup, while a
+`ScriptList` offset outside the table keeps the all-lookups fallback; either way
+the font loads, no byte outside the table is read, and parsing never panics.
 
 ## Recommended set for Russian documents
 

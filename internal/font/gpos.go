@@ -289,7 +289,10 @@ func (l *pairLookup) parsePairPos(k *kerning, data []byte, off int) error {
 	valueFormat2 := binary.BigEndian.Uint16(data[off+6 : off+8])
 	remaining := maxKerningGlyphs - k.coverGlyphs
 	if remaining <= 0 {
-		return nil
+		// The shared coverage budget is spent. Returning "no lookups" here
+		// would silently drop this and every later lookup, so crossing the cap
+		// is terminal for the table.
+		return limitf("GPOS coverage exceeds %d glyphs", maxKerningGlyphs)
 	}
 	cover, ok, err := k.parseCoverage(data, coverageOff, remaining)
 	if err != nil {
@@ -460,7 +463,10 @@ func (k *kerning) parseCoverage(data []byte, off, limit int) ([]uint16, bool, er
 	switch format {
 	case 1:
 		n := int(binary.BigEndian.Uint16(data[off+2 : off+4]))
-		if n > limit || !fits(off, 4, uint64(n)*2, len(data)) {
+		if n > limit {
+			return nil, false, limitf("GPOS coverage exceeds the remaining %d glyphs", limit)
+		}
+		if !fits(off, 4, uint64(n)*2, len(data)) {
 			return nil, false, nil
 		}
 		if err := k.charge(uint64(n)); err != nil {
@@ -504,7 +510,7 @@ func (k *kerning) parseCoverage(data []byte, off, limit int) ([]uint16, bool, er
 			}
 			total += end - start + 1
 			if total > limit {
-				return nil, false, nil
+				return nil, false, limitf("GPOS coverage exceeds the remaining %d glyphs", limit)
 			}
 			prevEnd = end
 		}
@@ -665,13 +671,15 @@ func (k *kerning) participates(l *pairLookup, gid uint16) bool {
 var ordinaryScripts = []string{"DFLT", "latn", "cyrl", "grek", "hebr"}
 
 // enabledLookups returns the lookup indices the ordinary scripts' kern, mark and
-// mkmk features reference. It returns nil when the table has no usable
-// ScriptList or names none of the ordinary scripts, which means "every lookup":
-// a crafted or single-script table without a script list still applies.
+// mkmk features reference. It returns nil only when the table has no usable
+// ScriptList, which means "every lookup": a crafted or single-script table
+// without a script list still applies. A usable ScriptList that names none of
+// the ordinary scripts returns an empty non-nil set, so a pair declared only
+// under another script cannot apply to ordinary text.
 func enabledLookups(gpos []byte) map[int]bool {
 	scriptList := int(binary.BigEndian.Uint16(gpos[4:6]))
 	featureList := int(binary.BigEndian.Uint16(gpos[6:8]))
-	if scriptList == 0 || featureList == 0 || !fits(scriptList, 0, 2, len(gpos)) {
+	if scriptList == 0 || !fits(scriptList, 0, 2, len(gpos)) {
 		return nil
 	}
 	scripts := scriptTables(gpos, scriptList)
@@ -682,11 +690,13 @@ func enabledLookups(gpos []byte) map[int]bool {
 		}
 	}
 	if len(offs) == 0 {
-		return nil
+		// A usable ScriptList that names only another script selects nothing.
+		// Return an empty set, not nil: nil means "every lookup applies".
+		return map[int]bool{}
 	}
-	// A usable ScriptList with an out-of-bounds FeatureList names no ordinary
-	// feature. Return an empty set, not nil: nil means "every lookup applies".
-	if !fits(featureList, 0, 2, len(gpos)) {
+	// A usable ScriptList with a missing or out-of-bounds FeatureList names no
+	// ordinary feature, so it selects nothing either.
+	if featureList == 0 || !fits(featureList, 0, 2, len(gpos)) {
 		return map[int]bool{}
 	}
 	out := map[int]bool{}
