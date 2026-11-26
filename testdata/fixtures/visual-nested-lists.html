@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Nested lists and numbering</title>
+  <style>
+    @page { size: 280pt 260pt; margin: 18pt }
+    body { font-size: 10pt; line-height: 1.3 }
+    ol, ul { margin: 0 0 6pt 0; padding-left: 24pt }
+    li { margin-bottom: 4pt }
+    .decimal { list-style-type: decimal }
+    .disc { list-style-type: disc }
+  </style>
+</head>
+<body>
+  <ol start="8" class="decimal">
+    <li>Outer eight
+      <ol start="3" class="decimal">
+        <li>Inner three</li>
+        <li>Inner four</li>
+      </ol>
+    </li>
+    <li>Outer nine wraps onto another line with enough words to check marker alignment.</li>
+    <li>Outer ten</li>
+  </ol>
+  <ul class="disc">
+    <li>Bullet one</li>
+    <li>Bullet two</li>
+  </ul>
+</body>
+</html>

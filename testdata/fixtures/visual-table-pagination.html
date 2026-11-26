@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Table headers across pages</title>
+  <style>
+    @page { size: 240pt 140pt; margin: 12pt }
+    table { width: 100%; border-collapse: collapse; font-size: 10pt; line-height: 12pt }
+    th, td { padding: 3pt; border: 0.5pt solid #304050 }
+    th { background-color: #d0e8f0; text-align: left }
+    .amount { text-align: right }
+    .shade td { background-color: #f0f0f0 }
+    tfoot td { font-weight: 700; background-color: #e0f0d0 }
+  </style>
+</head>
+<body>
+  <table>
+    <thead><tr><th>Item</th><th>Amount</th></tr></thead>
+    <tbody>
+      <tr><td>ROW-01</td><td class="amount">10</td></tr>
+      <tr class="shade"><td>ROW-02</td><td class="amount">20</td></tr>
+      <tr><td>ROW-03</td><td class="amount">30</td></tr>
+      <tr class="shade"><td>ROW-04</td><td class="amount">40</td></tr>
+      <tr><td>ROW-05</td><td class="amount">50</td></tr>
+      <tr class="shade"><td>ROW-06</td><td class="amount">60</td></tr>
+      <tr><td>ROW-07</td><td class="amount">70</td></tr>
+      <tr class="shade"><td>ROW-08</td><td class="amount">80</td></tr>
+    </tbody>
+    <tfoot><tr><td>TOTAL</td><td class="amount">360</td></tr></tfoot>
+  </table>
+</body>
+</html>

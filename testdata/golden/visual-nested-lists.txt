@@ -1,0 +1,1 @@
+8.Outer eight3.Inner three4.Inner four9.Outer nine wraps onto another line withenough words to check marker alignment.10.Outer ten•Bullet one•Bullet two

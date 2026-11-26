@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Inline flow and decorations</title>
+  <style>
+    @page { size: 280pt 240pt; margin: 18pt }
+    body { font-size: 10pt; line-height: 1.4; color: #18324a }
+    p { margin: 0 0 8pt 0 }
+    .badge { font-size: 14pt; font-weight: 700; color: #246080 }
+    img { vertical-align: middle }
+    .underline { text-decoration: underline; color: #006060 }
+    .strike { text-decoration: line-through; color: #903030 }
+    .pre { white-space: pre; padding: 4pt; background-color: #eeeeee }
+  </style>
+</head>
+<body>
+  <p>Before <img src="logo.png" width="20" height="20"> <span class="badge">READY</span> after.</p>
+  <p><span class="underline">Underlined <strong>bold</strong></span> and <span class="strike">removed</span>.</p>
+  <p>A nonbreaking pair: 10&nbsp;000. A<br>forced line break.</p>
+  <p class="pre">  first line
+    second line</p>
+  <div hidden>SECRET</div>
+</body>
+</html>
