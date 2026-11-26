@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Spanning cell continuation across pages.** A `rowspan` cell that crosses a
+  page break now continues every fragment with its text, background and all four
+  border sides, and two spanning cells in the same row keep independent
+  continuations instead of the later one overwriting the earlier one. A cell
+  whose content cannot be fragmented reports `layout/overflow` once instead of
+  losing the remaining content silently.
 - **Text source positions.** A text node written with a character reference
   (`&amp;`), one whose first newline `pre`/`listing`/`textarea` drops, or one
   around a NUL now carries its own token's range, so a diagnostic names the text

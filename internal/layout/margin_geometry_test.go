@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/vyachin/go-pdf/internal/css"
+	"github.com/vyachin/go-pdf/internal/diag"
 )
 
 // TestHugeMarginClampsTheContentBox guards RV4-32: the content width and the
@@ -152,42 +153,361 @@ func TestDeclaredHeightIsReservedOnce(t *testing.T) {
 	}
 }
 
-// TestRowspanCellIsClippedAndContinued guards RV4-13: a rowspan cell crossing
-// a page break was painted once with the height of all covered rows, so its
-// background and text ran past the page and no fragment appeared on the next
-// page. The cell is clipped to the page and continued on the following one.
+// TestRowspanCellIsClippedAndContinued guards RV4-13 and the spanning-cell
+// continuation: a rowspan cell crossing a page break used to be painted once
+// with the height of all covered rows, and only its background was continued.
+// Every fragment now carries the cell's text, background and four borders.
 func TestRowspanCellIsClippedAndContinued(t *testing.T) {
+	const lines = 40
 	h := newHarness(t)
 	var body strings.Builder
-	body.WriteString(`<table><tr><td rowspan="60" style="background-color:#00ff00">SPAN</td><td>r1</td></tr>`)
+	body.WriteString(`<table><tr><td rowspan="60" style="background-color:#00ff00;border:2pt solid #ff0000">`)
+	for i := 0; i < lines; i++ {
+		if i > 0 {
+			body.WriteString("<br>")
+		}
+		body.WriteString("L")
+		body.WriteString(strconv.Itoa(i))
+	}
+	body.WriteString(`</td><td>r1</td></tr>`)
 	for i := 2; i <= 60; i++ {
 		body.WriteString("<tr><td>r")
 		body.WriteString(strconv.Itoa(i))
 		body.WriteString("</td></tr>")
 	}
 	body.WriteString("</table>")
-	h.ctx.PageSize = css.PageSize{Width: 283465, Height: 170079}
-	h.ctx.Margin = [4]int32{14173, 14173, 14173, 14173}
-	doc := h.run(body.String())
+	size := css.PageSize{Width: 283465, Height: 170079}
+	margin := [4]int32{14173, 14173, 14173, 14173}
+	doc, diags := h.runRaw(body.String(), size, margin)
+	if len(doc.Pages) < 3 {
+		t.Fatalf("the table produced %d pages, want at least 3", len(doc.Pages))
+	}
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("the continued cell reported %d layout/overflow diagnostics: %v", n, diags.Lines())
+	}
+	// Every line is extracted once, on the page whose fragment carries it.
+	perPage := assertCellLines(t, doc, "L", lines)
+	for _, page := range []int{0, 1, 2} {
+		if len(perPage[page]) == 0 {
+			t.Fatalf("page %d carries no continued line: per page %v", page+1, perPage)
+		}
+	}
+	// Every page the span covers is a closed box: the background plus all four
+	// border sides, clipped to the page content box.
+	green := css.Color{R: 0, G: 255, B: 0, Set: true}
+	red := css.Color{R: 255, Set: true}
+	for _, page := range doc.Pages {
+		assertSpanFragment(t, page, green, red, 2000)
+	}
+	assertInsideContentBox(t, doc)
+}
+
+// TestTwoSpanningCellsInOneRowBothContinue guards the single-continuation-slot
+// defect: when two cells span the same rows, the later record used to replace
+// the earlier one. Both cells must keep their own text, background and border
+// on the following pages.
+func TestTwoSpanningCellsInOneRowBothContinue(t *testing.T) {
+	const lines = 30
+	h := newHarness(t)
+	var body strings.Builder
+	body.WriteString(`<table><tr>`)
+	for _, cell := range []struct{ prefix, background string }{
+		{"A", "#00ff00"},
+		{"B", "#0000ff"},
+	} {
+		body.WriteString(`<td rowspan="30" style="background-color:` + cell.background + `;border:1pt solid #ff0000">`)
+		for i := 0; i < lines; i++ {
+			if i > 0 {
+				body.WriteString("<br>")
+			}
+			body.WriteString(cell.prefix)
+			body.WriteString(strconv.Itoa(i))
+		}
+		body.WriteString(`</td>`)
+	}
+	body.WriteString(`<td>r1</td></tr>`)
+	for i := 2; i <= 30; i++ {
+		body.WriteString("<tr><td>r")
+		body.WriteString(strconv.Itoa(i))
+		body.WriteString("</td></tr>")
+	}
+	body.WriteString("</table>")
+	size, margin := smallPage()
+	doc, diags := h.runRaw(body.String(), size, margin)
 	if len(doc.Pages) < 2 {
 		t.Fatalf("the table produced %d pages, want at least 2", len(doc.Pages))
 	}
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("both spanning cells should continue without diagnostics, got %v", diags.Lines())
+	}
+	// Each cell keeps its own line cursor, so both streams survive the break.
+	a := assertCellLines(t, doc, "A", lines)
+	b := assertCellLines(t, doc, "B", lines)
+	if len(a[1]) == 0 {
+		t.Fatalf("cell A paints no continued line on page 2: per page %v", a)
+	}
+	if len(b[1]) == 0 {
+		t.Fatalf("cell B paints no continued line on page 2: per page %v", b)
+	}
+	// The second record must not overwrite the first: both backgrounds and both
+	// closed fragments are present on page 2.
+	green := css.Color{R: 0, G: 255, B: 0, Set: true}
+	blue := css.Color{B: 255, Set: true}
+	red := css.Color{R: 255, Set: true}
+	assertSpanFragment(t, doc.Pages[1], green, red, 1000)
+	assertSpanFragment(t, doc.Pages[1], blue, red, 1000)
+	assertInsideContentBox(t, doc)
+}
+
+// TestSpanEndsInsideAPage guards a span whose covered rows end in the middle of
+// a page: the last fragment stops at the last covered row instead of running to
+// the page bottom and over the rows below the span.
+func TestSpanEndsInsideAPage(t *testing.T) {
+	h := newHarness(t)
+	size, margin := smallPage()
+	src := `<table>
+	  <tr style="height:80pt"><td rowspan="2" style="background-color:#00ff00;border:2pt solid #ff0000">S</td><td>r1</td></tr>
+	  <tr style="height:80pt"><td>r2</td></tr>
+	  <tr><td>AFTER</td></tr>
+	</table>`
+	doc, diags := h.runRaw(src, size, margin)
+	if len(doc.Pages) != 2 {
+		t.Fatalf("the table produced %d pages, want 2", len(doc.Pages))
+	}
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("unexpected overflow diagnostics: %v", diags.Lines())
+	}
+	green := css.Color{R: 0, G: 255, B: 0, Set: true}
+	red := css.Color{R: 255, Set: true}
+	fill := assertSpanFragment(t, doc.Pages[1], green, red, 2000)
+	// Only the second covered row (80 pt) remains on page 2, so the fragment
+	// stops there rather than at the page content bottom.
+	if fill.H != 80000 {
+		t.Fatalf("the last fragment is %d tall, want the 80000 of the last covered row", fill.H)
+	}
+	after := firstBaseline(t, doc.Pages[1], "AFTER")
+	if after < 0 {
+		t.Fatal("the row below the span is not painted on page 2")
+	}
+	if after < fill.Y+fill.H {
+		t.Fatalf("the row below the span (baseline %d) is painted over the fragment ending at %d", after, fill.Y+fill.H)
+	}
+	assertInsideContentBox(t, doc)
+}
+
+// TestSpanningCellWithoutLineCursorReportsOnce guards the no-silent-loss rule
+// for content this change does not fragment (a nested table): the loss is
+// reported once for the cell, not once per page, and the rest of the document
+// is still rendered.
+func TestSpanningCellWithoutLineCursorReportsOnce(t *testing.T) {
+	h := newHarness(t)
+	var body strings.Builder
+	body.WriteString(`<table><tr><td rowspan="60"><table>`)
+	for i := 0; i < 30; i++ {
+		body.WriteString("<tr><td>N</td></tr>")
+	}
+	body.WriteString(`</table></td><td>r1</td></tr>`)
+	for i := 2; i <= 60; i++ {
+		body.WriteString("<tr><td>r")
+		body.WriteString(strconv.Itoa(i))
+		body.WriteString("</td></tr>")
+	}
+	body.WriteString("</table><p>AFTER</p>")
+	size, margin := smallPage()
+	doc, diags := h.runRaw(body.String(), size, margin)
+	if len(doc.Pages) < 2 {
+		t.Fatalf("the table produced %d pages, want at least 2", len(doc.Pages))
+	}
+	reported := 0
+	for _, d := range diags {
+		if d.Code != "layout/overflow" {
+			continue
+		}
+		reported++
+		if !strings.Contains(d.Element, "td") {
+			t.Fatalf("the diagnostic does not name the cell: %s", d.String())
+		}
+	}
+	if reported != 1 {
+		t.Fatalf("got %d layout/overflow diagnostics, want exactly one: %v", reported, diags.Lines())
+	}
+	if !strings.Contains(textOf(doc), "AFTER") {
+		t.Fatal("the paragraph after the table is not rendered")
+	}
+}
+
+// TestRowspanHundredLinesContinueAcrossPages is the delta-spec scenario: a
+// first-row cell with rowspan="100" and one hundred lines on A4 spans three
+// pages, every line is extractable exactly once, and every page carries the
+// cell's background and four border sides.
+func TestRowspanHundredLinesContinueAcrossPages(t *testing.T) {
+	const lines = 100
+	h := newHarness(t)
+	var body strings.Builder
+	body.WriteString(`<table><tr><td rowspan="100" style="background-color:#00ff00;border:2pt solid #ff0000">`)
+	for i := 0; i < lines; i++ {
+		if i > 0 {
+			body.WriteString("<br>")
+		}
+		body.WriteString("L")
+		body.WriteString(strconv.Itoa(i))
+	}
+	body.WriteString(`</td><td>r1</td></tr>`)
+	for i := 2; i <= 100; i++ {
+		body.WriteString("<tr><td>r")
+		body.WriteString(strconv.Itoa(i))
+		body.WriteString("</td></tr>")
+	}
+	body.WriteString("</table>")
+	doc, diags := h.runRaw(body.String(), h.ctx.PageSize, h.ctx.Margin)
+	if len(doc.Pages) != 3 {
+		t.Fatalf("the table produced %d pages, want 3", len(doc.Pages))
+	}
+	if n := countOverflow(diags); n != 0 {
+		t.Fatalf("the continued cell reported %d layout/overflow diagnostics: %v", n, diags.Lines())
+	}
+	perPage := assertCellLines(t, doc, "L", lines)
+	if len(perPage[0]) == 0 || len(perPage[1]) == 0 {
+		t.Fatalf("a page that continues the cell carries no cell line: per page %v", perPage)
+	}
+	if len(perPage[2]) != 0 {
+		t.Fatalf("the cell content ended before page 3: per page %v", perPage)
+	}
+	green := css.Color{R: 0, G: 255, B: 0, Set: true}
+	red := css.Color{R: 255, Set: true}
+	for _, page := range doc.Pages {
+		assertSpanFragment(t, page, green, red, 2000)
+	}
+	assertInsideContentBox(t, doc)
+}
+
+// assertSpanFragment checks that a spanning cell's fragment is a closed box:
+// its background and all four border sides are painted at the fragment's edges.
+func assertSpanFragment(t *testing.T, page *Page, background, border css.Color, borderWidth int32) Rect {
+	t.Helper()
+	fill := spanFill(page, background)
+	if fill == nil {
+		t.Fatalf("page %d has no spanning-cell background", page.Number)
+	}
+	sides := []Rect{
+		{X: fill.X, Y: fill.Y, W: borderWidth, H: fill.H},
+		{X: fill.X + fill.W - borderWidth, Y: fill.Y, W: borderWidth, H: fill.H},
+		{X: fill.X, Y: fill.Y, W: fill.W, H: borderWidth},
+		{X: fill.X, Y: fill.Y + fill.H - borderWidth, W: fill.W, H: borderWidth},
+	}
+	for _, side := range sides {
+		if !hasFill(page, border, side) {
+			t.Fatalf("page %d: border side %+v is missing from the fragment %+v", page.Number, side, *fill)
+		}
+	}
+	return *fill
+}
+
+// spanFill returns the first filled rectangle of the given colour on the page.
+func spanFill(page *Page, color css.Color) *Rect {
+	for i := range page.Ops {
+		op := &page.Ops[i]
+		if op.Kind == FillOpKind && op.Color == color {
+			return &op.Rect
+		}
+	}
+	return nil
+}
+
+// hasFill reports whether the page paints the exact rectangle in the colour.
+func hasFill(page *Page, color css.Color, rect Rect) bool {
+	for _, op := range page.Ops {
+		if op.Kind == FillOpKind && op.Color == color && op.Rect == rect {
+			return true
+		}
+	}
+	return false
+}
+
+// assertInsideContentBox checks that no operation extends below the page
+// content bottom.
+func assertInsideContentBox(t *testing.T, doc *Document) {
+	t.Helper()
 	for _, page := range doc.Pages {
 		bottom := satSub(page.Size.Height, page.Margin[2])
 		for _, op := range page.Ops {
-			if op.Rect.Y > bottom+1 || op.Rect.Y+op.Rect.H > bottom+1 {
-				t.Fatalf("an operation paints outside the page: y=%d h=%d bottom=%d", op.Rect.Y, op.Rect.H, bottom)
+			if op.Rect.Y < 0 || op.Rect.Y+op.Rect.H > bottom+1 {
+				t.Fatalf("page %d: an operation paints outside the content box: y=%d h=%d bottom=%d",
+					page.Number, op.Rect.Y, op.Rect.H, bottom)
 			}
 		}
 	}
-	// The continuation fragment is painted on the following page.
-	continued := false
-	for _, op := range doc.Pages[1].Ops {
-		if op.Kind == FillOpKind && op.Color == (css.Color{R: 0, G: 255, B: 0, Set: true}) {
-			continued = true
+}
+
+// countOverflow returns the number of layout/overflow diagnostics.
+func countOverflow(diags diag.List) int {
+	n := 0
+	for _, d := range diags {
+		if d.Code == "layout/overflow" {
+			n++
 		}
 	}
-	if !continued {
-		t.Fatal("the spanning cell has no continuation on the next page")
+	return n
+}
+
+// cellLinesByPage returns, per page, the text of every painted line of a cell
+// whose lines start with prefix. Each line is one text operation.
+func cellLinesByPage(doc *Document, prefix string) [][]string {
+	out := make([][]string, len(doc.Pages))
+	for i, page := range doc.Pages {
+		for _, op := range page.Ops {
+			if op.Kind != TextOpKind || op.Text == nil {
+				continue
+			}
+			var b strings.Builder
+			for _, g := range op.Text.Run.Glyphs {
+				b.WriteRune(g.Rune)
+			}
+			if text := b.String(); strings.HasPrefix(text, prefix) {
+				out[i] = append(out[i], text)
+			}
+		}
 	}
+	return out
+}
+
+// assertCellLines checks that every cell line is painted exactly once and
+// returns the per-page counts.
+func assertCellLines(t *testing.T, doc *Document, prefix string, want int) [][]string {
+	t.Helper()
+	perPage := cellLinesByPage(doc, prefix)
+	seen := map[string]bool{}
+	total := 0
+	for _, lines := range perPage {
+		for _, line := range lines {
+			if seen[line] {
+				t.Fatalf("cell line %q is painted twice: per page %v", line, perPage)
+			}
+			seen[line] = true
+			total++
+		}
+	}
+	if total != want {
+		t.Fatalf("%q cell lines: got %d, want %d: per page %v", prefix, total, want, perPage)
+	}
+	return perPage
+}
+
+// firstBaseline returns the baseline of the first painted line whose text is
+// the given word, or -1.
+func firstBaseline(t *testing.T, page *Page, word string) int32 {
+	t.Helper()
+	for _, op := range page.Ops {
+		if op.Kind != TextOpKind || op.Text == nil {
+			continue
+		}
+		var b strings.Builder
+		for _, g := range op.Text.Run.Glyphs {
+			b.WriteRune(g.Rune)
+		}
+		if b.String() == word {
+			return op.Text.Y
+		}
+	}
+	return -1
 }

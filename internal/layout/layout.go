@@ -34,6 +34,10 @@ type layouter struct {
 	pagesExhausted bool
 	// pageLimitReported records that the page limit diagnostic was added.
 	pageLimitReported bool
+	// suppressOverflow is non-zero while the first fragment of a clipped
+	// spanning cell is painted. Its content is continued or reported once for
+	// the cell, so the fragment itself must not report the clipping per line.
+	suppressOverflow int
 }
 
 // Run lays out a validated document and returns its pages.
