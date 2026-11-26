@@ -27,6 +27,10 @@ type Line struct {
 	Saturated bool
 	// Indent is the text-indent applied to this line.
 	Indent int32
+	// BaseDir is the paragraph base direction the line's runs are ordered
+	// with: the nearest dir attribute or, when none is set, the first strong
+	// character of the block.
+	BaseDir text.Direction
 	// ForcedBreak is true when the line ended at a <br> or the end of the block.
 	ForcedBreak bool
 	// Anchors are element ids whose content starts on this line.
@@ -264,6 +268,9 @@ func (l *layouter) buildLines(b *Box, width int32) {
 
 	var lines []Line
 	cur := Line{}
+	// The paragraph base direction is fixed for the whole block: an explicit
+	// dir attribute wins, otherwise the first strong character decides.
+	baseDir := paragraphDirection(b.Style, pieces)
 	// x accumulates the line width in 64-bit: a word of hundreds of thousands
 	// of glyphs, or a preformatted line of many large runs, must not wrap into
 	// a negative natural width before the line is clamped.
@@ -273,6 +280,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	// exactly on MaxInt32.
 	saturated := false
 	flush := func(forced bool) {
+		cur.BaseDir = baseDir
 		if len(cur.Items) == 0 {
 			if forced {
 				cur.ForcedBreak = true
@@ -418,6 +426,14 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Ascent = max(cur.Ascent, h)
 			x += int64(w)
 		case wordPiece:
+			// A joining script is refused before the face is resolved, so the
+			// document fails with the same code whether or not a font with
+			// isolated forms happens to be configured.
+			if script, ok := text.JoiningScript(p.text); ok {
+				pos, element := p.src.at()
+				l.diags.Errorf(diag.TextUnsupportedScript, pos, element, "%v", &text.UnsupportedScriptError{Script: script})
+				continue
+			}
 			face, err := l.face(p.style)
 			if err != nil {
 				if l.stopsOnGuard(l.ctx.Budget.Err()) {
@@ -435,6 +451,11 @@ func (l *layouter) buildLines(b *Box, width int32) {
 					return
 				}
 				pos, element := p.src.at()
+				var scriptErr *text.UnsupportedScriptError
+				if errors.As(err, &scriptErr) {
+					l.diags.Errorf(diag.TextUnsupportedScript, pos, element, "%v", err)
+					continue
+				}
 				l.diags.Errorf(diag.TextGlyph, pos, element, "%v", err)
 				continue
 			}
@@ -500,6 +521,30 @@ func (l *layouter) spaceWidth(style *css.Style) int32 {
 		return 0
 	}
 	return run.Width
+}
+
+// paragraphDirection resolves the base direction of one block. An explicit dir
+// attribute (including one inherited from an ancestor) wins; otherwise the
+// first strong character of the block's text decides, and text with no strong
+// character is left-to-right.
+func paragraphDirection(style *css.Style, pieces []piece) text.Direction {
+	if style != nil {
+		switch style.Dir {
+		case css.DirLTR:
+			return text.DirectionLTR
+		case css.DirRTL:
+			return text.DirectionRTL
+		}
+	}
+	for _, p := range pieces {
+		if p.kind != wordPiece {
+			continue
+		}
+		if d, ok := text.StrongDirection(p.text); ok {
+			return d
+		}
+	}
+	return text.DirectionLTR
 }
 
 func fitMetrics(line *Line) {

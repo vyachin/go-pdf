@@ -149,6 +149,17 @@ needs no change.
   the zlib writer on every path and falls back to an uncompressed stream when
   the write or close fails or compression does not shrink the data, so a
   failure cannot truncate a stream or leak its writer.
+- **Right-to-left text.** A line that contains Hebrew or another right-to-left
+  script is now reordered into visual order per UAX#9, so the first logical word
+  is painted on the right and the sentences read correctly; the text layer stays
+  in logical order, so copied text is the authored sequence. The `dir` attribute
+  now selects the base direction (`ltr`, `rtl`, `auto`, or first-strong when
+  absent) on the element that declares it and on its descendants. Scripts whose
+  letters require contextual joining — Arabic, Syriac, N'Ko and the Indic
+  scripts — are refused with `text/unsupported-script` at the owning element
+  instead of being painted unjoined, and `Convert` returns no PDF for them.
+  Hebrew, Cyrillic, Greek and Latin convert as before; a document without
+  right-to-left characters keeps byte-identical output.
 - **Advance overflow.** Run and line widths are accumulated in 64 bits and
   clamped to `MaxInt32` instead of wrapping, so a 350,000 character word at 12 pt
   keeps a positive width and reports `layout/overflow` once for its paragraph

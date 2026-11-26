@@ -136,6 +136,36 @@ decoration propagates to descendant text, as CSS specifies. The engine
 stylesheet underlines `u` and `ins`, strikes through `s` and `del`, and gives
 `blockquote` block layout with a left and right indent.
 
+## Text direction and scripts
+
+`dir` sets the base direction of an element and inherits to its descendants:
+`ltr` and `rtl` name the direction explicitly, `auto` takes the first strong
+character of the block, and an absent or unrecognised value falls back to the
+first strong character and then to left-to-right. The nearest declaration wins.
+Each line is reordered into visual order per UAX#9 with
+`golang.org/x/text/unicode/bidi`; the text layer keeps the logical order, so
+copied text is the authored sequence.
+
+Shaping is the engine's own glyph mapping: there is no GSUB, so contextual
+joining, ligature substitution and Indic reordering are not implemented.
+Scripts that need only reordering — Hebrew, Cyrillic, Greek, Latin and the other
+non-joining scripts — render. Scripts whose letters must join are refused with
+the error `text/unsupported-script` at the owning element instead of being
+painted unjoined, and a conversion that contains one produces no PDF.
+
+<!-- scripts:start -->
+| Script | Result |
+|---|---|
+| Arabic | refused with `text/unsupported-script` |
+| Indic | refused with `text/unsupported-script` |
+| N'Ko | refused with `text/unsupported-script` |
+| Syriac | refused with `text/unsupported-script` |
+<!-- scripts:end -->
+
+Mirrored punctuation is not substituted: a parenthesis keeps the glyph of the
+character that was written. Hyphenation and CJK line breaking are unchanged;
+neither has a new rule here.
+
 ## Units
 
 `px`, `pt`, `mm`, `cm`, `in`, `%`, `em`. Everything else (`rem`, `vw`, `vh`, `ch`) is an error.
@@ -415,6 +445,7 @@ compares this table with the registry.
 | `resource/limit` | a work, page, asset or structural limit stopped the conversion |
 | `text/font` | no font face could be resolved for a family |
 | `text/glyph` | a character has no glyph or a mark cannot be attached |
+| `text/unsupported-script` | a script needs contextual joining the engine does not implement |
 <!-- diagnostics:end -->
 
 ## Work budget

@@ -2,6 +2,22 @@ package css
 
 import "math"
 
+// Direction is the base direction of a block, taken from the HTML dir
+// attribute of the element or of its nearest ancestor that sets one. DirAuto
+// leaves the direction to the first strong character of the paragraph, which
+// is also the behaviour when no element declares the attribute.
+type Direction int
+
+const (
+	// DirAuto selects the direction from the paragraph's first strong
+	// character, then left-to-right.
+	DirAuto Direction = iota
+	// DirLTR is an explicit left-to-right base direction.
+	DirLTR
+	// DirRTL is an explicit right-to-left base direction.
+	DirRTL
+)
+
 // Style is a computed style. Geometry values are absolute millipoints unless
 // they carry Percent or Auto, which need a layout-time basis.
 type Style struct {
@@ -30,6 +46,10 @@ type Style struct {
 	// font size of the element that inherits it.
 	LineHeightFactor float64
 	TextAlign        TextAlign
+	// Dir is the base direction inherited from the nearest dir attribute.
+	// Layout reads it to order the runs of a line and to choose the paragraph
+	// level when the attribute is absent or auto.
+	Dir Direction
 	// TextDecoration is the set of lines painted under or through the text. It
 	// is inherited because CSS propagates a decoration from the decorated box
 	// to its descendants, which is the painted result the profile promises.
@@ -87,6 +107,7 @@ func NewStyle(parent *Style) *Style {
 	s.TextIndent = parent.TextIndent
 	s.LineHeightFactor = parent.LineHeightFactor
 	s.TextAlign = parent.TextAlign
+	s.Dir = parent.Dir
 	s.TextDecoration = parent.TextDecoration
 	s.WhiteSpace = parent.WhiteSpace
 	s.ListStyleType = parent.ListStyleType

@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // PageStyle is the resolved page setup from @page rules.
@@ -133,6 +135,11 @@ func (l *layouter) paintMarginBoxes() {
 				// Losing a header or footer silently is not acceptable: report
 				// it the same way body text reports a missing glyph, at the
 				// content declaration that generated the text when known.
+				var scriptErr *text.UnsupportedScriptError
+				if errors.As(err, &scriptErr) {
+					l.diags.Errorf(diag.TextUnsupportedScript, l.pageStyle.BoxPos[name], name, "margin box %s: %v", name, err)
+					continue
+				}
 				l.diags.Errorf(diag.TextGlyph, l.pageStyle.BoxPos[name], name, "margin box %s: %v", name, err)
 				continue
 			}
@@ -146,7 +153,7 @@ func (l *layouter) paintMarginBoxes() {
 				l.diags.Warnf(diag.LayoutOverflow, l.pageStyle.BoxPos[name], name,
 					"margin box %s does not fit inside the page and is clamped", name)
 			}
-			l.paintShapedRun(page, face, css.Color{Set: true}, run, x, y)
+			l.paintShapedRunDirectional(page, face, css.Color{Set: true}, run, x, y, text.FirstStrongDirection(label))
 		}
 	}
 }

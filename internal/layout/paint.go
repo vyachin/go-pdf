@@ -2,6 +2,7 @@ package layout
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/text"
@@ -220,6 +221,10 @@ func hasGlyphOffset(glyphs []text.Glyph) bool {
 }
 
 func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32, unstretched bool) {
+	if lineHasRightToLeft(line) {
+		l.paintVisualLine(page, b, line, x, y, width, unstretched)
+		return
+	}
 	st := b.Style
 	x = satAdd(x, line.Indent)
 	// Natural already contains the indent, so the free space is measured from
@@ -281,8 +286,242 @@ func (l *layouter) paintLineAt(page *Page, b *Box, line *Line, x, y, width int32
 	}
 }
 
-// paintDecoration draws the decoration of one painted run: a rectangle below the
-// baseline for underline and one across the middle of the x-height for
+// lineHasRightToLeft reports whether a line contains a right-to-left
+// character. A line without one is painted by the original left-to-right path,
+// so a Latin-only document keeps its exact bytes.
+func lineHasRightToLeft(line *Line) bool {
+	for _, it := range line.Items {
+		for _, g := range it.Run.Glyphs {
+			if text.IsRightToLeft(g.Rune) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lineUnitKind classifies one indivisible painted piece of a line.
+type lineUnitKind int
+
+const (
+	glyphUnit lineUnitKind = iota
+	spaceUnit
+	imageUnit
+)
+
+// lineUnit is one cluster of glyphs, one space or one inline image. A cluster
+// is a base glyph with the combining marks attached to it: the shaper's mark
+// offsets are relative to the cluster's own pen, so moving the cluster keeps
+// the mark over its base. The units are kept in logical order; x is assigned
+// from the visual order before anything is painted.
+type lineUnit struct {
+	kind   lineUnitKind
+	item   *LineItem
+	glyphs []text.Glyph
+	w      int32
+	x      int32
+	// runeStart and runeEnd bound the unit in the logical line text.
+	runeStart, runeEnd int
+}
+
+// buildLineUnits splits the line into clusters, spaces and images and returns
+// the logical text they spell. Each rune of the text describes one glyph, and
+// an image contributes the object replacement character so the bidi pass gives
+// it the direction of its neighbours.
+func buildLineUnits(items []LineItem) ([]lineUnit, string) {
+	units := make([]lineUnit, 0, len(items))
+	var logical []rune
+	for i := range items {
+		it := &items[i]
+		switch it.Kind {
+		case ImageItem:
+			logical = append(logical, '\ufffc')
+			units = append(units, lineUnit{
+				kind:      imageUnit,
+				item:      it,
+				w:         it.W,
+				runeStart: len(logical) - 1,
+				runeEnd:   len(logical),
+			})
+			continue
+		}
+		kind := glyphUnit
+		if it.Kind == SpaceItem {
+			kind = spaceUnit
+		}
+		glyphs := it.Run.Glyphs
+		for start := 0; start < len(glyphs); {
+			end := start + 1
+			for end < len(glyphs) && text.IsMark(glyphs[end].Rune) {
+				end++
+			}
+			var sum int64
+			for k := start; k < end; k++ {
+				sum += int64(glyphs[k].Advance)
+				logical = append(logical, glyphs[k].Rune)
+			}
+			w := clampInt32(sum)
+			if kind == spaceUnit {
+				// The shaped width is the one the line was measured with.
+				w = it.W
+			}
+			units = append(units, lineUnit{
+				kind:      kind,
+				item:      it,
+				glyphs:    glyphs[start:end],
+				w:         w,
+				runeStart: len(logical) - (end - start),
+				runeEnd:   len(logical),
+			})
+			start = end
+		}
+	}
+	return units, string(logical)
+}
+
+// visualUnitOrder lists the units in the order they are painted, left to
+// right. A right-to-left run is traversed backwards because its first logical
+// cluster is painted on the right.
+func visualUnitOrder(units []lineUnit, runs []text.VisualRun) []int {
+	order := make([]int, 0, len(units))
+	used := make([]bool, len(units))
+	add := func(u int) {
+		if !used[u] {
+			used[u] = true
+			order = append(order, u)
+		}
+	}
+	for _, run := range runs {
+		first := sort.Search(len(units), func(i int) bool { return units[i].runeEnd > run.Start })
+		matched := make([]int, 0, run.End-run.Start)
+		for i := first; i < len(units) && units[i].runeStart < run.End; i++ {
+			matched = append(matched, i)
+		}
+		if run.RTL {
+			for i := len(matched) - 1; i >= 0; i-- {
+				add(matched[i])
+			}
+			continue
+		}
+		for _, i := range matched {
+			add(i)
+		}
+	}
+	// A run range that does not line up with a cluster boundary must not lose
+	// a unit: keep the remaining ones in their logical order.
+	for i := range units {
+		add(i)
+	}
+	return order
+}
+
+// paintVisualLine places a line that contains right-to-left text. The units
+// keep their logical order in the content stream, so the text layer extracts
+// the authored sequence, while their x positions come from the visual order
+// the bidi pass computed. A right-to-left cluster is therefore painted to the
+// left of the cluster that follows it logically.
+func (l *layouter) paintVisualLine(page *Page, b *Box, line *Line, x, y, width int32, unstretched bool) {
+	st := b.Style
+	x = satAdd(x, line.Indent)
+	extra := satSub(width, line.Natural)
+	if extra < 0 {
+		extra = 0
+	}
+	spaces := 0
+	for _, it := range line.Items {
+		if it.Kind == SpaceItem {
+			spaces++
+		}
+	}
+	justify := int32(0)
+	switch st.TextAlign {
+	case css.AlignRight:
+		x = satAdd(x, extra)
+	case css.AlignCenter:
+		x = satAdd(x, extra/2)
+	case css.AlignJustify:
+		if !unstretched && !line.ForcedBreak && spaces > 0 && extra > 0 {
+			justify = extra
+		}
+	}
+	units, logical := buildLineUnits(line.Items)
+	order := visualUnitOrder(units, text.VisualRuns(logical, line.BaseDir))
+	cursor := int64(x)
+	remaining := spaces
+	for _, u := range order {
+		unit := &units[u]
+		w := unit.w
+		if unit.kind == spaceUnit && justify > 0 && remaining > 0 {
+			share := justify / int32(remaining)
+			remaining--
+			w = satAdd(w, share)
+			justify = satSub(justify, share)
+		}
+		unit.x = clampInt32(cursor)
+		unit.w = w
+		cursor += int64(w)
+	}
+	l.paintLineUnits(page, line, units, y)
+}
+
+// paintLineUnits paints every unit at its assigned x. The loop follows the
+// logical order of the units, not the visual one, so the content stream and
+// therefore the text layer keep the authored sequence.
+func (l *layouter) paintLineUnits(page *Page, line *Line, units []lineUnit, y int32) {
+	for i := range units {
+		unit := &units[i]
+		baseline := satAdd(y, inlineBaseline(line, *unit.item))
+		if unit.kind == imageUnit {
+			if unit.item.Image != nil {
+				l.ops++
+				page.Ops = append(page.Ops, Op{
+					Kind:  ImageOpKind,
+					Rect:  Rect{X: unit.x, Y: baseline, W: unit.w, H: unit.item.H},
+					Image: &ImageOp{Image: unit.item.Image},
+				})
+			}
+			continue
+		}
+		if len(unit.glyphs) > 0 {
+			l.paintShapedRun(page, unit.item.Face, unit.item.Color, text.Run{Glyphs: unit.glyphs, Width: unit.w}, unit.x, baseline)
+		}
+		if unit.item.Style != nil {
+			l.paintDecoration(page, unit.x, unit.w, baseline, unit.item.Face, unit.item.Style.TextDecoration, unit.item.Color)
+		}
+	}
+}
+
+// paintShapedRunDirectional paints one shaped run in the visual order of its
+// own base direction. It is the path page margin boxes use, because their
+// label is a single run rather than a built line.
+func (l *layouter) paintShapedRunDirectional(page *Page, face *FontFace, color css.Color, run text.Run, x, baseline int32, base text.Direction) {
+	hasRTL := false
+	for _, g := range run.Glyphs {
+		if text.IsRightToLeft(g.Rune) {
+			hasRTL = true
+			break
+		}
+	}
+	if !hasRTL {
+		l.paintShapedRun(page, face, color, run, x, baseline)
+		return
+	}
+	empty := &css.Style{}
+	items := []LineItem{{Kind: TextItem, Face: face, Run: run, Color: color, Style: empty, W: run.Width}}
+	line := Line{Items: items, BaseDir: base}
+	units, logical := buildLineUnits(line.Items)
+	order := visualUnitOrder(units, text.VisualRuns(logical, base))
+	cursor := int64(x)
+	for _, u := range order {
+		unit := &units[u]
+		unit.x = clampInt32(cursor)
+		cursor += int64(unit.w)
+	}
+	l.paintLineUnits(page, &line, units, baseline)
+}
+
+// paintDecoration draws the decoration of one painted run: a rectangle below
+// the baseline for underline and one across the middle of the x-height for
 // line-through, both in the run colour. Adjacent runs abut — a word and the
 // spaces around it advance by exactly the painted width — so the decoration
 // reads as one continuous line without collecting per-line extents.

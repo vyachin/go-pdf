@@ -8,9 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // readDoc returns one repository document.
@@ -52,6 +55,45 @@ func TestDocumentedLimitsMatchTheCode(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("docs/profile.md does not state %s = %d (looked for %v)", c.name, c.value, c.doc)
+		}
+	}
+}
+
+// TestDocumentedScriptsMatchTheDetector guards RV5-04: the script list in
+// docs/profile.md is the detector the engine uses, so adding or removing a
+// refused script on one side alone fails this test.
+func TestDocumentedScriptsMatchTheDetector(t *testing.T) {
+	doc := readDoc(t, "docs", "profile.md")
+	const startMarker = "<!-- scripts:start -->"
+	const endMarker = "<!-- scripts:end -->"
+	start := strings.Index(doc, startMarker)
+	end := strings.Index(doc, endMarker)
+	if start < 0 || end < start {
+		t.Fatalf("docs/profile.md has no scripts table between %s and %s", startMarker, endMarker)
+	}
+	body := doc[start+len(startMarker) : end]
+	row := regexp.MustCompile(`(?m)^\|\s*([^|]+?)\s*\|`)
+	var documented []string
+	for _, match := range row.FindAllStringSubmatch(body, -1) {
+		name := strings.TrimSpace(match[1])
+		if name == "" || name == "Script" || strings.HasPrefix(name, "---") {
+			continue
+		}
+		documented = append(documented, name)
+	}
+	detected := make([]string, 0, len(text.JoiningScripts()))
+	for _, script := range text.JoiningScripts() {
+		detected = append(detected, string(script))
+	}
+	sort.Strings(documented)
+	sort.Strings(detected)
+	if strings.Join(documented, ",") != strings.Join(detected, ",") {
+		t.Fatalf("docs/profile.md lists refused scripts %v, the detector has %v", documented, detected)
+	}
+	// The prose must state which side is supported and name the diagnostic.
+	for _, want := range []string{"text/unsupported-script", "Hebrew", "Arabic"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/profile.md does not mention %q in its script support", want)
 		}
 	}
 }

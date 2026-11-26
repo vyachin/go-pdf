@@ -378,6 +378,19 @@ func (b *builder) styleFor(n *html.Node, parent *css.Style) *css.Style {
 	if _, ok := n.Attr("hidden"); ok {
 		style.Display = css.DisplayNone
 	}
+	// The dir attribute sets the base direction of an element and inherits to
+	// its descendants, so the nearest declaration wins. An unrecognised value
+	// is treated as absent instead of inventing a direction.
+	if v, ok := n.Attr("dir"); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "ltr":
+			style.Dir = css.DirLTR
+		case "rtl":
+			style.Dir = css.DirRTL
+		case "auto":
+			style.Dir = css.DirAuto
+		}
+	}
 	return style
 }
 

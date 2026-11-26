@@ -402,6 +402,21 @@ func adversarialCases() []adversarialCase {
 				}
 			},
 		},
+		{
+			// RV5-04: an Arabic paragraph needs contextual joining, which the
+			// engine refuses before choosing a glyph, even under a small
+			// budget. The outcome is one error and no PDF.
+			ID:      "P3-arabic-joins",
+			Fixture: "p3-arabic-joins.html",
+			Want:    "text/unsupported-script",
+			Options: func(t *testing.T, dir string) Options {
+				return Options{
+					File:         "arabic.html",
+					FallbackFont: testFontPath(t),
+					Limits:       Limits{MaxOperations: 5000},
+				}
+			},
+		},
 	}
 }
 
