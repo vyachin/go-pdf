@@ -86,8 +86,8 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 		// windows-1252 and for a document that declares nothing and is not valid
 		// UTF-8. A declaration is rejected whatever its bytes happen to be: only
 		// the no-declaration fallback may be accepted as UTF-8.
-		if label := declaredCharset(src); label != "" {
-			return nil, newError(src, 0, firstMetaOffset(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", label, supportedClause())
+		if label, offset := declaredCharset(src); label != "" {
+			return nil, newError(src, 0, offset, "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", label, supportedClause())
 		}
 		// ASCII is identical in every supported encoding, so a document that
 		// declares nothing and decodes as UTF-8 is accepted; anything else is
@@ -103,9 +103,11 @@ func Resolve(src []byte, explicit string) (*Encoding, error) {
 			skip, off := byteOrderMark(src)
 			return nil, newError(src, skip, off, "UTF-16 input is not supported: convert the document to one of %s", supportedClause())
 		}
-		// A declaration the set does not accept. The standard library does not
-		// expose where it found it, so the first <meta> of the window is named.
-		return nil, newError(src, 0, firstMetaOffset(src), "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", name, supportedClause())
+		// A declaration the set does not accept. The prescan names the <meta>
+		// that carries it; when it does not recognise one, the diagnostic has
+		// no position rather than pointing at an ignored tag.
+		_, offset := declaredCharset(src)
+		return nil, newError(src, 0, offset, "unsupported document encoding %q: supported encodings are %s (set Options.Charset to name the encoding explicitly)", name, supportedClause())
 	}
 }
 
@@ -253,89 +255,312 @@ func byteOrderMark(src []byte) (skip, offset int) {
 	return 0, -1
 }
 
-// firstMetaOffset returns the offset of the first <meta> tag in the window the
-// standard library scans for a declaration, or -1 when there is none. Only ASCII
-// is folded: bytes.ToLower can change the byte length of a non-ASCII rune and
-// would shift the reported column.
-func firstMetaOffset(src []byte) int {
-	window := src
-	if len(window) > 1024 {
-		window = window[:1024]
-	}
-	return bytes.Index(foldASCII(window), []byte("<meta"))
-}
-
-// foldASCII returns a copy of b with A-Z lowercased and every other byte
-// unchanged, so a folded window keeps the original byte offsets.
-func foldASCII(b []byte) []byte {
-	out := make([]byte, len(b))
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return out
-}
+// prescanWindow bounds the declaration prescan: the HTML standard reads a
+// declaration only from the first 1024 bytes.
+const prescanWindow = 1024
 
 // declaredCharset returns the label of the document's own encoding declaration
-// in the first 1024 bytes, or "" when it declares none. It is the prescan of
-// the HTML standard restricted to what this package can decide: <meta charset>
-// and <meta http-equiv="Content-Type" content="...charset=...">.
-func declaredCharset(src []byte) string {
-	window := src
-	if len(window) > 1024 {
-		window = window[:1024]
+// and the offset of the <meta> tag that carries it, or "" and -1 when the
+// document declares none. It is the prescan of the HTML standard restricted to
+// what this package can decide: a real <meta charset> attribute or a
+// <meta http-equiv="Content-Type" content="...charset=..."> element.
+//
+// Comments, doctypes, processing instructions, non-meta elements and the other
+// attribute values are not declarations, so they are skipped. The scan works
+// on the original bytes and folds ASCII only where it compares, so the offset
+// is the author's byte offset and a diagnostic column does not move.
+func declaredCharset(src []byte) (label string, offset int) {
+	skip, _ := byteOrderMark(src)
+	if skip == 2 {
+		// A UTF-16 mark decides the encoding before the prescan; its bytes are
+		// not ASCII markup.
+		return "", -1
 	}
-	folded := foldASCII(window)
-	for start := 0; start < len(folded); {
-		idx := bytes.Index(folded[start:], []byte("<meta"))
+	window := src[skip:]
+	if len(window) > prescanWindow {
+		window = window[:prescanWindow]
+	}
+	for i := 0; i < len(window); {
+		idx := bytes.IndexByte(window[i:], '<')
+		if idx < 0 {
+			return "", -1
+		}
+		start := i + idx
+		if start+1 >= len(window) {
+			// An unterminated tag consumes the rest of the window.
+			return "", -1
+		}
+		switch c := window[start+1]; {
+		case c == '!':
+			if bytes.HasPrefix(window[start:], []byte("<!--")) {
+				end := bytes.Index(window[start+4:], []byte("-->"))
+				if end < 0 {
+					return "", -1
+				}
+				i = start + 4 + end + 3
+				continue
+			}
+			// <!DOCTYPE ...> and the other markup declarations.
+			end := bytes.IndexByte(window[start:], '>')
+			if end < 0 {
+				return "", -1
+			}
+			i = start + end + 1
+		case c == '?':
+			// A processing instruction or an XML declaration.
+			end := bytes.IndexByte(window[start:], '>')
+			if end < 0 {
+				return "", -1
+			}
+			i = start + end + 1
+		case c == '/':
+			end := skipTag(window, start+2)
+			if end < 0 {
+				return "", -1
+			}
+			i = end
+		case isASCIIAlpha(c):
+			nameEnd := start + 1
+			for nameEnd < len(window) && !isTagNameEnd(window[nameEnd]) {
+				nameEnd++
+			}
+			if nameEnd == len(window) {
+				// The tag never ends: no declaration, and no fallback to a
+				// substring search.
+				return "", -1
+			}
+			if !equalFoldASCII(window[start+1:nameEnd], "meta") {
+				end := skipTag(window, nameEnd)
+				if end < 0 {
+					return "", -1
+				}
+				i = end
+				continue
+			}
+			label, end := metaDeclaration(window, start, nameEnd)
+			if end < 0 {
+				return "", -1
+			}
+			if label != "" {
+				return label, skip + start
+			}
+			i = end
+		default:
+			// A '<' that is not markup, as in "a < b": the scan resumes after
+			// it.
+			i = start + 1
+		}
+	}
+	return "", -1
+}
+
+// metaDeclaration parses the attributes of the <meta> tag that starts at start,
+// whose name ends at pos. It returns the declared label, or the offset just
+// after the tag when it declares nothing, or -1 when the tag is unterminated.
+// A '>' inside a quoted value does not end the tag.
+func metaDeclaration(window []byte, start, pos int) (label string, end int) {
+	var charsetValue, httpEquivValue, contentValue []byte
+	var haveCharset, haveHTTPEquiv, haveContent bool
+	for {
+		for pos < len(window) && isHTMLSpace(window[pos]) {
+			pos++
+		}
+		if pos >= len(window) {
+			return "", -1
+		}
+		if window[pos] == '>' {
+			pos++
+			break
+		}
+		if window[pos] == '/' {
+			pos++
+			continue
+		}
+		nameStart := pos
+		for pos < len(window) && !isHTMLSpace(window[pos]) && window[pos] != '=' && window[pos] != '>' && window[pos] != '/' {
+			pos++
+		}
+		name := window[nameStart:pos]
+		for pos < len(window) && isHTMLSpace(window[pos]) {
+			pos++
+		}
+		var value []byte
+		if pos < len(window) && window[pos] == '=' {
+			pos++
+			for pos < len(window) && isHTMLSpace(window[pos]) {
+				pos++
+			}
+			switch {
+			case pos < len(window) && (window[pos] == '"' || window[pos] == '\''):
+				quote := window[pos]
+				pos++
+				valueStart := pos
+				for pos < len(window) && window[pos] != quote {
+					pos++
+				}
+				value = window[valueStart:pos]
+				if pos < len(window) {
+					pos++
+				}
+			default:
+				valueStart := pos
+				for pos < len(window) && !isHTMLSpace(window[pos]) && window[pos] != '>' {
+					pos++
+				}
+				value = window[valueStart:pos]
+			}
+		}
+		// The first of a duplicated attribute wins, as in the HTML tokenizer.
+		switch {
+		case !haveCharset && equalFoldASCII(name, "charset"):
+			haveCharset, charsetValue = true, value
+		case !haveHTTPEquiv && equalFoldASCII(name, "http-equiv"):
+			haveHTTPEquiv, httpEquivValue = true, value
+		case !haveContent && equalFoldASCII(name, "content"):
+			haveContent, contentValue = true, value
+		}
+	}
+	if haveCharset {
+		return encodingLabel(charsetValue), pos
+	}
+	if haveHTTPEquiv && haveContent && equalFoldASCII(trimHTMLSpace(httpEquivValue), "content-type") {
+		return contentCharsetLabel(contentValue), pos
+	}
+	return "", pos
+}
+
+// contentCharsetLabel returns the label of the first charset= parameter in a
+// meta content attribute, or "" when it names none.
+func contentCharsetLabel(content []byte) string {
+	for i := 0; i < len(content); {
+		idx := indexFoldASCII(content[i:], "charset")
 		if idx < 0 {
 			return ""
 		}
-		begin := start + idx
-		end := bytes.IndexByte(folded[begin:], '>')
-		if end < 0 {
-			end = len(folded) - begin
+		pos := i + idx + len("charset")
+		i = pos
+		for pos < len(content) && isHTMLSpace(content[pos]) {
+			pos++
 		}
-		tag := folded[begin : begin+end]
-		if label := charsetLabel(tag); label != "" {
+		if pos >= len(content) || content[pos] != '=' {
+			continue
+		}
+		pos++
+		for pos < len(content) && isHTMLSpace(content[pos]) {
+			pos++
+		}
+		var value []byte
+		switch {
+		case pos < len(content) && (content[pos] == '"' || content[pos] == '\''):
+			quote := content[pos]
+			pos++
+			valueStart := pos
+			for pos < len(content) && content[pos] != quote {
+				pos++
+			}
+			if pos >= len(content) {
+				return ""
+			}
+			value = content[valueStart:pos]
+		default:
+			valueStart := pos
+			for pos < len(content) && content[pos] != ';' && !isHTMLSpace(content[pos]) {
+				pos++
+			}
+			value = content[valueStart:pos]
+		}
+		if label := encodingLabel(value); label != "" {
 			return label
 		}
-		start = begin + len("<meta")
 	}
 	return ""
 }
 
-// charsetLabel extracts the encoding label from one folded <meta> tag.
-func charsetLabel(tag []byte) string {
-	idx := bytes.Index(tag, []byte("charset"))
-	if idx < 0 {
+// encodingLabel returns value without the ASCII whitespace the standard strips
+// around an encoding label, or "" when it names no label. A label has at least
+// one ASCII alphanumeric character, which keeps a stray "<" or "-" from being
+// reported as an encoding.
+func encodingLabel(value []byte) string {
+	label := string(trimHTMLSpace(value))
+	if label == "" {
 		return ""
 	}
-	rest := bytes.TrimLeft(tag[idx+len("charset"):], " \t\r\n\f=")
-	if len(rest) == 0 {
-		return ""
+	for i := 0; i < len(label); i++ {
+		if c := label[i]; (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			return label
+		}
 	}
+	return ""
+}
+
+// skipTag returns the offset just after the tag whose name ends at pos, or -1
+// when the tag never ends. A '>' inside a quoted value does not end it.
+func skipTag(window []byte, pos int) int {
 	quote := byte(0)
-	if rest[0] == '"' || rest[0] == '\'' {
-		quote = rest[0]
-		rest = rest[1:]
-	}
-	end := len(rest)
-	for i, c := range rest {
-		if quote != 0 && c == quote {
-			end = i
-			break
+	for pos < len(window) {
+		switch c := window[pos]; {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '>':
+			return pos + 1
 		}
-		if quote == 0 && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '/' || c == '>') {
-			end = i
-			break
+		pos++
+	}
+	return -1
+}
+
+// equalFoldASCII compares b with an ASCII-lowercase string without changing
+// the byte length of either.
+func equalFoldASCII(b []byte, lower string) bool {
+	if len(b) != len(lower) {
+		return false
+	}
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lower[i] {
+			return false
 		}
 	}
-	label := strings.TrimSpace(string(rest[:end]))
-	if label == "" || !strings.ContainsAny(label, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") {
-		return ""
+	return true
+}
+
+// indexFoldASCII returns the offset of the first ASCII-case-insensitive match
+// of lower in b, or -1.
+func indexFoldASCII(b []byte, lower string) int {
+	for i := 0; i+len(lower) <= len(b); i++ {
+		if equalFoldASCII(b[i:i+len(lower)], lower) {
+			return i
+		}
 	}
-	return label
+	return -1
+}
+
+// trimHTMLSpace returns b without leading and trailing HTML whitespace.
+func trimHTMLSpace(b []byte) []byte {
+	for len(b) > 0 && isHTMLSpace(b[0]) {
+		b = b[1:]
+	}
+	for len(b) > 0 && isHTMLSpace(b[len(b)-1]) {
+		b = b[:len(b)-1]
+	}
+	return b
+}
+
+func isHTMLSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+}
+
+func isASCIIAlpha(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// isTagNameEnd reports whether c ends an HTML tag name.
+func isTagNameEnd(c byte) bool {
+	return isHTMLSpace(c) || c == '/' || c == '>'
 }
