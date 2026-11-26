@@ -126,6 +126,16 @@ needs no change.
 
 ### Fixed
 
+- **Advance overflow.** Run and line widths are accumulated in 64 bits and
+  clamped to `MaxInt32` instead of wrapping, so a 350,000 character word at 12 pt
+  keeps a positive width and reports `layout/overflow` once for its paragraph
+  again; 1,000 characters kept warning, while the longer word had been clipped
+  silently once the `int32` sum turned negative. `text.Scale`, the face metrics
+  and the mark-offset conversion round once and clamp to the `int32` range
+  before narrowing, so an extreme `font-size` is diagnosed at the element and
+  rendered with clamped, non-negative geometry instead of an
+  architecture-dependent value. A line exactly at the limit is not reported, and
+  documents whose geometry fits keep byte-identical output.
 - **Charged GDEF parsing.** GDEF class ranges are now charged to the
   conversion's shared work budget before their mark map grows: one unit per
   class-3 range plus one per entry written, with a guard check between ranges

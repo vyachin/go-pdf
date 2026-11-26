@@ -28,14 +28,41 @@ type Glyph struct {
 type Run struct {
 	Glyphs []Glyph
 	Width  int32
+	// Saturated reports that the true width of the run is larger than Width
+	// because an advance or the sum of the advances left the int32 range. It
+	// distinguishes an exact MaxInt32 width from a clamped one.
+	Saturated bool
 }
 
-// Scale converts a value in font units into millipoints at the given size.
+// Scale converts a value in font units into millipoints at the given size. The
+// product is computed in float64, rounded once and clamped to the int32 range,
+// so an extreme font size produces a saturated value instead of an
+// implementation-defined one.
 func Scale(v, size, unitsPerEm int32) int32 {
 	if unitsPerEm == 0 {
 		return 0
 	}
-	return int32(math.Round(float64(v) * float64(size) / float64(unitsPerEm)))
+	mp, _ := clampMP(float64(v) * float64(size) / float64(unitsPerEm))
+	return mp
+}
+
+// clampMP converts a float64 millipoint value to int32, rounding once and
+// clamping to the int32 range before narrowing. Every float-to-millipoint
+// conversion in this package uses this one rule, so an out-of-range value
+// cannot depend on the implementation's float-to-integer behaviour. It reports
+// whether the value was clamped.
+func clampMP(v float64) (int32, bool) {
+	if math.IsNaN(v) {
+		return 0, false
+	}
+	r := math.Round(v)
+	if r > math.MaxInt32 {
+		return math.MaxInt32, true
+	}
+	if r < math.MinInt32 {
+		return math.MinInt32, true
+	}
+	return int32(r), false
 }
 
 // Shape maps text to glyphs using one font. It reports an error naming the
@@ -104,7 +131,9 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 		if hasPrev {
 			if k := f.Kerning(prev.gid, gid); k != 0 {
 				prev.adv += int64(k)
-				run.Glyphs[i-1].Advance = Scale(int32(prev.adv), size, f.UnitsPerEm())
+				mp, clamped := scaleAdvance(prev.adv, size, f.UnitsPerEm())
+				run.Glyphs[i-1].Advance = mp
+				run.Saturated = run.Saturated || clamped
 			}
 			pen = prev.pen + prev.adv
 		}
@@ -150,15 +179,19 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 			clusterMark, hasClusterMark = glyphState{}, false
 		}
 		prev, hasPrev = st, true
+		advMP, advClamped := scaleAdvance(adv, size, f.UnitsPerEm())
+		run.Saturated = run.Saturated || advClamped
 		run.Glyphs = append(run.Glyphs, Glyph{
 			GID:     gid,
-			Advance: Scale(int32(adv), size, f.UnitsPerEm()),
+			Advance: advMP,
 			Rune:    r,
 			XOffset: scaleFontUnits(offX, size, f.UnitsPerEm()),
 			YOffset: scaleFontUnits(offY, size, f.UnitsPerEm()),
 		})
 	}
-	run.Width = AdvanceWidth(run.Glyphs)
+	width, widthClamped := AdvanceWidth(run.Glyphs)
+	run.Width = width
+	run.Saturated = run.Saturated || widthClamped
 	return run, nil
 }
 
@@ -190,8 +223,15 @@ func markPositionOK(markPen, basePen, baseAdv, runEnd, overhang int64) bool {
 // scaleFontUnits converts a font-unit offset to millipoints, clamping an
 // extreme value instead of narrowing it.
 func scaleFontUnits(v int64, size, upem int32) int32 {
+	mp, _ := scaleFontUnitsChecked(v, size, upem)
+	return mp
+}
+
+// scaleFontUnitsChecked is scaleFontUnits with the saturation flag: it reports
+// whether the millipoint value had to be clamped to the int32 range.
+func scaleFontUnitsChecked(v int64, size, upem int32) (int32, bool) {
 	if upem == 0 {
-		return 0
+		return 0, false
 	}
 	if v > math.MaxInt32 {
 		v = math.MaxInt32
@@ -199,16 +239,53 @@ func scaleFontUnits(v int64, size, upem int32) int32 {
 	if v < math.MinInt32 {
 		v = math.MinInt32
 	}
-	return Scale(int32(v), size, upem)
+	return clampMP(float64(v) * float64(size) / float64(upem))
 }
 
-// AdvanceWidth sums the advances of a glyph run.
-func AdvanceWidth(glyphs []Glyph) int32 {
-	var w int32
-	for _, g := range glyphs {
-		w += g.Advance
+// scaleAdvance converts a font-unit advance to millipoints. Accumulated kerning
+// can make a malformed font's advance negative, but a glyph advance is never
+// negative: it saturates at zero and reports the clamp so the run width and the
+// painted segment cannot run backwards.
+func scaleAdvance(v int64, size, upem int32) (int32, bool) {
+	mp, clamped := scaleFontUnitsChecked(v, size, upem)
+	if mp < 0 {
+		return 0, true
 	}
-	return w
+	return mp, clamped
+}
+
+// AdvanceWidth sums the advances of a glyph run in 64-bit and clamps the sum to
+// the int32 geometry range. It reports whether an advance or the sum had to be
+// clamped, so the caller can distinguish an exact MaxInt32 width from a
+// saturated one. A run width is never negative.
+func AdvanceWidth(glyphs []Glyph) (width int32, saturated bool) {
+	var sum int64
+	for _, g := range glyphs {
+		sum += int64(g.Advance)
+	}
+	if sum < 0 {
+		// Glyph advances are not negative in a valid font; a malformed one can
+		// only produce a negative sum, which would paint a run backwards. The
+		// width saturates at zero and the caller reports it.
+		return 0, true
+	}
+	return ClampWidth(sum)
+}
+
+// ClampWidth narrows a 64-bit width sum to the int32 geometry range and reports
+// whether the sum was out of range. A sum above the range saturates at
+// MaxInt32; a sum below the int32 range saturates at MinInt32. It is the one
+// rule a run width and a line width use before they become int32 geometry. A
+// line width may legitimately be negative when a positive content width is
+// reduced by a negative text-indent, so only the range itself is clamped here.
+func ClampWidth(sum int64) (int32, bool) {
+	if sum > math.MaxInt32 {
+		return math.MaxInt32, true
+	}
+	if sum < math.MinInt32 {
+		return math.MinInt32, true
+	}
+	return int32(sum), false
 }
 
 // MissingGlyphError reports a character absent from the selected font.
@@ -250,10 +327,29 @@ type Metrics struct {
 	Descent int32
 }
 
-// MetricsOf returns the vertical metrics of a font at a size.
+// MetricsOf returns the vertical metrics of a font at a size. The product is
+// clamped to the int32 range with the same rule as Scale, so an extreme size
+// cannot narrow into a wrapped metric.
 func MetricsOf(f *font.Font, size int32) Metrics {
-	return Metrics{
-		Ascent:  Scale(int32(f.Ascent()), size, f.UnitsPerEm()),
-		Descent: Scale(-int32(f.Descent()), size, f.UnitsPerEm()),
+	if f == nil || f.UnitsPerEm() == 0 {
+		return Metrics{}
 	}
+	upem := f.UnitsPerEm()
+	ascent, _ := clampMP(float64(int32(f.Ascent())) * float64(size) / float64(upem))
+	descent, _ := clampMP(float64(-int32(f.Descent())) * float64(size) / float64(upem))
+	return Metrics{Ascent: ascent, Descent: descent}
+}
+
+// MetricsClamped reports whether the vertical metrics of a font at a size leave
+// the int32 range and are clamped by MetricsOf. Layout uses it to diagnose a
+// font size that is out of range once, at the box that uses the face, instead
+// of rendering wrapped geometry.
+func MetricsClamped(f *font.Font, size int32) bool {
+	if f == nil || f.UnitsPerEm() == 0 {
+		return false
+	}
+	upem := f.UnitsPerEm()
+	_, ascent := clampMP(float64(int32(f.Ascent())) * float64(size) / float64(upem))
+	_, descent := clampMP(float64(-int32(f.Descent())) * float64(size) / float64(upem))
+	return ascent || descent
 }

@@ -21,6 +21,10 @@ type Line struct {
 	Ascent int32
 	// Natural is the width of the content before justification.
 	Natural int32
+	// Saturated reports that the true natural width is larger than Natural
+	// because it left the int32 range and was clamped. It distinguishes an
+	// exact MaxInt32 width from a saturated one.
+	Saturated bool
 	// Indent is the text-indent applied to this line.
 	Indent int32
 	// ForcedBreak is true when the line ended at a <br> or the end of the block.
@@ -260,7 +264,14 @@ func (l *layouter) buildLines(b *Box, width int32) {
 
 	var lines []Line
 	cur := Line{}
-	var x int32
+	// x accumulates the line width in 64-bit: a word of hundreds of thousands
+	// of glyphs, or a preformatted line of many large runs, must not wrap into
+	// a negative natural width before the line is clamped.
+	var x int64
+	// saturated records that a run on the current line was clamped, so the
+	// line inherits its saturation even when the clamped sum happens to land
+	// exactly on MaxInt32.
+	saturated := false
 	flush := func(forced bool) {
 		if len(cur.Items) == 0 {
 			if forced {
@@ -269,6 +280,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 				lines = append(lines, cur)
 				cur = Line{}
 				x = 0
+				saturated = false
 				return
 			}
 			if len(cur.Anchors) == 0 {
@@ -277,13 +289,15 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			// An anchor with no content after it keeps a zero-height carrier
 			// line: pagination registers the id at this flow position without
 			// painting anything or counting the line as page body.
-			cur.Natural = x
+			cur.Natural, cur.Saturated = text.ClampWidth(x)
 			lines = append(lines, cur)
 			cur = Line{}
 			x = 0
+			saturated = false
 			return
 		}
-		cur.Natural = x
+		cur.Natural, cur.Saturated = text.ClampWidth(x)
+		cur.Saturated = cur.Saturated || saturated
 		cur.ForcedBreak = forced
 		if cur.Height == 0 {
 			cur.Height = b.Style.LineHeightMP()
@@ -291,6 +305,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		lines = append(lines, cur)
 		cur = Line{}
 		x = 0
+		saturated = false
 	}
 
 	// canWrap records that the previous piece created a break opportunity: a
@@ -315,7 +330,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 	ensureIndent := func() {
 		if firstLine && len(lines) == 0 && len(cur.Items) == 0 && indent != 0 {
 			cur.Indent = indent
-			x = indent
+			x = int64(indent)
 		}
 	}
 
@@ -347,7 +362,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 		cur.Items = append(cur.Items, item)
 		cur.Height = max(cur.Height, item.H)
 		cur.Ascent = max(cur.Ascent, face.Ascent)
-		x = satAdd(x, run.Width)
+		x += int64(run.Width)
+		saturated = saturated || run.Saturated
 	}
 
 	for _, p := range pieces {
@@ -385,7 +401,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			if spacePending && len(cur.Items) > 0 {
 				spaceW = l.spaceWidth(p.style)
 			}
-			if len(cur.Items) > 0 && int64(x)+int64(spaceW)+int64(w) > int64(width) {
+			if len(cur.Items) > 0 && x+int64(spaceW)+int64(w) > int64(width) {
 				spacePending = false
 				flush(false)
 				canWrap = false
@@ -400,7 +416,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Items = append(cur.Items, item)
 			cur.Height = max(cur.Height, h)
 			cur.Ascent = max(cur.Ascent, h)
-			x = satAdd(x, w)
+			x += int64(w)
 		case wordPiece:
 			face, err := l.face(p.style)
 			if err != nil {
@@ -431,7 +447,7 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			}
 			// Preformatted text wraps only on explicit line feeds; it may
 			// overflow the content box instead.
-			if len(cur.Items) > 0 && canWrap && x+spaceW+run.Width > width && p.style.WhiteSpace != css.WhiteSpacePre {
+			if len(cur.Items) > 0 && canWrap && x+int64(spaceW)+int64(run.Width) > int64(width) && p.style.WhiteSpace != css.WhiteSpacePre {
 				spacePending = false
 				flush(false)
 				firstLine = false
@@ -445,7 +461,8 @@ func (l *layouter) buildLines(b *Box, width int32) {
 			cur.Items = append(cur.Items, item)
 			cur.Height = max(cur.Height, p.style.LineHeightMP())
 			cur.Ascent = max(cur.Ascent, face.Ascent)
-			x = satAdd(x, run.Width)
+			x += int64(run.Width)
+			saturated = saturated || run.Saturated
 			// A following word can wrap after a space, a forced break or a
 			// hyphen that already ends this word.
 			canWrap = p.wrapAfter

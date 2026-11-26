@@ -6,6 +6,8 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/html"
+	"github.com/vyachin/go-pdf/internal/text"
 )
 
 // flow is the pagination cursor: the current page and vertical position.
@@ -704,16 +706,39 @@ func (l *layouter) applyFixedHeight(f *flow, b *Box) {
 }
 
 // checkLineOverflow reports an unbreakable token that is wider than the width
-// its line was laid out at. The comparison is 64-bit, so a line wider than the
-// int32 geometry cannot wrap and look like a fitting one. The diagnostic is
-// reported once per box; the return value tells the caller whether this call
-// produced it, so a scan over the lines stops after the first report.
+// its line was laid out at, a line whose width saturated, or a line that uses a
+// face whose metrics had to be clamped. The comparison is 64-bit, and a
+// saturated line is reported even when its clamped natural width happens to
+// equal the content width, so an int32 wrap cannot make the diagnostic
+// disappear. The diagnostic is reported once per box; the return value tells
+// the caller whether this call produced it, so a scan over the lines stops
+// after the first report.
 func (l *layouter) checkLineOverflow(b *Box, line Line, width int32) bool {
-	if int64(line.Natural) <= int64(width) || b.overflowWarned || l.suppressOverflow > 0 {
+	if b.overflowWarned || l.suppressOverflow > 0 {
+		return false
+	}
+	if !lineOverflows(line, width) {
 		return false
 	}
 	l.warnOverflow(b, "a word is wider than the content box and is clipped")
 	return true
+}
+
+// lineOverflows reports whether a line needs layout/overflow: its width
+// saturated the int32 range, it is wider than the content box, or it uses a
+// face whose ascent or descent left the int32 range and was clamped. The last
+// case is what makes an extreme font-size visible even when its advances
+// happen to fit.
+func lineOverflows(line Line, width int32) bool {
+	if line.Saturated || int64(line.Natural) > int64(width) {
+		return true
+	}
+	for _, it := range line.Items {
+		if it.Face != nil && text.MetricsClamped(it.Face.Font, it.Face.Size) {
+			return true
+		}
+	}
+	return false
 }
 
 // warnOverflow reports a layout/overflow warning once per box. A box can be
@@ -728,12 +753,44 @@ func (l *layouter) warnOverflow(b *Box, message string) {
 	}
 	b.overflowWarned = true
 	// The overflow is attributable to the element that overflowed, so the
-	// warning names its source position instead of an empty one.
+	// warning names its source position instead of an empty one. An anonymous
+	// block has no node of its own; its inline content supplies the owning
+	// element's position, so a clipped paragraph is named instead of the page.
 	pos := diag.Position{}
-	if l.source != nil && b.Node != nil {
-		pos = l.source.Position(b.Node.Start)
+	if node := ownerNode(b); l.source != nil && node != nil {
+		pos = l.source.Position(node.Start)
 	}
-	l.diags.Warnf(diag.LayoutOverflow, pos, nodePath(b), "%s", message)
+	element := ""
+	if b.Node != nil {
+		element = b.Node.Path()
+	}
+	l.diags.Warnf(diag.LayoutOverflow, pos, element, "%s", message)
+}
+
+// ownerNode returns the element whose source position a box's diagnostic
+// carries. A box with its own node uses it; an anonymous block uses the parent
+// element of its first inline descendant.
+func ownerNode(b *Box) *html.Node {
+	if b.Node != nil {
+		return b.Node
+	}
+	var first func([]*Box) *html.Node
+	first = func(children []*Box) *html.Node {
+		for _, c := range children {
+			if c.Node != nil {
+				return c.Node
+			}
+			if n := first(c.Children); n != nil {
+				return n
+			}
+		}
+		return nil
+	}
+	n := first(b.Children)
+	for n != nil && n.Type != html.ElementNode {
+		n = n.Parent
+	}
+	return n
 }
 
 func headingLevel(tag string) int {
@@ -746,13 +803,6 @@ func headingLevel(tag string) int {
 		return 3
 	}
 	return 0
-}
-
-func nodePath(b *Box) string {
-	if b.Node != nil {
-		return b.Node.Path()
-	}
-	return ""
 }
 
 // satAdd adds two geometry values, saturating at the int32 range. Margins and
