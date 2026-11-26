@@ -99,19 +99,41 @@ func (req Request) keyForSource(name string) string {
 	return string(req.Kind) + "|" + identity
 }
 
-// readSource reads one asset through the caller-supplied fs.FS. The file is
-// opened once, its declared size is checked and reserved, and the contents are
-// then read through io.LimitReader, so a source cannot hand the conversion more
-// bytes than MaxBytes however large the object claims to be.
+// readSource reads one asset through the caller-supplied fs.FS. Concurrent
+// callers of one identity share one open, one admission and one charge: the
+// first caller leads and the others wait on its call.
 func (r *Registry) readSource(req Request) (*Record, error) {
 	name, err := r.sourceName(req)
 	if err != nil {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
 	key := req.keyForSource(name)
-	if rec, ok := r.cached(key); ok {
+	rec, call, leader, hook, err := r.acquire(key)
+	if err != nil {
+		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
+	}
+	if rec != nil {
 		return rec, nil
 	}
+	if !leader {
+		return awaitRead(call, hook)
+	}
+	rec, err = r.readSourceLeader(req, key, name)
+	r.finishRead(key, call, rec, err)
+	if err != nil {
+		return nil, err
+	}
+	out := *rec
+	return &out, nil
+}
+
+// readSourceLeader performs the leader half of a source read. The file is
+// opened once and closed on every path, its declared size is checked and
+// reserved, and the contents are read through io.LimitReader, so a source
+// cannot hand the conversion more bytes than MaxBytes however large the object
+// claims to be. The reservation is then reconciled with the bytes actually
+// admitted.
+func (r *Registry) readSourceLeader(req Request, key, name string) (*Record, error) {
 	f, err := r.source.Open(name)
 	if err != nil {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
@@ -129,54 +151,55 @@ func (r *Registry) readSource(req Request) (*Record, error) {
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference,
 			Err: fmt.Errorf("%w: the file is %d bytes, the limit is %d", ErrTooLarge, size, req.MaxBytes)}
 	}
-	reserved := size
-	if reserved >= 0 {
-		if err := r.reserve(req.Kind, reserved, req.MaxTotalBytes); err != nil {
+	// A source that reports a size is charged before the read; one that cannot
+	// report a size is charged for the bytes actually read below.
+	declared := size >= 0
+	if declared {
+		if err := r.reserve(req.Kind, size, req.MaxTotalBytes); err != nil {
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 		}
-		// The declared size is the memory the read will materialise, so it is
-		// charged before the read starts.
-		if err := r.guard.ChargeBytes(int(reserved)); err != nil {
-			r.refund(req.Kind, reserved)
+		if err := r.guard.ChargeBytes(int(size)); err != nil {
+			r.refund(req.Kind, size)
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 		}
 	}
+	r.beforeRead()
 	data, readErr := readSourceLimited(f, req.MaxBytes)
 	if readErr != nil {
-		if reserved > 0 {
-			r.refund(req.Kind, reserved)
+		if declared {
+			r.refund(req.Kind, size)
 		}
 		if errors.Is(readErr, fsx.ErrTooLarge) {
 			readErr = fmt.Errorf("%w: %v", ErrTooLarge, readErr)
 		}
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: readErr}
 	}
-	if reserved < 0 {
-		// A source may not report a size; the bytes actually admitted are then
-		// what the conversion total counts. The read already happened, so the
-		// charge follows it; a source that declares its size is charged first.
-		reserved = int64(len(data))
-		if err := r.reserve(req.Kind, reserved, req.MaxTotalBytes); err != nil {
+	actual := int64(len(data))
+	if declared {
+		if err := r.reconcile(req.Kind, size, actual, req.MaxTotalBytes); err != nil {
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
 		}
-		if err := r.guard.ChargeBytes(int(reserved)); err != nil {
-			r.refund(req.Kind, reserved)
+	} else {
+		if err := r.reserve(req.Kind, actual, req.MaxTotalBytes); err != nil {
+			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
+		}
+		if err := r.guard.ChargeBytes(int(actual)); err != nil {
+			r.refund(req.Kind, actual)
 			return nil, &Error{Kind: req.Kind, Reference: req.Reference, Path: name, Err: err}
 		}
 	}
-	rec := &Record{Kind: req.Kind, Key: key, Path: name, Canonical: name, Bytes: data}
+	rec := &Record{Kind: req.Kind, Key: key, Path: name, Canonical: name, Bytes: data, charged: actual}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		r.refund(req.Kind, reserved)
+		r.refund(req.Kind, actual)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference,
 			Err: errors.New("the asset registry is closed")}
 	}
 	r.cache[key] = rec
 	r.reads[req.Kind]++
 	r.mu.Unlock()
-	out := *rec
-	return &out, nil
+	return rec, nil
 }
 
 // readSourceLimited reads a source file, never allocating more than limit+1

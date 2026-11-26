@@ -59,18 +59,43 @@ func TestReadRejectsEscape(t *testing.T) {
 }
 
 func TestOpenErrorKeepsWrappedNotExist(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "present.css", "x")
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
 	// A caller may wrap the error further; the not-exist cause must stay
 	// detectable instead of being reported as an escape.
 	wrapped := fmt.Errorf("loading styles: %w", fs.ErrNotExist)
-	if got := classifyOpenError(wrapped); got != wrapped {
+	if got := root.classifyOpenError(filepath.Join(dir, "present.css"), wrapped); got != wrapped {
 		t.Fatalf("classifyOpenError returned %v, want the cause unchanged", got)
 	}
-	if !errors.Is(classifyOpenError(wrapped), fs.ErrNotExist) {
+	if !errors.Is(root.classifyOpenError(filepath.Join(dir, "present.css"), wrapped), fs.ErrNotExist) {
 		t.Fatal("a wrapped fs.ErrNotExist must stay detectable")
 	}
-	escape := errors.New("openat x.css: path escapes from parent")
-	if got := classifyOpenError(escape); !errors.Is(got, ErrOutsideRoot) {
-		t.Fatalf("an escaping path returned %v, want ErrOutsideRoot", got)
+}
+
+// TestOpenErrorIsClassifiedByContainment guards the rule that the error text
+// cannot decide an escape: a message that mentions "escapes" is preserved for a
+// path inside the root, while a path that really leaves the root becomes
+// ErrOutsideRoot whatever the message says.
+func TestOpenErrorIsClassifiedByContainment(t *testing.T) {
+	dir := t.TempDir()
+	inside := writeFile(t, dir, "escapes.css", "x")
+	outside := writeFile(t, t.TempDir(), "secret.css", "x")
+	root, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	failure := errors.New("openat escapes.css: path escapes from parent")
+	if got := root.classifyOpenError(inside, failure); got != failure {
+		t.Fatalf("a message mentioning escapes changed the cause inside the root: %v", got)
+	}
+	if got := root.classifyOpenError(outside, failure); !errors.Is(got, ErrOutsideRoot) {
+		t.Fatalf("a path outside the root returned %v, want ErrOutsideRoot", got)
 	}
 }
 

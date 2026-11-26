@@ -284,3 +284,26 @@ func TestRepeatedStylesheetSharesOneParseKeepsOrder(t *testing.T) {
 		t.Fatal("the repeated inclusion does not point at the same parsed rule")
 	}
 }
+
+// TestPermissionFailureInsideTheRootIsALoadFailure guards RV5-39: a file named
+// escapes.css whose mode denies reading is inside the root, so the reported
+// cause is a load failure and the file name cannot turn it into a path escape.
+func TestPermissionFailureInsideTheRootIsALoadFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file permissions")
+	}
+	dir := t.TempDir()
+	path := writeCSS(t, dir, "escapes.css", "p { color: #ff0000 }")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chmod(path, 0o644) }()
+	doc := parseDoc(t, `<link rel="stylesheet" href="escapes.css"><p>x</p>`)
+	sheets, diags := CollectStylesheets(doc, Options{BaseDir: dir})
+	if len(sheets) != 0 {
+		t.Fatal("an unreadable stylesheet was loaded")
+	}
+	if len(diags) != 1 || diags[0].Code != "css/link-load" {
+		t.Fatalf("diagnostics = %v, want one css/link-load", diags.Lines())
+	}
+}

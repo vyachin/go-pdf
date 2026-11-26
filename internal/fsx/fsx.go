@@ -219,7 +219,7 @@ func (r *Root) Size(path string) (int64, error) {
 	// swapped between the two calls cannot point the stat somewhere else.
 	info, err := r.handle.Stat(rel)
 	if err != nil {
-		return 0, classifyOpenError(err)
+		return 0, r.classifyOpenError(path, err)
 	}
 	return info.Size(), nil
 }
@@ -236,19 +236,24 @@ func (r *Root) open(path string) (*os.File, error) {
 	}
 	f, err := r.handle.Open(rel)
 	if err != nil {
-		return nil, classifyOpenError(err)
+		return nil, r.classifyOpenError(path, err)
 	}
 	return f, nil
 }
 
-// classifyOpenError keeps the cause of a failed open: a missing file keeps its
-// error, and only a path that os.Root reports as escaping becomes ErrOutsideRoot.
-// Permission and other failures keep their cause as well.
-func classifyOpenError(err error) error {
+// classifyOpenError keeps the cause of a failed stat or open. A missing file
+// keeps its error; every other failure is reported as an escape only when the
+// containment check itself says the path leaves the root, so a permission error
+// inside the root stays a permission error and a file name can never change the
+// classification. The check is rerun rather than inspected in the error text
+// because a path can start to escape between the first check and the open, and
+// because the unexported error os.Root returns for an escape is not part of its
+// public API.
+func (r *Root) classifyOpenError(path string, err error) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if strings.Contains(err.Error(), "escapes") {
+	if _, containmentErr := r.relative(path); errors.Is(containmentErr, ErrOutsideRoot) {
 		return ErrOutsideRoot
 	}
 	return err
