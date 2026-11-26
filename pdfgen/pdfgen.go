@@ -59,7 +59,15 @@ type Options struct {
 	// Title overrides the document title taken from <title>.
 	Title string
 	// RenderPNG asks the converter to also rasterize the first page into
-	// Result.PNG. It is meant for previews and tests.
+	// Result.PNG. It is a debug preview, not production output: only the first
+	// page is rendered, at 96 dpi, and the raster is bounded by
+	// Limits.MaxRasterPixels. A failing rasterizer or PNG encoder leaves
+	// Result.PNG nil and is reported as an error.
+	//
+	// Deprecated: RenderPNG is a debug-only preview with no supported
+	// replacement in the 2.x series. It stays for the rest of 2.x and may be
+	// removed only in the next major release, when a debug package or a preview
+	// entry point can replace it.
 	RenderPNG bool
 	// File is the path used in diagnostics. When empty a placeholder is used.
 	File string
@@ -290,7 +298,8 @@ type Result struct {
 	// when the returned error is nil.
 	PDF []byte
 	// PNG is the rasterized first page. It is set only when
-	// Options.RenderPNG was requested and the rasterizer succeeded.
+	// Options.RenderPNG was requested and the preview was produced; a
+	// rasterizer or encoder failure leaves it nil and is returned as an error.
 	PNG []byte
 	// Diagnostics contains the warnings produced while rendering. Errors are
 	// returned as the error value instead, and are also present here.

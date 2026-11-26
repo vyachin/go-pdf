@@ -47,6 +47,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stylesheet in one conversion, in addition to `MaxStylesheetBytes` per file. A
   document that crosses the total fails with `resource/limit` before the next
   sheet is read. The field is additive; a zero value selects the default.
+- **Diagnosed preview encoding failure.** A debug preview whose raster is
+  produced but whose PNG encoding fails is no longer returned as a silent empty
+  `Result.PNG`: the conversion reports a `raster/render` diagnostic naming the
+  document, returns an error and leaves `Result.PNG` nil. The PDF bytes are
+  unchanged, and a document converted without `Options.RenderPNG` is
+  byte-identical.
+
+### Deprecated
+
+- **Debug preview option.** `Options.RenderPNG` is a debug-only preview of the
+  first page: only the first page is rendered, at 96 dpi, bounded by
+  `Limits.MaxRasterPixels`, and it is not production output. It stays for the
+  rest of the 2.x series and may be removed only in the next major release, when
+  a debug package or a preview entry point can replace it.
 
 ### Fixed
 

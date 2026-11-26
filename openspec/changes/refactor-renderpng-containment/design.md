@@ -77,8 +77,10 @@ a debug detail a supported knob.
   the changelog, not left as an implicit intention.
 - **The new seam widens the internal API** → the helper is unexported and takes
   a standard function type; no public surface changes.
-- **The raster dependency stays** → accepted for 2.x; the design states that
-  removal of the option is the prerequisite for dropping it.
+- **The raster dependency stays** → accepted for 2.x. `go list -deps
+  ./cmd/pdfgen` still lists `internal/backend/raster`, and the package can only
+  disappear together with `Options.RenderPNG`, in the next major release. No
+  code changes toward that removal are part of this change.
 
 ## Migration Plan
 
