@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"math"
 	"slices"
 	"strconv"
@@ -138,15 +140,187 @@ func (d *Doc) AddPage(width, height int32, ops []Op) {
 
 type objectWriter struct {
 	bodies [][]byte
+	// base is the id before the first object. It lets the outline be built in
+	// the streaming writer's id space without pretending its ids start at one.
+	base int
 }
 
 func (w *objectWriter) add() int {
 	w.bodies = append(w.bodies, nil)
-	return len(w.bodies)
+	return w.base + len(w.bodies)
 }
 
 func (w *objectWriter) set(id int, body []byte) {
-	w.bodies[id-1] = body
+	w.bodies[id-1-w.base] = body
+}
+
+// streamWriter writes objects straight to an io.Writer, records their offsets
+// for the cross-reference table and hashes their bodies for the document
+// identifier. It never holds more than the object it is writing.
+type streamWriter struct {
+	w       io.Writer
+	guard   *budget.Guard
+	written int64
+	nextID  int
+	offsets []int64
+	hash    hash.Hash
+}
+
+func newStreamWriter(w io.Writer, guard *budget.Guard, firstID int) *streamWriter {
+	return &streamWriter{
+		w:       w,
+		guard:   guard,
+		nextID:  firstID,
+		offsets: make([]int64, firstID-1),
+		hash:    sha256.New(),
+	}
+}
+
+// add reserves the next object id. Its offset is recorded when it is emitted.
+func (s *streamWriter) add() int {
+	id := s.nextID
+	s.nextID++
+	s.offsets = append(s.offsets, 0)
+	return id
+}
+
+// charge records the work of writing n bytes, stopping an exhausted budget or
+// a cancelled context before more of the object is written.
+func (s *streamWriter) charge(n int) error {
+	return s.guard.Add(uint64(n/4096) + 1)
+}
+
+// write copies p to the destination and records the bytes it accepted, even
+// when the write fails part way through.
+func (s *streamWriter) write(p []byte) error {
+	n, err := writeAll(s.w, p)
+	s.written += int64(n)
+	return err
+}
+
+func (s *streamWriter) writeString(text string) error {
+	return s.write([]byte(text))
+}
+
+// writeHashed writes object body bytes and adds them to the content hash.
+func (s *streamWriter) writeHashed(p []byte) error {
+	if _, err := s.hash.Write(p); err != nil {
+		return err
+	}
+	return s.write(p)
+}
+
+// beginObject records the offset of id and writes its header.
+func (s *streamWriter) beginObject(id int) error {
+	if id < 1 || id > len(s.offsets) {
+		return fmt.Errorf("pdf: invalid object id %d", id)
+	}
+	if s.offsets[id-1] != 0 {
+		return fmt.Errorf("pdf: object %d was written twice", id)
+	}
+	s.offsets[id-1] = s.written
+	return s.writeString(fmt.Sprintf("%d 0 obj\n", id))
+}
+
+func (s *streamWriter) endObject() error {
+	return s.writeString("\nendobj\n")
+}
+
+// emit writes one complete object body.
+func (s *streamWriter) emit(id int, body []byte) error {
+	if err := s.charge(len(body)); err != nil {
+		return err
+	}
+	if err := s.beginObject(id); err != nil {
+		return err
+	}
+	if err := s.writeHashed(body); err != nil {
+		return err
+	}
+	return s.endObject()
+}
+
+// emitStream writes a stream object, compressing the data when that makes it
+// smaller. The compressed bytes are written directly, so no second copy of the
+// complete object is built and only the data of the current object is live.
+func (s *streamWriter) emitStream(id int, data []byte) error {
+	if err := s.charge(len(data)); err != nil {
+		return err
+	}
+	wire := data
+	compressed := false
+	var buf bytes.Buffer
+	zw := zlib.NewWriter(&buf)
+	if _, err := zw.Write(data); err == nil {
+		_ = zw.Close()
+		if buf.Len() < len(data) {
+			wire, compressed = buf.Bytes(), true
+		}
+	}
+	filter := ""
+	if compressed {
+		filter = " /Filter /FlateDecode"
+	}
+	if err := s.beginObject(id); err != nil {
+		return err
+	}
+	dict := fmt.Sprintf("<< /Length %d%s >>\nstream\n", len(wire), filter)
+	if err := s.writeHashed([]byte(dict)); err != nil {
+		return err
+	}
+	if err := s.writeHashed(wire); err != nil {
+		return err
+	}
+	if err := s.writeHashed([]byte("\nendstream")); err != nil {
+		return err
+	}
+	return s.endObject()
+}
+
+// writeXref writes the cross-reference table and the trailer. It is the last
+// step, so every offset is known; a cancellation before it is reported instead
+// of leaving a document that points at a partial table.
+func (s *streamWriter) writeXref(catalogID, infoID int, id string) error {
+	if err := s.guard.Err(); err != nil {
+		return err
+	}
+	for i, off := range s.offsets {
+		if off == 0 {
+			return fmt.Errorf("pdf: object %d was not written", i+1)
+		}
+	}
+	xref := s.written
+	var b strings.Builder
+	fmt.Fprintf(&b, "xref\n0 %d\n", len(s.offsets)+1)
+	b.WriteString("0000000000 65535 f \n")
+	for _, off := range s.offsets {
+		fmt.Fprintf(&b, "%010d 00000 n \n", off)
+	}
+	fmt.Fprintf(&b, "trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R /ID [<%s> <%s>] >>\nstartxref\n%d\n%%%%EOF\n",
+		len(s.offsets)+1, catalogID, infoID, id, id, xref)
+	return s.writeString(b.String())
+}
+
+// writeAll writes p completely and reports the bytes accepted. A writer that
+// reports success without accepting a byte can never complete the write, so it
+// is reported as io.ErrShortWrite instead of being retried forever.
+func writeAll(w io.Writer, p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		n, err := w.Write(p)
+		if n < 0 || n > len(p) {
+			return written, fmt.Errorf("pdf: writer returned an invalid count %d", n)
+		}
+		written += n
+		p = p[n:]
+		if err != nil {
+			return written, err
+		}
+		if n == 0 {
+			return written, io.ErrShortWrite
+		}
+	}
+	return written, nil
 }
 
 type fontEntry struct {
@@ -221,28 +395,324 @@ type imageEntry struct {
 	id    int
 }
 
-// Bytes serializes the document.
+// Bytes serializes the document. It is [Doc.WriteTo] into a buffer, so the
+// buffered and the streaming entry points share one serialiser and cannot
+// drift apart.
 func (d *Doc) Bytes() ([]byte, error) {
-	if err := d.opts.Budget.Err(); err != nil {
+	var buf bytes.Buffer
+	if _, err := d.WriteTo(&buf); err != nil {
 		return nil, err
 	}
-	if len(d.pages) == 0 {
-		return nil, fmt.Errorf("pdf: document has no pages")
+	return buf.Bytes(), nil
+}
+
+// pdfHeader is the file header every document starts with.
+const pdfHeader = "%PDF-1.7\n%\xe2\xe3\xcf\xd3\n"
+
+// WriteTo serializes the document to w and returns the number of bytes
+// written.
+//
+// The document is written in the streaming order: the header, each page's
+// content stream and page object, the fonts and images discovered on those
+// pages, the outline, the page tree, the catalog, the info dictionary, the
+// cross-reference table and the trailer. Object identifiers are assigned
+// before the first write, and every offset is recorded from a counting writer,
+// so serialisation holds at most one page's content stream rather than the
+// complete PDF.
+//
+// A write error is returned as w reported it: a short write becomes
+// [io.ErrShortWrite] and no failure path panics. The context carried by
+// Options.Budget is checked between pages and before the cross-reference
+// table, so a cancelled conversion stops at a page boundary and returns the
+// context error. A failed call may already have written a prefix of the
+// document to w; the caller must discard it.
+func (d *Doc) WriteTo(w io.Writer) (int64, error) {
+	if w == nil {
+		return 0, fmt.Errorf("pdf: nil writer")
 	}
-	// Fonts and images are collected in first-use order, which keeps the output
-	// deterministic.
+	if err := d.opts.Budget.Err(); err != nil {
+		return 0, err
+	}
+	if len(d.pages) == 0 {
+		return 0, fmt.Errorf("pdf: document has no pages")
+	}
+
+	fonts, images, err := d.collectObjects()
+	if err != nil {
+		return 0, err
+	}
+
+	// The page count is known before the first byte, so the page objects are
+	// reserved first and can be written while their content is produced. Fonts
+	// and images become known from the operations of those pages; their bodies
+	// follow the last page.
+	nextID := 1
+	contentIDs := make([]int, len(d.pages))
+	pageIDs := make([]int, len(d.pages))
+	for i := range d.pages {
+		contentIDs[i] = nextID
+		nextID++
+		pageIDs[i] = nextID
+		nextID++
+	}
+	for _, fe := range fonts {
+		// Type0, CIDFontType2, FontDescriptor, FontFile2 and ToUnicode each
+		// need their own object: reusing one id for two roles breaks the chain.
+		fe.ids = make([]int, 6)
+		for i := range fe.ids {
+			fe.ids[i] = nextID
+			nextID++
+		}
+	}
+	for _, im := range images {
+		im.id = nextID
+		nextID++
+	}
+	pagesID := nextID
+	nextID++
+	catalogID := nextID
+	nextID++
+	infoID := nextID
+	nextID++
+
+	// The outline ids are known before the first page and their bodies are
+	// held until the document-level objects are written; an outline is small
+	// and does not grow with the number of pages.
+	var outline *objectWriter
+	outlineRoot := 0
+	if len(d.opts.Outline) > 0 {
+		outline = &objectWriter{base: nextID - 1}
+		outlineRoot = outline.add()
+		writeOutline(outline, d.opts.Outline, outlineRoot, d.pages, pageIDs, outlineRoot)
+		nextID += len(outline.bodies)
+	}
+
+	fontNames := make([]string, len(fonts))
+	for i := range fonts {
+		fontNames[i] = fmt.Sprintf("F%d", i+1)
+	}
+	imageNames := map[*Image]string{}
+	for i, im := range images {
+		imageNames[im.image] = fmt.Sprintf("Im%d", i+1)
+	}
+
+	// Page content addresses CIDs, so the CID map is built before the first
+	// page is written. The subset itself is built when its object is emitted,
+	// after the pages.
+	for _, fe := range fonts {
+		// Subsetting, the CID map, /W and the ToUnicode map all grow with the
+		// glyphs and the distinct glyph-rune pairs of the font.
+		if err := d.opts.Budget.Add(uint64(len(fe.used) + len(fe.pairs) + 1)); err != nil {
+			return 0, err
+		}
+		if len(fe.pairs) > 0xFFFF {
+			return 0, fmt.Errorf("%w: one font needs %d distinct glyph-rune pairs, the limit is 65535", budget.ErrExceeded, len(fe.pairs))
+		}
+		fe.buildCIDs()
+	}
+
+	sw := newStreamWriter(w, d.opts.Budget, nextID)
+	if err := sw.writeString(pdfHeader); err != nil {
+		return sw.written, err
+	}
+
+	// Page content and page objects.
+	for i, p := range d.pages {
+		// A cancelled context or an exhausted budget stops at a page boundary
+		// instead of after the whole document.
+		if err := d.opts.Budget.Err(); err != nil {
+			return sw.written, err
+		}
+		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
+			return sw.written, err
+		}
+		content, err := d.contentStream(p, fonts, fontNames, imageNames)
+		if err != nil {
+			return sw.written, err
+		}
+		if err := sw.emitStream(contentIDs[i], content); err != nil {
+			return sw.written, err
+		}
+		var fontRes, imageRes strings.Builder
+		for fi := range fonts {
+			fmt.Fprintf(&fontRes, " /%s %d 0 R", fontNames[fi], fonts[fi].ids[0])
+		}
+		// List only the images this page draws, in document order. Iterating the
+		// ordered slice (not the name map) keeps the bytes deterministic.
+		used := map[*Image]bool{}
+		for _, op := range p.ops {
+			if op.Kind == ImageOpKind && op.Image != nil {
+				used[op.Image] = true
+			}
+		}
+		for _, im := range images {
+			if !used[im.image] {
+				continue
+			}
+			fmt.Fprintf(&imageRes, " /%s %d 0 R", imageNames[im.image], im.id)
+		}
+		resources := fmt.Sprintf("/Font <<%s >>", fontRes.String())
+		if imageRes.Len() > 0 {
+			resources += fmt.Sprintf(" /XObject <<%s >>", imageRes.String())
+		}
+		pageBody := fmt.Sprintf(
+			"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %s %s] /Resources << %s >> /Contents %d 0 R >>",
+			pagesID, num(p.width), num(p.height), resources, contentIDs[i])
+		if err := sw.emit(pageIDs[i], []byte(pageBody)); err != nil {
+			return sw.written, err
+		}
+	}
+
+	// Font objects.
+	for _, fe := range fonts {
+		if err := d.opts.Budget.Err(); err != nil {
+			return sw.written, err
+		}
+		if err := d.opts.Budget.Add(1); err != nil {
+			return sw.written, err
+		}
+		subset, err := fe.font.Subset(fe.used)
+		if err != nil {
+			return sw.written, fmt.Errorf("pdf: subsetting font: %w", err)
+		}
+		fe.subset = subset
+		fontID, cidID := fe.ids[0], fe.ids[1]
+		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
+		cidMapID := fe.ids[5]
+		baseName := baseFontName(subsetTag(fe.subset), fe.font.Family(), fe.font.Subfamily())
+		upem := float64(fe.font.UnitsPerEm())
+		scale := 1000 / upem
+		bbox := fe.font.BBox()
+		widths, err := fe.widthArray(d.opts.Budget)
+		if err != nil {
+			return sw.written, err
+		}
+		toUni, err := fe.toUnicodeCMap(d.opts.Budget)
+		if err != nil {
+			return sw.written, err
+		}
+
+		bodies := []struct {
+			id   int
+			body []byte
+		}{
+			{fontID, []byte(fmt.Sprintf(
+				"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
+				baseName, cidID, toUniID))},
+			{cidID, []byte(fmt.Sprintf(
+				"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap %d 0 R >>",
+				baseName, descID, widths, cidMapID))},
+			{descID, []byte(fmt.Sprintf(
+				"<< /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [%d %d %d %d] /ItalicAngle %s /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
+				baseName,
+				int32(float64(bbox[0])*scale), int32(float64(bbox[1])*scale),
+				int32(float64(bbox[2])*scale), int32(float64(bbox[3])*scale),
+				numFloat(fe.font.ItalicAngle()),
+				int32(float64(fe.font.Ascent())*scale),
+				int32(float64(fe.font.Descent())*scale),
+				int32(float64(fe.font.CapHeight())*scale),
+				fileID))},
+			{fileID, streamObject(fe.subset, true)},
+			{toUniID, streamObject(toUni, true)},
+			{cidMapID, streamObject(fe.cidToGIDMap(), true)},
+		}
+		for _, object := range bodies {
+			if err := sw.emit(object.id, object.body); err != nil {
+				return sw.written, err
+			}
+		}
+	}
+
+	// Image objects. A PNG with transparency needs a second stream for its
+	// soft mask; the allocator reserves its object id and the mask body is
+	// written right after the image that references it.
+	for _, im := range images {
+		if err := d.opts.Budget.Err(); err != nil {
+			return sw.written, err
+		}
+		type maskObject struct {
+			id   int
+			body []byte
+		}
+		var masks []maskObject
+		body, err := imageObject(d.opts.Budget, im.image, func(mask []byte) int {
+			id := sw.add()
+			masks = append(masks, maskObject{id: id, body: mask})
+			return id
+		})
+		if err != nil {
+			return sw.written, err
+		}
+		if err := sw.emit(im.id, body); err != nil {
+			return sw.written, err
+		}
+		for _, mask := range masks {
+			if err := sw.emit(mask.id, mask.body); err != nil {
+				return sw.written, err
+			}
+		}
+	}
+
+	// Outline, page tree, catalog and info dictionary.
+	if outline != nil {
+		for i, body := range outline.bodies {
+			if err := sw.emit(outline.base+1+i, body); err != nil {
+				return sw.written, err
+			}
+		}
+	}
+	kids := make([]string, len(pageIDs))
+	for i, id := range pageIDs {
+		kids[i] = fmt.Sprintf("%d 0 R", id)
+	}
+	if err := sw.emit(pagesID, []byte(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(pageIDs)))); err != nil {
+		return sw.written, err
+	}
+	if outlineRoot != 0 {
+		if err := sw.emit(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R /Outlines %d 0 R /PageMode /UseOutlines >>", pagesID, outlineRoot))); err != nil {
+			return sw.written, err
+		}
+	} else {
+		if err := sw.emit(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R >>", pagesID))); err != nil {
+			return sw.written, err
+		}
+	}
+
+	keywords := ""
+	if d.opts.Keywords != "" {
+		keywords = " /Keywords " + pdfString(d.opts.Keywords)
+	}
+	info := fmt.Sprintf("<< /Title %s /Author %s /Subject %s%s /Creator (go-pdf) /Producer (go-pdf) /CreationDate (%s) >>",
+		pdfString(d.opts.Title), pdfString(d.opts.Author), pdfString(d.opts.Subject), keywords, pdfDate(d.opts.CreationDate))
+	if err := sw.emit(infoID, []byte(info)); err != nil {
+		return sw.written, err
+	}
+
+	// Deterministic document id: a hash of every object body in the order it
+	// was written.
+	id := hex.EncodeToString(sw.hash.Sum(nil))[:32]
+	if err := sw.writeXref(catalogID, infoID, id); err != nil {
+		return sw.written, err
+	}
+	return sw.written, nil
+}
+
+// collectObjects gathers the fonts and images in first-use order, which keeps
+// the object numbering and the output deterministic. Both passes charge the
+// work guard, as they inspect every operation of every page.
+func (d *Doc) collectObjects() ([]*fontEntry, []*imageEntry, error) {
 	var fonts []*fontEntry
 	fontByPtr := map[*font.Font]*fontEntry{}
 	for _, p := range d.pages {
 		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, op := range p.ops {
 			if op.Kind != TextOpKind || op.Text == nil {
 				continue
 			}
 			if op.Text.Font == nil {
-				return nil, fmt.Errorf("pdf: a text operation has no font")
+				return nil, nil, fmt.Errorf("pdf: a text operation has no font")
 			}
 			fe := fontByPtr[op.Text.Font]
 			if fe == nil {
@@ -260,7 +730,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 	imageByPtr := map[*Image]*imageEntry{}
 	for _, p := range d.pages {
 		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, op := range p.ops {
 			if op.Kind != ImageOpKind || op.Image == nil {
@@ -274,184 +744,7 @@ func (d *Doc) Bytes() ([]byte, error) {
 			images = append(images, entry)
 		}
 	}
-
-	w := &objectWriter{}
-	// Font objects.
-	for _, fe := range fonts {
-		// Type0, CIDFontType2, FontDescriptor, FontFile2 and ToUnicode each
-		// need their own object: reusing one id for two roles breaks the chain.
-		fe.ids = make([]int, 6)
-		for i := range fe.ids {
-			fe.ids[i] = w.add()
-		}
-	}
-	for _, im := range images {
-		im.id = w.add()
-	}
-	contentIDs := make([]int, len(d.pages))
-	pageIDs := make([]int, len(d.pages))
-	for i := range d.pages {
-		contentIDs[i] = w.add()
-		pageIDs[i] = w.add()
-	}
-	pagesID := w.add()
-	catalogID := w.add()
-	infoID := w.add()
-
-	fontNames := make([]string, len(fonts))
-	for i := range fonts {
-		fontNames[i] = fmt.Sprintf("F%d", i+1)
-	}
-	imageNames := map[*Image]string{}
-	for i, im := range images {
-		imageNames[im.image] = fmt.Sprintf("Im%d", i+1)
-	}
-
-	// Font objects.
-	for _, fe := range fonts {
-		if err := d.opts.Budget.Add(1); err != nil {
-			return nil, err
-		}
-		subset, err := fe.font.Subset(fe.used)
-		if err != nil {
-			return nil, fmt.Errorf("pdf: subsetting font: %w", err)
-		}
-		fe.subset = subset
-		// Subsetting, the CID map, /W and the ToUnicode map all grow with the
-		// glyphs and the distinct glyph-rune pairs of the font.
-		if err := d.opts.Budget.Add(uint64(len(fe.used) + len(fe.pairs) + 1)); err != nil {
-			return nil, err
-		}
-		if len(fe.pairs) > 0xFFFF {
-			return nil, fmt.Errorf("%w: one font needs %d distinct glyph-rune pairs, the limit is 65535", budget.ErrExceeded, len(fe.pairs))
-		}
-		fe.buildCIDs()
-		fontID, cidID := fe.ids[0], fe.ids[1]
-		descID, fileID, toUniID := fe.ids[2], fe.ids[3], fe.ids[4]
-		cidMapID := fe.ids[5]
-		baseName := baseFontName(subsetTag(fe.subset), fe.font.Family(), fe.font.Subfamily())
-		widths, err := fe.widthArray(d.opts.Budget)
-		if err != nil {
-			return nil, err
-		}
-		toUni, err := fe.toUnicodeCMap(d.opts.Budget)
-		if err != nil {
-			return nil, err
-		}
-
-		w.set(fontID, []byte(fmt.Sprintf(
-			"<< /Type /Font /Subtype /Type0 /BaseFont /%s /Encoding /Identity-H /DescendantFonts [%d 0 R] /ToUnicode %d 0 R >>",
-			baseName, cidID, toUniID)))
-		w.set(cidID, []byte(fmt.Sprintf(
-			"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /%s /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor %d 0 R /DW 1000 /W [%s] /CIDToGIDMap %d 0 R >>",
-			baseName, descID, widths, cidMapID)))
-		upem := float64(fe.font.UnitsPerEm())
-		scale := 1000 / upem
-		bbox := fe.font.BBox()
-		w.set(descID, []byte(fmt.Sprintf(
-			"<< /Type /FontDescriptor /FontName /%s /Flags 4 /FontBBox [%d %d %d %d] /ItalicAngle %s /Ascent %d /Descent %d /CapHeight %d /StemV 80 /FontFile2 %d 0 R >>",
-			baseName,
-			int32(float64(bbox[0])*scale), int32(float64(bbox[1])*scale),
-			int32(float64(bbox[2])*scale), int32(float64(bbox[3])*scale),
-			numFloat(fe.font.ItalicAngle()),
-			int32(float64(fe.font.Ascent())*scale),
-			int32(float64(fe.font.Descent())*scale),
-			int32(float64(fe.font.CapHeight())*scale),
-			fileID)))
-		w.set(fileID, streamObject(fe.subset, true))
-		w.set(toUniID, streamObject(toUni, true))
-		w.set(cidMapID, streamObject(fe.cidToGIDMap(), true))
-	}
-
-	// Image objects. A PNG with transparency needs a second stream for its
-	// soft mask; the allocator registers it and returns its object id.
-	for _, im := range images {
-		body, err := imageObject(d.opts.Budget, im.image, func(mask []byte) int {
-			id := w.add()
-			w.set(id, mask)
-			return id
-		})
-		if err != nil {
-			return nil, err
-		}
-		w.set(im.id, body)
-	}
-
-	// Page content and page objects.
-	for i, p := range d.pages {
-		if err := d.opts.Budget.Add(uint64(len(p.ops)) + 1); err != nil {
-			return nil, err
-		}
-		content, err := d.contentStream(p, fonts, fontNames, imageNames)
-		if err != nil {
-			return nil, err
-		}
-		w.set(contentIDs[i], streamObject(content, true))
-		var fontRes, imageRes strings.Builder
-		for fi, fe := range fonts {
-			fmt.Fprintf(&fontRes, " /%s %d 0 R", fontNames[fi], fe.ids[0])
-			_ = fe
-		}
-		// List only the images this page draws, in document order. Iterating the
-		// ordered slice (not the name map) keeps the bytes deterministic.
-		used := map[*Image]bool{}
-		for _, op := range p.ops {
-			if op.Kind == ImageOpKind && op.Image != nil {
-				used[op.Image] = true
-			}
-		}
-		for _, im := range images {
-			if !used[im.image] {
-				continue
-			}
-			fmt.Fprintf(&imageRes, " /%s %d 0 R", imageNames[im.image], im.id)
-		}
-		resources := fmt.Sprintf("/Font <<%s >>", fontRes.String())
-		// Only images that the page actually uses need to be listed, but a
-		// shared list keeps the writer simple and is valid.
-		if imageRes.Len() > 0 {
-			resources += fmt.Sprintf(" /XObject <<%s >>", imageRes.String())
-		}
-		w.set(pageIDs[i], []byte(fmt.Sprintf(
-			"<< /Type /Page /Parent %d 0 R /MediaBox [0 0 %s %s] /Resources << %s >> /Contents %d 0 R >>",
-			pagesID, num(p.width), num(p.height), resources, contentIDs[i])))
-	}
-
-	kids := make([]string, len(pageIDs))
-	for i, id := range pageIDs {
-		kids[i] = fmt.Sprintf("%d 0 R", id)
-	}
-	w.set(pagesID, []byte(fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(pageIDs))))
-	outlineRoot := 0
-	if len(d.opts.Outline) > 0 {
-		outlineRoot = w.add()
-	}
-	if outlineRoot != 0 {
-		w.set(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R /Outlines %d 0 R /PageMode /UseOutlines >>", pagesID, outlineRoot)))
-		writeOutline(w, d.opts.Outline, outlineRoot, d.pages, pageIDs, outlineRoot)
-	} else {
-		w.set(catalogID, []byte(fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R >>", pagesID)))
-	}
-
-	keywords := ""
-	if d.opts.Keywords != "" {
-		keywords = " /Keywords " + pdfString(d.opts.Keywords)
-	}
-	info := fmt.Sprintf("<< /Title %s /Author %s /Subject %s%s /Creator (go-pdf) /Producer (go-pdf) /CreationDate (%s) >>",
-		pdfString(d.opts.Title), pdfString(d.opts.Author), pdfString(d.opts.Subject), keywords, pdfDate(d.opts.CreationDate))
-	w.set(infoID, []byte(info))
-
-	// Deterministic document id: a hash of every object body.
-	hash := sha256.New()
-	for _, body := range w.bodies {
-		if err := d.opts.Budget.Add(1); err != nil {
-			return nil, err
-		}
-		hash.Write(body)
-	}
-	id := hex.EncodeToString(hash.Sum(nil))[:32]
-
-	return assemble(d.opts.Budget, w, catalogID, infoID, id)
+	return fonts, images, nil
 }
 
 // nominalWidth1000 returns a glyph width in thousandths of an em, rounded the
@@ -764,34 +1057,6 @@ func imageStream(w, h int, colorSpace string, bits int, data []byte, extra strin
 	return []byte(fmt.Sprintf(
 		"<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace %s /BitsPerComponent %d /Filter /FlateDecode /Length %d%s >>\nstream\n%s\nendstream",
 		w, h, colorSpace, bits, len(data), extra, data))
-}
-
-// assemble writes the objects, the cross-reference table and the trailer. The
-// serialised bytes are charged to the work guard in 4 KiB units, so
-// MaxOperations bounds the writer's output and not only the number of
-// operations on the page.
-func assemble(guard *budget.Guard, w *objectWriter, catalogID, infoID int, id string) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteString("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
-	offsets := make([]int, len(w.bodies)+1)
-	for i, body := range w.bodies {
-		if err := guard.Add(uint64(len(body)/4096) + 1); err != nil {
-			return nil, err
-		}
-		offsets[i+1] = buf.Len()
-		fmt.Fprintf(&buf, "%d 0 obj\n", i+1)
-		buf.Write(body)
-		buf.WriteString("\nendobj\n")
-	}
-	xref := buf.Len()
-	fmt.Fprintf(&buf, "xref\n0 %d\n", len(w.bodies)+1)
-	buf.WriteString("0000000000 65535 f \n")
-	for i := 1; i <= len(w.bodies); i++ {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
-	}
-	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root %d 0 R /Info %d 0 R /ID [<%s> <%s>] >>\nstartxref\n%d\n%%%%EOF\n",
-		len(w.bodies)+1, catalogID, infoID, id, id, xref)
-	return buf.Bytes(), nil
 }
 
 func num(mp int32) string { return f3(float64(mp) / 1000) }

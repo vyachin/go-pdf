@@ -3,6 +3,7 @@ package pdfgen
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"strings"
 	"time"
@@ -277,10 +278,11 @@ func (e *Error) Error() string {
 	return strings.Join(lines, "\n")
 }
 
-// Result is the outcome of Convert.
+// Result is the outcome of Convert or ConvertTo.
 type Result struct {
-	// PDF is the rendered document. It is valid only when the returned error
-	// is nil.
+	// PDF is the rendered document. It is set by Convert and always nil for
+	// ConvertTo, which streams the PDF to its writer instead; it is valid only
+	// when the returned error is nil.
 	PDF []byte
 	// PNG is the rasterized first page. It is set only when
 	// Options.RenderPNG was requested and the rasterizer succeeded.
@@ -297,6 +299,33 @@ type Result struct {
 // are reported through the result. Nothing is written to disk.
 func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 	res, err := engine.Convert(ctx, src, opts.toEngine())
+	return publicResult(ctx, res, err, opts)
+}
+
+// ConvertTo renders a template and streams the PDF to dst.
+//
+// It runs the same pipeline as [Convert] and reports the same diagnostics, but
+// writes the document to dst as it is serialised instead of returning it in
+// [Result].PDF, which stays nil. Serialisation holds at most one page's
+// content stream, so the memory it needs does not grow with the number of
+// pages. The bytes written to dst equal the bytes Convert returns for the same
+// input.
+//
+// A layout or validation error is reported before the first byte. A write error
+// or a cancelled context can leave a prefix of the PDF in dst; the call returns
+// an error and the caller must discard the destination. A write failure is
+// reported as a pdf/write diagnostic, and a cancelled context is returned as
+// the context error. dst must not block indefinitely: cancellation is checked
+// between pages, not inside one Write.
+func ConvertTo(ctx context.Context, dst io.Writer, src []byte, opts Options) (Result, error) {
+	res, err := engine.ConvertTo(ctx, dst, src, opts.toEngine())
+	return publicResult(ctx, res, err, opts)
+}
+
+// publicResult maps an engine result to the public one and applies the
+// documented error order: a cancelled context wins over a template error, and
+// error-severity diagnostics are returned as the typed error.
+func publicResult(ctx context.Context, res engine.Result, err error, opts Options) (Result, error) {
 	out := Result{PDF: res.PDF, PNG: res.PNG, Diagnostics: fromDiags(res.Diagnostics, diagnosticFile(opts))}
 	if err != nil {
 		// Cancellation wins over a template error: a template that already

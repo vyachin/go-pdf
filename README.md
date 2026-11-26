@@ -104,6 +104,44 @@ absolute or escaping reference fails with the same `img/load`, `css/link-path` o
 `font/unavailable` diagnostic as a filesystem escape. Leaving `Source` nil keeps
 the filesystem behaviour unchanged.
 
+### Streaming a large document
+
+`ConvertTo` writes the PDF to an `io.Writer` as it is serialised, so a server
+does not hold the complete document in memory:
+
+```go
+out, err := os.Create("invoice.pdf")
+if err != nil {
+	log.Fatal(err)
+}
+defer out.Close()
+
+res, err := pdfgen.ConvertTo(context.Background(), out, src, pdfgen.Options{
+	File: "invoice.html",
+})
+if err != nil {
+	var verr *pdfgen.Error
+	if errors.As(err, &verr) {
+		for _, d := range verr.Diagnostics { // includes pdf/write
+			log.Print(d)
+		}
+	} else {
+		log.Print(err) // a cancelled context
+	}
+	// Discard the output. A validation error wrote nothing; a write error or a
+	// cancelled context may have left a prefix.
+	return
+}
+for _, d := range res.Diagnostics { // warnings: the PDF was written
+	log.Print(d)
+}
+```
+
+`ConvertTo` reports the same diagnostics as `Convert`, produces the same bytes
+and leaves `Result.PDF` nil. Serialisation holds at most one page's content
+stream, so the memory needed to write the PDF does not grow with the number of
+pages.
+
 ## Guarantees
 
 - **Deterministic.** The same engine build, the same HTML bytes, the same
@@ -114,10 +152,17 @@ the filesystem behaviour unchanged.
   still: an asset edited in place is a changed input, and system-font fallback
   picks different bytes on different machines, so ship the font and keep the
   resources immutable — see [fonts and resources](docs/fonts.md).
-- **Nothing is written.** `Convert` and `Validate` create, modify and delete no
-  files; they read the assets the document references — from the host
-  filesystem or from the caller-supplied `Options.Source` — and return the PDF
-  to the caller, who decides where it goes.
+- **Nothing is written.** `Convert`, `ConvertTo` and `Validate` create, modify
+  and delete no files; they read the assets the document references — from the
+  host filesystem or from the caller-supplied `Options.Source` — and return the
+  PDF to the caller, who decides where it goes. `ConvertTo` writes only to the
+  writer it is given.
+- **Streaming.** `ConvertTo` writes the PDF to an `io.Writer` as it is
+  serialised and holds at most one page's content stream, so the memory needed
+  to serialise the document does not grow with the number of pages. It produces
+  the same bytes as `Convert` and reports the same diagnostics, with
+  `Result.PDF` nil. A write error or a cancelled context can leave a prefix in
+  the writer, which the caller discards.
 - **No panics.** Any input is answered with a result or an error, never with a
   crash, so a hostile template cannot take the host process down.
 - **Concurrent.** The package keeps no mutable global state; independent calls
