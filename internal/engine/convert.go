@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image/png"
+	"io"
 	"maps"
 	"strings"
 	"unicode/utf8"
@@ -377,7 +378,28 @@ func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.
 	return pages, nil
 }
 
+// Convert renders a template into a PDF and returns it in Result.PDF.
 func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
+	var buf bytes.Buffer
+	res, err := convert(ctx, src, opts, &buf)
+	if err != nil {
+		return res, err
+	}
+	res.PDF = buf.Bytes()
+	return res, nil
+}
+
+// ConvertTo renders a template and streams the PDF to dst. It reports the same
+// Result and diagnostics as Convert, with Result.PDF nil, and passes the
+// caller's writer to the shared serialiser instead of buffering the document.
+func ConvertTo(ctx context.Context, dst io.Writer, src []byte, opts Options) (Result, error) {
+	return convert(ctx, src, opts, dst)
+}
+
+// convert is the one conversion pipeline. The only difference between Convert
+// and ConvertTo is the sink: a buffer that becomes Result.PDF, or the caller's
+// writer.
+func convert(ctx context.Context, src []byte, opts Options, sink io.Writer) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -440,23 +462,9 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 		}
 		writer.AddPage(p.Size.Width, p.Size.Height, pdfOps)
 	}
-	data, err := writer.Bytes()
-	if err != nil {
-		if errors.Is(err, budget.ErrExceeded) {
-			diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
-			diags.Sort()
-			return Result{Diagnostics: diags}, diags.Error()
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Result{Diagnostics: diags}, ctxErr
-		}
-		diags.Errorf(diag.PDFWrite, aggregatePosition(opts), "", "%v", err)
-		diags.Sort()
-		return Result{Diagnostics: diags}, diags.Error()
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{Diagnostics: diags}, err
-	}
+	// The preview is rendered before the PDF is written: a raster failure is a
+	// conversion failure, and ConvertTo must not leave a complete document in
+	// the caller's writer when it returns an error.
 	var pngData []byte
 	if opts.RenderPNG && len(pages.Pages) > 0 {
 		img, err := raster.Render(pages.Pages[0], raster.Options{
@@ -482,8 +490,24 @@ func Convert(ctx context.Context, src []byte, opts Options) (Result, error) {
 			pngData = buf.Bytes()
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{Diagnostics: diags}, err
+	}
+	if _, err := writer.WriteTo(sink); err != nil {
+		if errors.Is(err, budget.ErrExceeded) {
+			diags.Errorf(diag.ResourceLimit, aggregatePosition(opts), "", "%v", err)
+			diags.Sort()
+			return Result{Diagnostics: diags}, diags.Error()
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{Diagnostics: diags}, ctxErr
+		}
+		diags.Errorf(diag.PDFWrite, aggregatePosition(opts), "", "%v", err)
+		diags.Sort()
+		return Result{Diagnostics: diags}, diags.Error()
+	}
 	diags.Sort()
-	return Result{PDF: data, PNG: pngData, Diagnostics: diags}, nil
+	return Result{PNG: pngData, Diagnostics: diags}, nil
 }
 
 // stageFailure moves a budget failure recorded by layout into the conversion

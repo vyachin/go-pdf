@@ -16,10 +16,17 @@
 //     system-font fallback is environment-dependent, so a reproducible
 //     deployment selects [Options].FallbackFont (or an @font-face source) and
 //     keeps its stylesheets and images immutable.
-//   - No writes. [Convert] and [Validate] create, modify and delete no files.
-//     They read only the assets the document references, inside the configured
-//     roots or the caller-supplied [Options].Source, and the PDF is returned to
-//     the caller, who decides where it goes.
+//   - No writes. [Convert], [ConvertTo] and [Validate] create, modify and delete
+//     no files. They read only the assets the document references, inside the
+//     configured roots or the caller-supplied [Options].Source, and the PDF is
+//     returned to the caller, who decides where it goes. [ConvertTo] writes only
+//     to the io.Writer it is given.
+//   - Streaming output. [ConvertTo] runs the same conversion as [Convert] and
+//     writes the PDF to an io.Writer as it is serialised, holding at most one
+//     page's content stream instead of the complete document. Its [Result].PDF
+//     is nil and the bytes it writes are identical to Convert's. A write error
+//     or a cancelled context can leave a prefix of the PDF in the writer, and
+//     the caller must discard it.
 //   - No panics. Any byte sequence is answered with a result or an error, never
 //     with a crash.
 //   - Concurrency. The package keeps no mutable global state, so independent
@@ -58,9 +65,9 @@
 // # Diagnostics
 //
 // An unusable document produces an [Error] whose [Diagnostics] carry a stable
-// Code, a 1-based source position and the element's path. [Convert] and
-// [Validate] report every problem they find in one pass, in a deterministic
-// order, and [Validate] renders no PDF.
+// Code, a 1-based source position and the element's path. [Convert],
+// [ConvertTo] and [Validate] report every problem they find in one pass, in a
+// deterministic order, and [Validate] renders no PDF.
 //
 // The supported elements, properties and limits are listed in docs/profile.md.
 // The licence is in LICENSE.

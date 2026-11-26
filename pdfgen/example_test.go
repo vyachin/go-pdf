@@ -48,6 +48,41 @@ func Example() {
 	}
 }
 
+// ExampleConvertTo streams the PDF to an io.Writer as it is serialised, which
+// is what a server that answers a request with a file uses. Result.PDF is nil;
+// a write error or a cancelled context can leave a prefix in the destination.
+func ExampleConvertTo() {
+	src, err := os.ReadFile("invoice.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	out, err := os.Create("invoice.pdf")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = out.Close() }()
+
+	res, err := pdfgen.ConvertTo(context.Background(), out, src, pdfgen.Options{
+		File: "invoice.html",
+	})
+	if err != nil {
+		var verr *pdfgen.Error
+		if errors.As(err, &verr) {
+			for _, d := range verr.Diagnostics { // includes pdf/write
+				log.Print(d)
+			}
+		} else {
+			log.Print(err) // a cancelled context
+		}
+		// Discard the output: a write error or a cancelled context may have
+		// left a prefix in the file.
+		return
+	}
+	for _, d := range res.Diagnostics {
+		log.Print(d)
+	}
+}
+
 // ExampleValidate shows the same diagnostics as Convert without writing a PDF,
 // which is what a CI check needs.
 func ExampleValidate() {

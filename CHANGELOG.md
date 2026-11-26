@@ -19,6 +19,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or escaping reference keeps the existing `img/load`, `css/link-path` or
   `font/unavailable` diagnostic. The field is additive: a nil `Source` keeps
   every existing conversion byte-identical.
+- **Streaming conversion.** `pdfgen.ConvertTo(ctx, dst, src, opts)` runs the same
+  pipeline as `Convert`, reports the same diagnostics and writes the same bytes,
+  but sends the PDF to an `io.Writer` as it is serialised. Serialisation holds at
+  most one page's content stream, so the memory needed to serialise the document
+  no longer grows with its size. `Result.PDF` is nil for this entry point. A
+  layout or validation error is reported before the first byte; a write error
+  (reported as `pdf/write`) or a cancelled context can leave a prefix of the PDF
+  in `dst`, which the caller must discard.
 
 ### Fixed
 
