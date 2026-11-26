@@ -54,6 +54,42 @@ func TestPercentageLineHeight(t *testing.T) {
 	}
 }
 
+// TestLineHeightRejectsNonPositive guards RV5-21: the positivity check used to
+// cover only absolute lengths, so a negative or zero percentage or em length
+// passed validation and produced a negative line height. Every unit now
+// resolves through the same rule.
+func TestLineHeightRejectsNonPositive(t *testing.T) {
+	for _, value := range []string{"-50%", "0%", "-2em", "0em", "-1pt", "0pt"} {
+		t.Run(value, func(t *testing.T) {
+			st := DefaultStyle()
+			if err := ApplyDecl(st, "line-height", Tokenize([]byte(value)), 12000); err == nil {
+				t.Fatalf("line-height: %s was accepted", value)
+			}
+		})
+	}
+}
+
+// TestLineHeightAcceptsPositiveForms guards the other side of RV5-21: the
+// documented positive forms keep their computed values.
+func TestLineHeightAcceptsPositiveForms(t *testing.T) {
+	cases := []struct {
+		value string
+		want  int32
+	}{
+		{"1.5", 18000},
+		{"18pt", 18000},
+		{"120%", 14400},
+	}
+	for _, tc := range cases {
+		t.Run(tc.value, func(t *testing.T) {
+			st := styleOf(t, "p { line-height: "+tc.value+" }", "p")
+			if got := st.LineHeightMP(); got != tc.want {
+				t.Fatalf("line-height: %s = %d, want %d", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBorderEmWidthUsesFontSize(t *testing.T) {
 	st := styleOf(t, "p { border: 1em solid #000000 }", "p")
 	if got := st.Border[0].Width; got != 12000 {

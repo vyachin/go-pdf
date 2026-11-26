@@ -8,6 +8,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/charset"
 	"github.com/vyachin/go-pdf/internal/diag"
+	"github.com/vyachin/go-pdf/internal/html"
 )
 
 // MaxProblems bounds the problems one stylesheet records. A stray brace costs
@@ -49,6 +50,14 @@ type Declaration struct {
 	Offset    int
 	// Sheet is the stylesheet this declaration came from, used for positions.
 	Sheet *Stylesheet
+	// Pos is a position known independently of a stylesheet: the owning
+	// element's position for a declaration parsed from a style attribute. It
+	// takes precedence over the offset into Sheet.
+	Pos diag.Position
+	// Element is the element whose style attribute produced this declaration.
+	// The cascade resolves it to a position only when the declaration is
+	// rejected, so a valid inline declaration pays no position lookup.
+	Element *html.Node
 }
 
 // Rule is a parsed CSS rule. A selector list is stored as one rule per
@@ -248,6 +257,10 @@ type parser struct {
 	// depth is the current at-rule nesting level, so the parser can reject a
 	// stylesheet before it builds a tree no later walk could handle.
 	depth int
+	// parent is the name of the at-rule whose block is being parsed, empty at
+	// the top level. A page margin box is accepted only when it is a direct
+	// child of @page, so the placement decision needs the immediate parent.
+	parent string
 	// limit records that the nesting or problem limit was reported. Parsing
 	// stops there: the stylesheet is rejected, and the EOF that follows must
 	// not add one "unclosed block" problem per enclosing level.
@@ -362,11 +375,11 @@ func (p *parser) addProblem(dst *[]Problem, pr Problem) {
 	*dst = append(*dst, pr)
 }
 
-// mergeProblems records problems the parser produced in a nested block.
+// mergeProblems appends problems the parser produced in a nested block. They
+// were counted by addProblem where they were found, so merging must not count
+// them again: that double-counting truncated a sheet at half the cap.
 func (p *parser) mergeProblems(dst *[]Problem, src []Problem) {
-	for _, pr := range src {
-		p.addProblem(dst, pr)
-	}
+	*dst = append(*dst, src...)
 }
 
 // ParseDeclarations parses a declaration list such as a style attribute with no
@@ -506,6 +519,11 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 	}
 	p.depth++
 	defer func() { p.depth-- }()
+	// The margin-box grammar depends on the immediate parent, so record the
+	// at-rule whose block this call parses and restore it on return.
+	parent := p.parent
+	p.parent = name
+	defer func() { p.parent = parent }()
 	switch name {
 	case "page":
 		decls, nestedRules, probs := p.parseBlockContents()
@@ -541,6 +559,19 @@ func (p *parser) parseAtRule() ([]Rule, []Problem) {
 		}
 		return []Rule{{Kind: FontFaceRule, Decls: decls, Offset: at.Offset, Sheet: p.sheet}}, probs
 	case "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right":
+		if parent != "page" {
+			// A margin box outside @page is not a construct the profile
+			// defines. Skip its whole block: its declarations must neither be
+			// painted nor change page geometry.
+			p.skipBlockBody()
+			var probs []Problem
+			p.addProblem(&probs, Problem{
+				Code:    string(diag.CSSUnsupportedAtRule),
+				Message: fmt.Sprintf("@%s is only valid inside @page", name),
+				Offset:  at.Offset,
+			})
+			return nil, probs
+		}
 		decls, nested, probs := p.parseBlockContents()
 		for _, nr := range nested {
 			p.addProblem(&probs, Problem{

@@ -17,11 +17,15 @@ type Style struct {
 	BackgroundImage string
 	BackgroundSize  BackgroundSize
 	Color           Color
-	FontFamily      []string
-	FontSize        int32 // absolute millipoints
-	FontWeight      int
-	FontStyle       FontStyle
-	LineHeight      Length // Auto or absolute millipoints
+	// inheritedColor is the parent's computed color. A currentColor value on
+	// the color property computes to it even after an earlier declaration in
+	// the same rule changed Color.
+	inheritedColor Color
+	FontFamily     []string
+	FontSize       int32 // absolute millipoints
+	FontWeight     int
+	FontStyle      FontStyle
+	LineHeight     Length // Auto or absolute millipoints
 	// LineHeightFactor is set for a unitless line-height and follows the
 	// font size of the element that inherits it.
 	LineHeightFactor float64
@@ -74,6 +78,7 @@ func NewStyle(parent *Style) *Style {
 		return s
 	}
 	s.Color = parent.Color
+	s.inheritedColor = parent.Color
 	s.FontFamily = append([]string(nil), parent.FontFamily...)
 	s.FontSize = parent.FontSize
 	s.FontWeight = parent.FontWeight
@@ -111,6 +116,26 @@ func (s *Style) resolveEm() {
 		s.LineHeight = Length{Kind: Auto}
 	} else {
 		s.LineHeight = s.LineHeight.ResolveFont(s.FontSize)
+	}
+}
+
+// resolveCurrentColor replaces every remaining currentColor value with the
+// element's computed color. It runs after all declarations have been applied,
+// so a border declared before the color in the same rule still follows the
+// final color. A computed color that is unset paints as black, which is the
+// initial color value.
+func (s *Style) resolveCurrentColor() {
+	current := s.Color
+	if current.CurrentColor || (!current.Set && !current.Transparent) {
+		current = Color{Set: true}
+	}
+	if s.Background.CurrentColor {
+		s.Background = current
+	}
+	for i := range s.Border {
+		if s.Border[i].Color.CurrentColor {
+			s.Border[i].Color = current
+		}
 	}
 }
 

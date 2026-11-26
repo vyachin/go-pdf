@@ -108,6 +108,92 @@ func TestPageRules(t *testing.T) {
 	}
 }
 
+// TestMarginBoxIsValidOnlyInsidePage guards RV5-24: a margin box at the top
+// level or inside @media is css/unsupported-at-rule and contributes no rule,
+// while a margin box directly inside @page still validates.
+func TestMarginBoxIsValidOnlyInsidePage(t *testing.T) {
+	for _, src := range []string{
+		`<style>@top-center { content: "HEADER" }</style><p>x</p>`,
+		`<style>@media print { @top-center { content: "HEADER" } }</style><p>x</p>`,
+	} {
+		l := validate(t, src)
+		if len(l) != 1 || l[0].Code != "css/unsupported-at-rule" {
+			t.Fatalf("diagnostics = %v, want one css/unsupported-at-rule", l.Lines())
+		}
+		if !strings.Contains(l[0].Message, "@top-center") {
+			t.Fatalf("the diagnostic does not name the margin box: %q", l[0].Message)
+		}
+	}
+	ok := validate(t, `<style>@page { @top-center { content: "HEADER" } }</style><p>x</p>`)
+	if ok.HasErrors() {
+		t.Fatalf("a margin box inside @page was rejected: %v", ok.Lines())
+	}
+}
+
+// TestLineHeightValidation guards RV5-21 at the validation layer: a
+// non-positive line-height in any unit is css/unsupported-value, and the
+// documented positive forms stay accepted.
+func TestLineHeightValidation(t *testing.T) {
+	for _, value := range []string{"-50%", "0%", "-2em", "0em", "-1pt", "0pt"} {
+		l := validate(t, `<style>p { line-height: `+value+` }</style><p>x</p>`)
+		if len(l) != 1 || l[0].Code != "css/unsupported-value" {
+			t.Fatalf("line-height: %s diagnostics = %v", value, l.Lines())
+		}
+	}
+	for _, value := range []string{"1.5", "18pt", "120%"} {
+		l := validate(t, `<style>p { line-height: `+value+` }</style><p>x</p>`)
+		if l.HasErrors() {
+			t.Fatalf("line-height: %s was rejected: %v", value, l.Lines())
+		}
+	}
+}
+
+// TestInlineDiagnosticPosition guards RV5-23 at validation: a rejected
+// declaration in a style attribute names the element's own line and column,
+// not :0:0.
+func TestInlineDiagnosticPosition(t *testing.T) {
+	src := "<html><body>\n  <div style=\"font-size:1pt\">\n    <p style=\"display:flex\">x</p>\n  </div>\n</body></html>"
+	l := validate(t, src)
+	if len(l) != 1 || l[0].Code != "css/unsupported-value" {
+		t.Fatalf("diagnostics = %v", l.Lines())
+	}
+	if l[0].Pos.File != "doc.html" || l[0].Pos.Line != 3 || l[0].Pos.Col != 5 {
+		t.Fatalf("diagnostic position = %+v, want doc.html:3:5", l[0].Pos)
+	}
+}
+
+// TestSyntaxProblemCapCountsOnce guards RV5-25 at the diagnostic layer: sixty
+// malformed declarations are sixty css/syntax problems and no resource/limit,
+// both in one rule and inside one @media block.
+func TestSyntaxProblemCapCountsOnce(t *testing.T) {
+	decls := strings.Repeat("broken; ", 60)
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"one rule", `<style>p { ` + decls + `}</style><p>x</p>`},
+		{"one media block", `<style>@media print { p { ` + decls + `} }</style><p>x</p>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := validate(t, tc.src)
+			syntax := 0
+			for _, d := range l {
+				switch d.Code {
+				case "css/syntax":
+					syntax++
+				case "resource/limit":
+					t.Fatalf("sixty problems hit the cap: %v", l.Lines())
+				}
+			}
+			if syntax != 60 {
+				t.Fatalf("css/syntax diagnostics = %d, want 60", syntax)
+			}
+		})
+	}
+}
+
+// TestFontFace
 func TestFontFace(t *testing.T) {
 	ok := validate(t, `<style>@font-face { font-family: "PT Serif"; src: url(fonts/pt.ttf) }</style><p>x</p>`)
 	if ok.HasErrors() {
