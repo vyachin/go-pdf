@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/vyachin/go-pdf/internal/testfont"
@@ -12,7 +13,9 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -857,4 +860,373 @@ func TestZeroOutlineLevelIsASibling(t *testing.T) {
 	if strings.Contains(bBody, "/Parent 3 0 R") {
 		t.Fatalf("B was nested under A: %s", bBody)
 	}
+}
+
+// italicTestFont loads the test face with a non-zero italic angle in its post
+// table. The bundled faces are upright and a test must not depend on a system
+// italic font, so the angle field of a real post table is patched in place.
+func italicTestFont(t *testing.T, angle float64) *font.Font {
+	t.Helper()
+	data, err := os.ReadFile(testfont.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	numTables := int(binary.BigEndian.Uint16(data[4:6]))
+	patched := false
+	for i := 0; i < numTables; i++ {
+		record := data[12+i*16:]
+		if string(record[0:4]) != "post" {
+			continue
+		}
+		offset := int(binary.BigEndian.Uint32(record[8:12]))
+		if offset+8 > len(data) {
+			t.Fatal("the post table is out of bounds")
+		}
+		if binary.BigEndian.Uint32(data[offset:offset+4]) == 0x00030000 {
+			t.Skip("the test font's post table declares no italic angle")
+		}
+		binary.BigEndian.PutUint32(data[offset+4:offset+8], uint32(int32(angle*65536)))
+		patched = true
+		break
+	}
+	if !patched {
+		t.Skip("the test font has no post table")
+	}
+	f, err := font.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// fontDescriptorBody returns the /FontDescriptor dictionary of a one-glyph
+// document.
+func fontDescriptorBody(t *testing.T, face *font.Font) string {
+	t.Helper()
+	gid, ok := face.GlyphIndex('A')
+	if !ok {
+		t.Skip("the test font has no A")
+	}
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 2000, Font: face, Size: 12000, Glyphs: []Glyph{{GID: gid, Rune: 'A'}}},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range pdfObjects(t, data) {
+		if strings.Contains(body, "/Type /FontDescriptor") {
+			return body
+		}
+	}
+	t.Fatal("no font descriptor")
+	return ""
+}
+
+// TestFontDescriptorFlagsMatchItalicAngle guards RV5-34: every descriptor said
+// /Flags 4, even for an italic face. Bit 7 marks italics and agrees with the
+// /ItalicAngle in the same dictionary.
+func TestFontDescriptorFlagsMatchItalicAngle(t *testing.T) {
+	cases := []struct {
+		name  string
+		face  *font.Font
+		flags string
+		angle string
+	}{
+		{"upright", loadFont(t), "/Flags 4 ", "/ItalicAngle 0 "},
+		{"italic", italicTestFont(t, -12), "/Flags 68 ", "/ItalicAngle -12 "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := fontDescriptorBody(t, tc.face)
+			if !strings.Contains(desc, tc.flags) {
+				t.Fatalf("descriptor flags are not %s:\n%s", strings.TrimSpace(tc.flags), desc)
+			}
+			if !strings.Contains(desc, tc.angle) {
+				t.Fatalf("descriptor angle is not %s:\n%s", strings.TrimSpace(tc.angle), desc)
+			}
+		})
+	}
+}
+
+// textDocument builds a one-page document with the given glyph run.
+func textDocument(t *testing.T, face *font.Font, glyphs ...Glyph) []byte {
+	t.Helper()
+	d := New(Options{})
+	d.AddPage(595276, 841890, []Op{{
+		Kind: TextOpKind,
+		Text: &Text{X: 1000, Y: 2000, Font: face, Size: 12000, Glyphs: glyphs},
+	}})
+	data, err := d.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// toUnicodeOf returns the decoded ToUnicode CMap of a document.
+func toUnicodeOf(t *testing.T, data []byte) string {
+	t.Helper()
+	for _, body := range pdfObjects(t, data) {
+		if decoded := decodeStream(t, body); strings.Contains(decoded, "begincmap") {
+			return decoded
+		}
+	}
+	t.Fatal("no ToUnicode CMap")
+	return ""
+}
+
+// bfcharEntries parses the bfchar entries of a CMap, keyed by source CID.
+func bfcharEntries(cmap string) map[string]string {
+	entries := map[string]string{}
+	inMap := false
+	for _, line := range strings.Split(cmap, "\n") {
+		switch {
+		case strings.HasSuffix(line, " beginbfchar"):
+			inMap = true
+		case line == "endbfchar":
+			inMap = false
+		case inMap:
+			fields := strings.Fields(line)
+			if len(fields) == 2 {
+				entries[strings.Trim(fields[0], "<>")] = strings.Trim(fields[1], "<>")
+			}
+		}
+	}
+	return entries
+}
+
+// TestToUnicodeMapsEveryEmittedCID guards RV5-35: the CMap skipped the CID of a
+// glyph whose source rune is U+0000, so an emitted glyph had no text-layer
+// entry. Every emitted CID now has exactly one entry.
+func TestToUnicodeMapsEveryEmittedCID(t *testing.T) {
+	f := loadFont(t)
+	gid, ok := f.GlyphIndex('A')
+	if !ok {
+		t.Skip("the test font has no A")
+	}
+	data := textDocument(t, f, Glyph{GID: gid, Rune: 0}, Glyph{GID: gid, Rune: 'A'})
+	entries := bfcharEntries(toUnicodeOf(t, data))
+	if len(entries) != 2 {
+		t.Fatalf("ToUnicode has %d bfchar entries, want one per emitted CID (2): %v", len(entries), entries)
+	}
+	if got := entries["0000"]; got != "0000" {
+		t.Fatalf("CID 0 maps to %q, want the NUL rune mapped to 0000", got)
+	}
+	if got := entries["0001"]; got != "0041" {
+		t.Fatalf("CID 1 maps to %q, want 0041", got)
+	}
+	// The page addresses both CIDs, so both entries are needed.
+	content := ""
+	for _, body := range pdfObjects(t, data) {
+		if decoded := decodeStream(t, body); strings.Contains(decoded, "TJ") {
+			content += decoded
+		}
+	}
+	if !strings.Contains(content, "<00000001>") {
+		t.Fatalf("content does not address both CIDs: %q", content)
+	}
+}
+
+// TestToUnicodeOrdinaryTextIsUnchanged pins the byte-for-byte output of a run
+// without a NUL rune: including U+0000 must not move any ordinary mapping.
+func TestToUnicodeOrdinaryTextIsUnchanged(t *testing.T) {
+	f := loadFont(t)
+	gids := make([]uint16, 2)
+	runes := []rune{'A', 'B'}
+	for i, r := range runes {
+		gid, ok := f.GlyphIndex(r)
+		if !ok {
+			t.Skipf("the test font has no %c", r)
+		}
+		gids[i] = gid
+	}
+	if gids[0] > gids[1] {
+		gids[0], gids[1] = gids[1], gids[0]
+		runes[0], runes[1] = runes[1], runes[0]
+	}
+	data := textDocument(t, f, Glyph{GID: gids[0], Rune: runes[0]}, Glyph{GID: gids[1], Rune: runes[1]})
+	want := fmt.Sprintf(`/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Adobe-Identity-UCS def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+2 beginbfchar
+<0000> <%s>
+<0001> <%s>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+`, utf16Hex(runes[0]), utf16Hex(runes[1]))
+	if got := toUnicodeOf(t, data); got != want {
+		t.Fatalf("ordinary ToUnicode changed:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+var errCompressorFailed = errors.New("compressor failed")
+
+// fakeCompressor is the injected compressor of the streamObject seam.
+type fakeCompressor struct {
+	writeErr error
+	closeErr error
+	closed   int
+}
+
+func (c *fakeCompressor) Write(p []byte) (int, error) {
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+	return len(p), nil
+}
+
+func (c *fakeCompressor) Close() error {
+	c.closed++
+	return c.closeErr
+}
+
+// streamParts splits a stream object into its /Length value and stream body.
+func streamParts(t *testing.T, object []byte) (length int, stream []byte) {
+	t.Helper()
+	const lengthKey = "/Length "
+	i := bytes.Index(object, []byte(lengthKey))
+	if i < 0 {
+		t.Fatalf("no /Length in %q", object)
+	}
+	fields := strings.Fields(string(object[i+len(lengthKey):]))
+	if len(fields) == 0 {
+		t.Fatalf("no /Length value in %q", object)
+	}
+	n, err := strconv.Atoi(fields[0])
+	if err != nil {
+		t.Fatalf("/Length %q is not a number", fields[0])
+	}
+	start := bytes.Index(object, []byte("stream\n"))
+	end := bytes.LastIndex(object, []byte("\nendstream"))
+	if start < 0 || end < start {
+		t.Fatalf("no stream body in %q", object)
+	}
+	return n, object[start+len("stream\n") : end]
+}
+
+// TestStreamObjectUncompressedOnCompressorFailure guards RV5-36 through the
+// injectable compressor: a write or close error falls back to the original
+// bytes, keeps /Length correct and closes the compressor exactly once.
+func TestStreamObjectUncompressedOnCompressorFailure(t *testing.T) {
+	data := bytes.Repeat([]byte("payload "), 32)
+	for _, tc := range []struct {
+		name     string
+		writeErr error
+		closeErr error
+	}{
+		{"write", errCompressorFailed, nil},
+		{"close", nil, errCompressorFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeCompressor{writeErr: tc.writeErr, closeErr: tc.closeErr}
+			body := streamObjectWith(data, true, func(io.Writer) io.WriteCloser { return fake })
+			if bytes.Contains(body, []byte("/Filter")) {
+				t.Fatalf("a failed compressor still selected a filter:\n%s", body)
+			}
+			if fake.closed != 1 {
+				t.Fatalf("the compressor was closed %d times, want exactly 1", fake.closed)
+			}
+			length, stream := streamParts(t, body)
+			if length != len(data) {
+				t.Fatalf("/Length = %d, want the original %d", length, len(data))
+			}
+			if !bytes.Equal(stream, data) {
+				t.Fatalf("stream bytes = %q, want the original data", stream)
+			}
+		})
+	}
+}
+
+// TestStreamObjectCompressesWhenSmaller guards the success path: compressible
+// data keeps /Filter /FlateDecode and an /Length equal to the compressed body,
+// while data that does not shrink is written uncompressed.
+func TestStreamObjectCompressesWhenSmaller(t *testing.T) {
+	data := bytes.Repeat([]byte("compressible stream payload "), 64)
+	body := streamObject(data, true)
+	if !bytes.Contains(body, []byte("/Filter /FlateDecode")) {
+		t.Fatalf("compressible data was not compressed:\n%s", body)
+	}
+	length, stream := streamParts(t, body)
+	if length != len(stream) {
+		t.Fatalf("/Length = %d, compressed body is %d bytes", length, len(stream))
+	}
+	if len(stream) >= len(data) {
+		t.Fatalf("compressed body is %d bytes, input is %d", len(stream), len(data))
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(stream))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := zr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatal("the compressed body does not decode to the input")
+	}
+	// Incompressible data must stay uncompressed with its own length.
+	noise := make([]byte, 4096)
+	rnd := rand.New(rand.NewSource(1))
+	for i := range noise {
+		noise[i] = byte(rnd.Intn(256))
+	}
+	body = streamObject(noise, true)
+	if bytes.Contains(body, []byte("/Filter")) {
+		t.Fatalf("incompressible data was compressed:\n%.80s", body)
+	}
+	length, stream = streamParts(t, body)
+	if length != len(noise) || !bytes.Equal(stream, noise) {
+		t.Fatalf("incompressible body has /Length %d and %d bytes, want %d", length, len(stream), len(noise))
+	}
+}
+
+// FuzzStreamObject exercises close-on-every-path with arbitrary stream data:
+// the object must always declare its real length, and a compressed body must
+// decode back to the input.
+func FuzzStreamObject(f *testing.F) {
+	f.Add([]byte(nil))
+	f.Add([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+	f.Add([]byte{0x00, 0xFF, 0x80, 0x13, 0x37, 0x42, 0x00, 0x01})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		body := streamObject(data, true)
+		length, stream := streamParts(t, body)
+		if length != len(stream) {
+			t.Fatalf("/Length = %d, body is %d bytes", length, len(stream))
+		}
+		if !bytes.Contains(body, []byte("/Filter /FlateDecode")) {
+			if !bytes.Equal(stream, data) {
+				t.Fatal("an uncompressed body differs from the input")
+			}
+			return
+		}
+		zr, err := zlib.NewReader(bytes.NewReader(stream))
+		if err != nil {
+			t.Fatalf("compressed stream does not open: %v", err)
+		}
+		got, err := io.ReadAll(zr)
+		if err != nil {
+			t.Fatalf("compressed stream does not decode: %v", err)
+		}
+		if err := zr.Close(); err != nil {
+			t.Fatalf("closing the decoder: %v", err)
+		}
+		if !bytes.Equal(got, data) {
+			t.Fatal("compressed body does not decode to the input")
+		}
+	})
 }

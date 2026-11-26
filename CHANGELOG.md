@@ -139,6 +139,16 @@ needs no change.
 
 ### Fixed
 
+- **PDF output defects.** Transparent palette and gray+alpha PNG samples are
+  unpremultiplied before they are written, so the source colour survives a
+  viewer's multiply with the `/SMask`; an opaque palette or NRGBA image keeps
+  its bytes and gets no mask. A `/FontDescriptor` now sets `/Flags` bit 7 (68)
+  when the embedded face reports a non-zero italic angle, so the flag agrees
+  with `/ItalicAngle`. `ToUnicode` maps every emitted CID, including a glyph
+  whose source rune is U+0000, instead of skipping it. Stream compression closes
+  the zlib writer on every path and falls back to an uncompressed stream when
+  the write or close fails or compression does not shrink the data, so a
+  failure cannot truncate a stream or leak its writer.
 - **Advance overflow.** Run and line widths are accumulated in 64 bits and
   clamped to `MaxInt32` instead of wrapping, so a 350,000 character word at 12 pt
   keeps a positive width and reports `layout/overflow` once for its paragraph
