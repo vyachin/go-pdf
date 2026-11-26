@@ -23,9 +23,16 @@ import (
 
 // Options controls stylesheet collection.
 type Options struct {
-	// BaseDir is the directory used to resolve relative stylesheet paths and
-	// to confine them. When empty, paths resolve from the working directory.
+	// BaseDir is the directory relative stylesheet paths resolve against and
+	// are confined to. An empty BaseDir reads relative paths from the process
+	// working directory without a boundary, which is the standalone default;
+	// the engine always passes the root it derived for the conversion.
 	BaseDir string
+	// Absolute is the policy for an absolute stylesheet reference. The zero
+	// value confines it to BaseDir, which is the configured-root behaviour; the
+	// engine passes RejectAbsolute when BaseDir is only the default root and
+	// AllowAbsolute when the caller opted in.
+	Absolute assets.Absolute
 	// Budget records collection work and reports cancellation. Nil means
 	// unlimited work and no cancellation.
 	Budget *budget.Guard
@@ -74,12 +81,17 @@ func Collect(doc *html.Document, opts Options) ([]*css.Stylesheet, diag.List) {
 		// A source root is a directory inside the caller's fs.FS, not a host
 		// directory: there is no handle to open here, and a reference outside
 		// it is rejected by the read that follows.
-	} else if _, rootErr := reg.Root(opts.BaseDir); rootErr != nil {
+	} else if opts.Absolute == assets.ConfineAbsolute {
 		// A configured root that cannot be opened is a configuration error.
 		// Continuing with a nil root would mean "no boundary" and read an
-		// absolute link outside the directory the caller named.
-		out.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the base directory: %v", rootErr)
-		return nil, out
+		// absolute link outside the directory the caller named. A default root
+		// (the document directory or the working directory) is opened lazily by
+		// the registry instead, so a missing target directory cannot fail a
+		// document that links no stylesheet.
+		if _, rootErr := reg.Root(opts.BaseDir); rootErr != nil {
+			out.Errorf(diag.OptionsAssetRoot, diag.Position{}, "", "cannot open the base directory: %v", rootErr)
+			return nil, out
+		}
 	}
 	// The registry owns the handle now; it closes it when the conversion ends.
 	// A repeated stylesheet shares one read and one immutable parse, but every
@@ -249,6 +261,7 @@ func loadSheet(doc *html.Document, n *html.Node, opts Options, reg *assets.Regis
 		Kind:          assets.Stylesheet,
 		Reference:     href,
 		Dir:           opts.BaseDir,
+		Absolute:      opts.Absolute,
 		MaxBytes:      opts.MaxStylesheetBytes,
 		MaxTotalBytes: int64(opts.MaxTotalStylesheetBytes),
 		Decoding:      decoding,

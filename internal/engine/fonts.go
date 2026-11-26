@@ -92,18 +92,24 @@ func newFontRegistryWithLoader(ctx context.Context, guard *budget.Guard, sheets 
 		return nil, err
 	}
 	seen := map[string]bool{}
+	// A source names each directory explicitly and defaults both to its root,
+	// so no hidden host path enters the resolution. On the host filesystem the
+	// root is the configured FontDir, then BaseDir, then the document
+	// directory, then the working directory.
+	roots := resolveAssetRoots(opts)
 	fontDir := opts.FontDir
-	if !reg.IsSource() && fontDir == "" {
-		// On the host filesystem an empty FontDir historically falls back to
-		// BaseDir. A source names each directory explicitly and defaults both
-		// to its root, so no hidden host path enters the resolution.
-		fontDir = opts.BaseDir
+	fontAbsolute := assets.ConfineAbsolute
+	if !reg.IsSource() {
+		fontDir = roots.font
+		fontAbsolute = roots.fontAbsolute
 	}
-	// The root is opened eagerly, so a configured but unusable directory is
-	// reported before any font is read; the registry keeps the handle for the
-	// conversion and closes it once. A source root is a directory inside the
-	// caller's fs.FS and is checked in preparation instead.
-	if fontDir != "" && !reg.IsSource() {
+	// A configured root is opened eagerly, so a configured but unusable
+	// directory is reported before any font is read; the registry keeps the
+	// handle for the conversion and closes it once. A default root is opened
+	// lazily by the first font read, so a document without fonts does not
+	// depend on the document directory existing. A source root is a directory
+	// inside the caller's fs.FS and is checked in preparation instead.
+	if roots.fontConfigured && !reg.IsSource() {
 		if _, err := reg.Root(fontDir); err != nil {
 			return nil, fmt.Errorf("opening the font directory: %w", err)
 		}
@@ -172,6 +178,7 @@ func newFontRegistryWithLoader(ctx context.Context, guard *budget.Guard, sheets 
 			Kind:          assets.Font,
 			Reference:     src,
 			Dir:           fontDir,
+			Absolute:      fontAbsolute,
 			MaxBytes:      maxFontBytes,
 			MaxTotalBytes: maxTotalFontBytes,
 		})

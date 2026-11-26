@@ -103,6 +103,35 @@ That is the one way host-dependent output enters the library; the zero
 copy, so a caller may modify it. See [fonts and resources](docs/fonts.md) for the
 full order and the failure diagnostic.
 
+### Asset roots and confinement
+
+A relative image or stylesheet reference resolves against `Options.BaseDir`; a
+relative `@font-face` source resolves against `Options.FontDir`, then `BaseDir`.
+When those roots are empty, the directory of `Options.File` is the root, and when
+`File` is empty as well, the process working directory is. `File` stays the name
+a diagnostic reports; only its directory selects the default root, so
+`File: "<stdin>"` resolves relative assets in the working directory.
+
+Every relative reference is confined to its root: a `..` path or a symlink that
+leaves it fails with the resource's load diagnostic (`img/load`,
+`css/link-path` or `font/unavailable`) and no PDF. An absolute reference is
+accepted only inside a configured root; with no configured root it is rejected,
+because the document directory is not a boundary the caller named. A caller that
+must assemble a template and its assets under absolute paths opts in per
+conversion:
+
+```go
+res, err := pdfgen.Convert(ctx, src, pdfgen.Options{
+	File:                "invoice.html",
+	AllowAbsoluteAssets: true, // trusted input only
+})
+```
+
+`FallbackFont` and `FallbackFonts` are caller-selected paths and are always read
+as written, whatever the option says. `Options.Source` keeps its own namespace:
+paths are relative there, so an absolute reference is rejected even with the
+option set — see [fonts and resources](docs/fonts.md).
+
 ### Assets in an `fs.FS`
 
 `Options.Source` reads every asset through a caller-supplied `fs.FS` instead of
@@ -182,8 +211,10 @@ pages.
 - **Nothing is written.** `Convert`, `ConvertTo` and `Validate` create, modify
   and delete no files; they read the assets the document references — from the
   host filesystem or from the caller-supplied `Options.Source` — and return the
-  PDF to the caller, who decides where it goes. `ConvertTo` writes only to the
-  writer it is given.
+  PDF to the caller, who decides where it goes. On the host filesystem a read
+  stays inside the conversion's asset root, and an escaping relative reference
+  or an absolute one outside a configured root is rejected with a diagnostic.
+  `ConvertTo` writes only to the writer it is given.
 - **Streaming.** `ConvertTo` writes the PDF to an `io.Writer` as it is
   serialised and holds at most one page's content stream, so the memory needed
   to serialise the document does not grow with the number of pages. It produces

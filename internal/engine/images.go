@@ -24,6 +24,8 @@ import (
 // cached for the conversion so that a repeated source is read and embedded once.
 type imageLoader struct {
 	baseDir string
+	// absolute is the policy for an absolute image reference.
+	absolute assets.Absolute
 	// source replaces the host filesystem for every read when it is set.
 	source    fs.FS
 	maxPixels int
@@ -94,6 +96,7 @@ func (l *imageLoader) Load(src string) (*layout.ImageData, error) {
 		Kind:          assets.Image,
 		Reference:     src,
 		Dir:           l.baseDir,
+		Absolute:      l.absolute,
 		MaxBytes:      l.maxBytes,
 		MaxTotalBytes: int64(l.maxTotalBytes),
 	})

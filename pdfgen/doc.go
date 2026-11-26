@@ -18,7 +18,8 @@
 //     [Options].FallbackFont/[Options].FallbackFonts entry.
 //   - No writes. [Convert], [ConvertTo] and [Validate] create, modify and delete
 //     no files. They read only the assets the document references, inside the
-//     configured roots or the caller-supplied [Options].Source, and the PDF is
+//     conversion's asset root — the configured one or the default document
+//     directory — or the caller-supplied [Options].Source, and the PDF is
 //     returned to the caller, who decides where it goes. [ConvertTo] writes only
 //     to the io.Writer it is given.
 //   - Streaming output. [ConvertTo] runs the same conversion as [Convert] and
@@ -46,9 +47,19 @@
 // # Defaults
 //
 // The zero [Options] value is a complete request: A4, a 20 mm margin, the fixed
-// creation date and the default limits. Relative image and font paths resolve
-// against [Options].BaseDir and [Options].FontDir; when both are empty, the
-// process working directory is used.
+// creation date and the default limits. A relative image or stylesheet path
+// resolves against [Options].BaseDir; a relative @font-face path resolves against
+// [Options].FontDir, then [Options].BaseDir. When those roots are empty the
+// directory of [Options].File is the root, and when File is empty as well the
+// process working directory is. Every relative reference is confined to that
+// root: a ".." path or a symlink that leaves it is rejected with the resource's
+// load diagnostic.
+//
+// An absolute reference is accepted only inside a configured root. With no
+// configured root it is rejected, because the fallback root is the document's
+// directory and not a boundary the caller named. Set
+// [Options].AllowAbsoluteAssets to read such a reference as written; leave it
+// unset for untrusted templates.
 //
 // # Fonts
 //

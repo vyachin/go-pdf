@@ -474,3 +474,46 @@ func TestSourceRemoteAndDataReferencesAreRejected(t *testing.T) {
 		t.Fatalf("a remote image was accepted: %v", err)
 	}
 }
+
+// TestSourceKeepsItsOwnRootAndRejectsTheOptIn covers the source-mode
+// interaction: a source resolves relative assets from its own root, never from
+// the directory of Options.File, and the absolute opt-in does not apply to a
+// source namespace.
+func TestSourceKeepsItsOwnRootAndRejectsTheOptIn(t *testing.T) {
+	source := fstest.MapFS{
+		"body.ttf": {Data: embeddedAsset(t, "pacifico.ttf")},
+		"logo.png": {Data: embeddedAsset(t, "logo.png")},
+	}
+	// The host directory the diagnostic name points at holds no assets, so a
+	// conversion that derived a host root from File would fail.
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+	doc := []byte(`<style>@font-face { font-family: "Body"; src: url(body.ttf) }
+body { font-family: "Body" }</style><p>x</p><img src="logo.png">`)
+	res, err := pdfgen.Convert(context.Background(), doc, pdfgen.Options{
+		File:   filepath.Join(elsewhere, "invoice.html"),
+		Source: source,
+	})
+	if err != nil {
+		t.Fatalf("a source did not resolve from its own root: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Contains(res.PDF, []byte("/Subtype /Image")) {
+		t.Fatal("the source image was not embedded")
+	}
+
+	// The option admits operating-system paths; a source has none.
+	res, err = pdfgen.Convert(context.Background(), []byte(`<img src="/etc/hosts"><p>x</p>`), pdfgen.Options{
+		File:                "invoice.html",
+		Source:              source,
+		AllowAbsoluteAssets: true,
+	})
+	if err == nil || len(res.PDF) != 0 {
+		t.Fatalf("the opt-in admitted an absolute source path: err=%v", err)
+	}
+	diag := diagnosticWithCode(res.Diagnostics, "img/load")
+	if diag == nil {
+		t.Fatalf("the absolute source path was not reported as img/load: %v", res.Diagnostics.Lines())
+	}
+	if !strings.Contains(diag.Message, `"/etc/hosts"`) {
+		t.Fatalf("the diagnostic does not name the reference: %q", diag.Message)
+	}
+}

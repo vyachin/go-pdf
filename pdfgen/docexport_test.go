@@ -159,3 +159,57 @@ func hasDoc(groups ...*ast.CommentGroup) bool {
 	}
 	return false
 }
+
+// flattenDoc collapses a comment or document to one line, so a phrase that
+// wraps across source lines still matches.
+func flattenDoc(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// readDocFile reads one repository document relative to the pdfgen directory.
+func readDocFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// TestAssetConfinementDocumentation guards the documented asset rule: the
+// public field docs state the root precedence and the opt-in, and the user
+// documentation repeats the same enforced rule. The behaviour these sentences
+// describe is covered by the engine's asset-root tests and by the source tests.
+func TestAssetConfinementDocumentation(t *testing.T) {
+	for _, check := range []struct {
+		field string
+		want  []string
+	}{
+		{"BaseDir", []string{"directory of File", "working directory", "confined"}},
+		{"FontDir", []string{"FontDir, then BaseDir", "rejected"}},
+		{"AllowAbsoluteAssets", []string{"read as written", "FallbackFont", "Source"}},
+	} {
+		doc := flattenDoc(structFieldDoc(t, "pdfgen.go", "Options", check.field))
+		for _, phrase := range check.want {
+			if !strings.Contains(doc, phrase) {
+				t.Errorf("Options.%s does not say %q:\n%s", check.field, phrase, doc)
+			}
+		}
+	}
+
+	checks := []struct {
+		path string
+		want []string
+	}{
+		{filepath.Join("..", "README.md"), []string{"directory of `Options.File`", "AllowAbsoluteAssets", "confined"}},
+		{filepath.Join("..", "docs", "fonts.md"), []string{"directory of `Options.File`", "AllowAbsoluteAssets", "confines the read"}},
+	}
+	for _, check := range checks {
+		text := flattenDoc(readDocFile(t, check.path))
+		for _, phrase := range check.want {
+			if !strings.Contains(text, phrase) {
+				t.Errorf("%s does not say %q", check.path, phrase)
+			}
+		}
+	}
+}

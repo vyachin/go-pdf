@@ -24,24 +24,44 @@ type Options struct {
 	// Empty means "20mm".
 	Margin string
 	// FontDir is the directory used to resolve relative @font-face paths. A
-	// relative src in an @font-face rule resolves against FontDir and, when
-	// FontDir is empty, against BaseDir; an absolute src is read as written.
-	// FontDir confines the fonts the document may load: a path or symlink that
-	// leaves it is rejected. A configured directory that cannot be opened is
-	// reported as options/asset-root before any font is read.
+	// relative src resolves against FontDir, then BaseDir, then the directory
+	// of File, then the process working directory. FontDir confines the fonts
+	// the document may load: a path or symlink that leaves it is rejected. An
+	// absolute src is accepted only when it lies inside the configured root,
+	// and is rejected when no root is configured unless AllowAbsoluteAssets is
+	// set. A configured directory that cannot be opened is reported as
+	// options/asset-root before any font is read.
 	//
 	// When Source is set, FontDir is a directory inside that source and
 	// defaults to its root (BaseDir is not consulted); an absolute src is
 	// rejected instead of being read as written.
 	FontDir string
-	// BaseDir is the directory used to resolve relative image paths. When it
-	// is set, reads are confined to that directory: a path or symlink that
-	// leaves it is rejected with a diagnostic.
+	// BaseDir is the directory used to resolve relative image and stylesheet
+	// paths. When it is set, reads are confined to that directory: a path or
+	// symlink that leaves it is rejected with a diagnostic, and an absolute
+	// reference is accepted only when it lies inside it.
+	//
+	// When BaseDir is empty, the root is the directory of File and then the
+	// process working directory. Relative references stay confined to that
+	// root, and an absolute reference is rejected unless AllowAbsoluteAssets is
+	// set.
 	//
 	// When Source is set, BaseDir is a directory inside that source and
 	// defaults to its root, and the same confinement applies to the source
 	// namespace.
 	BaseDir string
+	// AllowAbsoluteAssets accepts an absolute image, stylesheet or @font-face
+	// reference that no configured root covers, so the file is read as written.
+	// It restores the pre-3.x behaviour for a caller that assembles a template
+	// and its assets in a directory it did not configure, and it weakens the
+	// default confinement: leave it false for untrusted templates.
+	//
+	// It has no effect when BaseDir or FontDir is set, because a configured
+	// root already decides containment, and no effect on
+	// FallbackFont/FallbackFonts, whose paths are caller-selected and already
+	// read as written. A source path is relative by definition, so the option
+	// does not apply to Options.Source either.
+	AllowAbsoluteAssets bool
 	// Source is a caller-supplied file system that replaces the host filesystem
 	// for the conversion. When it is non-nil, every document-referenced image,
 	// stylesheet and @font-face source, and FallbackFont/FallbackFonts, is read
@@ -49,8 +69,9 @@ type Options struct {
 	// its root, and a fallback path is read from its root. No host file and no
 	// installed host font is consulted. Source paths are
 	// slash-separated and relative: an absolute or escaping reference is
-	// rejected with the asset's load diagnostic. A nil Source keeps the
-	// filesystem behaviour unchanged.
+	// rejected with the asset's load diagnostic, and AllowAbsoluteAssets does
+	// not apply because a source has no operating-system paths. A nil Source
+	// keeps the filesystem behaviour unchanged.
 	Source fs.FS
 	// Date replaces the PDF creation date. The zero value selects a fixed
 	// constant so that repeated runs stay byte identical; set it for documents
@@ -69,7 +90,10 @@ type Options struct {
 	// removed only in the next major release, when a debug package or a preview
 	// entry point can replace it.
 	RenderPNG bool
-	// File is the path used in diagnostics. When empty a placeholder is used.
+	// File is the document name used in diagnostics and, when no asset root is
+	// configured, the source of the default asset root: its directory is used
+	// only for that, so a label such as "<stdin>" keeps the working directory
+	// as the root. When empty a placeholder is used.
 	File string
 	// FallbackFont is a TrueType or OpenType/CFF font used for families that
 	// are not declared with @font-face. It is tried before FallbackFonts and
@@ -433,20 +457,21 @@ func CharsetSupported(name string) bool {
 
 func (o Options) toEngine() engine.Options {
 	return engine.Options{
-		PageSize:      o.PageSize,
-		Margin:        o.Margin,
-		FontDir:       o.FontDir,
-		BaseDir:       o.BaseDir,
-		Source:        o.Source,
-		Date:          o.Date,
-		Title:         o.Title,
-		RenderPNG:     o.RenderPNG,
-		File:          o.File,
-		FallbackFont:  o.FallbackFont,
-		FallbackFonts: o.FallbackFonts,
-		Charset:       o.Charset,
-		Strict:        o.Strict,
-		Limits:        o.Limits.toEngine(),
+		PageSize:            o.PageSize,
+		Margin:              o.Margin,
+		FontDir:             o.FontDir,
+		BaseDir:             o.BaseDir,
+		AllowAbsoluteAssets: o.AllowAbsoluteAssets,
+		Source:              o.Source,
+		Date:                o.Date,
+		Title:               o.Title,
+		RenderPNG:           o.RenderPNG,
+		File:                o.File,
+		FallbackFont:        o.FallbackFont,
+		FallbackFonts:       o.FallbackFonts,
+		Charset:             o.Charset,
+		Strict:              o.Strict,
+		Limits:              o.Limits.toEngine(),
 	}
 }
 
