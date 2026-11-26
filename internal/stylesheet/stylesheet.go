@@ -285,6 +285,11 @@ func readError(err error, href string) error {
 		switch {
 		case errors.Is(assetErr.Err, fsx.ErrOutsideRoot):
 			return &linkError{code: diag.CSSLinkPath, msg: fmt.Sprintf("stylesheet path %q escapes the base directory", href)}
+		case errors.Is(assetErr.Err, fsx.ErrNotRegular):
+			// The reference names something that is not a file. Name it as the
+			// document wrote it, like a path escape, and keep the typed cause
+			// for a caller that matches the failure.
+			return &linkError{code: diag.CSSLinkLoad, msg: fmt.Sprintf("cannot read stylesheet %q: %v", href, assetErr.Err), cause: assetErr.Err}
 		case errors.Is(assetErr.Err, assets.ErrTooLarge):
 			return fmt.Errorf("%w: stylesheet %q exceeds the limit", budget.ErrExceeded, href)
 		case errors.Is(assetErr.Err, budget.ErrExceeded):
