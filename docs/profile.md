@@ -25,6 +25,7 @@ error.
 | `a` | `href` (a local `#id` link; `target-counter` reads it) |
 | `img` | `src`, `alt`, `width`, `height` |
 | `link` | `rel`, `href`, `media` |
+| `style` | `media` |
 | `meta` | `name`, `content`, `charset`, `http-equiv` |
 | `td`, `th` | `colspan`, `rowspan` |
 | `ol` | `start` |
@@ -105,7 +106,7 @@ document and in a legacy one alike.
 | `font-size` | yes | a length, `em`, `%` |
 | `font-weight` | yes | `100`–`900`, `normal`, `bold` |
 | `font-style` | yes | `normal`, `italic` |
-| `line-height` | yes | a number, a length, `normal` |
+| `line-height` | yes | a number, a length, a percentage, `normal` |
 | `text-align` | yes | `left`, `right`, `center`, `justify` |
 | `text-indent` | yes | a length |
 | `white-space` | yes | `normal`, `pre` |
@@ -255,7 +256,7 @@ strings, identifiers, hashes, selectors and `url()` alike.
 `<link rel="stylesheet">` includes a local file. Rules:
 
 - the path is resolved relative to the run's `BaseDir`; when `BaseDir` is set, going outside it is forbidden;
-- `media` on `<link>` and `<style>` with a value that contains `print` or `all`, or with no value at all, applies the sheet; any other list (one without `print`) skips it without an error, the same way a browser skips it for print;
+- `media` on `<link>` and `<style>` applies the sheet when the list is empty or when one comma-separated item is exactly `print` or `all`: `media="print"` and `media="all"` apply. Every item is matched whole, so `only print` matches neither and its sheet is skipped without an error, the same way a browser skips it for print;
 - a `rel` other than `stylesheet` (`icon`, `canonical`) is silently ignored;
 - `http(s)://` and `data:` are rejected: remote stylesheets are not loaded;
 - the sheet is decoded with the document's encoding (CSS 2.1 gives a linked

@@ -2,6 +2,9 @@ package css
 
 import (
 	"fmt"
+	"go/ast"
+	goparser "go/parser"
+	"go/token"
 	"strings"
 	"testing"
 	"time"
@@ -877,5 +880,82 @@ func TestAutoIsRejectedOutsideWidthAndHeight(t *testing.T) {
 				t.Fatalf("%q was rejected: %v", decl, err)
 			}
 		})
+	}
+}
+
+// TestPropOrderMatchesTable guards RV5-46: PropOrder is the documented order
+// and the order the snapshot walks, while Table is the parse table. A property
+// added to one collection only must fail here instead of drifting silently.
+func TestPropOrderMatchesTable(t *testing.T) {
+	ordered := make(map[string]bool, len(PropOrder))
+	for _, name := range PropOrder {
+		if ordered[name] {
+			t.Errorf("PropOrder lists %q more than once", name)
+		}
+		ordered[name] = true
+	}
+	for name := range Table {
+		if !ordered[name] {
+			t.Errorf("property %q is in Table but missing from PropOrder", name)
+		}
+	}
+	for name := range ordered {
+		if _, ok := Table[name]; !ok {
+			t.Errorf("property %q is in PropOrder but missing from Table", name)
+		}
+	}
+}
+
+// TestTokenTextContract guards RV5-46: the Token.Text comment is the contract
+// the selector and value parsers build on. It reads token.go rather than the
+// compiled package, so a future edit that reverses the contract fails here.
+func TestTokenTextContract(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := goparser.ParseFile(fset, "token.go", nil, goparser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing token.go: %v", err)
+	}
+	doc := ""
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "Token" {
+				continue
+			}
+			group := ts.Doc
+			if group == nil {
+				group = gen.Doc
+			}
+			if group != nil {
+				doc = group.Text()
+			}
+		}
+	}
+	if doc == "" {
+		t.Fatal("the Token type has no doc comment")
+	}
+	lower := strings.ToLower(doc)
+	for _, kind := range []string{"ident", "hash", "at-keyword"} {
+		if !strings.Contains(lower, kind) {
+			t.Errorf("the Token.Text comment does not name the decoded %s kind", kind)
+		}
+	}
+	for _, kind := range []string{"string", "dimension"} {
+		if !strings.Contains(lower, kind) {
+			t.Errorf("the Token.Text comment does not name the %s kind that keeps its source spelling", kind)
+		}
+	}
+	if !strings.Contains(lower, "decoded") {
+		t.Error("the Token.Text comment does not say which kinds are decoded")
+	}
+	if !strings.Contains(lower, "source spelling") {
+		t.Error("the Token.Text comment does not name the source spelling")
+	}
+	if strings.Contains(lower, "always holds the raw source spelling") {
+		t.Error("the Token.Text comment claims every kind holds the raw source spelling")
 	}
 }

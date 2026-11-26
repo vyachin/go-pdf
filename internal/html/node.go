@@ -226,61 +226,6 @@ func (n *Node) lastElementChild() *Node {
 	return nil
 }
 
-// InsertBefore inserts c immediately before ref, which must be a child of n.
-func (n *Node) InsertBefore(ref, c *Node) {
-	if i := n.ChildIndex(ref); i >= 0 {
-		n.InsertAt(i, c)
-		return
-	}
-	n.AppendChild(c)
-}
-
-// ChildIndex returns the position of child among n's children, or -1.
-func (n *Node) ChildIndex(child *Node) int {
-	for i, c := range n.Children {
-		if c == child {
-			return i
-		}
-	}
-	return -1
-}
-
-// InsertAt inserts c at position i, shifting the following children. An index
-// outside the current children appends.
-func (n *Node) InsertAt(i int, c *Node) {
-	if i < 0 || i > len(n.Children) {
-		n.AppendChild(c)
-		return
-	}
-	c.Parent = n
-	n.Children = append(n.Children, nil)
-	copy(n.Children[i+1:], n.Children[i:])
-	n.Children[i] = c
-	// Foster parenting and an explicit InsertBefore both land here, so the
-	// hop from every following element is recomputed instead of left stale.
-	n.relinkFrom(i)
-}
-
-// relinkFrom recomputes the previous-element pointers of the children at and
-// after i.
-func (n *Node) relinkFrom(i int) {
-	var prev *Node
-	for k := 0; k < i && k < len(n.Children); k++ {
-		if n.Children[k].Type == ElementNode {
-			prev = n.Children[k]
-		}
-	}
-	for k := i; k < len(n.Children); k++ {
-		c := n.Children[k]
-		if c.Type != ElementNode {
-			c.prevElement = nil
-			continue
-		}
-		c.prevElement = prev
-		prev = c
-	}
-}
-
 // Path renders a human readable element path such as "body > div.invoice > p"
 // for use in diagnostics. The html element and the document root are omitted.
 // Every byte written is charged to the work budget, so an element with a very

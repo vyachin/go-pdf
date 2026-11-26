@@ -103,8 +103,11 @@ func (k TokenKind) String() string {
 	}
 }
 
-// Token is a single CSS token. Text always holds the raw source spelling so
-// that selectors and values can be reconstructed exactly.
+// Token is a single CSS token. Text holds the source spelling except for ident,
+// hash and at-keyword tokens, whose text is already decoded: an escape in a
+// name reaches the selector and value parsers as the character it names.
+// Strings and dimensions keep the source spelling, so unquote and
+// ParseLengthToken decode them where they are consumed.
 type Token struct {
 	Kind   TokenKind
 	Text   string
