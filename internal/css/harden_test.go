@@ -280,3 +280,18 @@ func TestOneEscapeDecoder(t *testing.T) {
 		t.Fatalf("hash token = %v", toks)
 	}
 }
+
+// TestSheetTrailingBackslashTerminates guards the block path: a rule whose last
+// value ends in a lone backslash stops with a syntax problem instead of looping.
+func TestSheetTrailingBackslashTerminates(t *testing.T) {
+	sh := ParseSheet(SheetOptions{}, []byte("p{color:red\\"))
+	if sh == nil {
+		t.Fatal("no stylesheet")
+	}
+	if len(sh.Rules) != 0 {
+		t.Fatalf("rules = %d, want none for an invalid sheet", len(sh.Rules))
+	}
+	if !hasSyntaxProblem(sh.Problems) {
+		t.Fatalf("problems = %+v, want a syntax problem", sh.Problems)
+	}
+}

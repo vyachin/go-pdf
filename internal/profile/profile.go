@@ -84,7 +84,7 @@ func ValidateSheets(doc *html.Document, opts Options, sheets []*css.Stylesheet, 
 			}
 		}
 		if style, ok := n.Attr("style"); ok {
-			decls, probs := css.ParseDeclarations(style)
+			decls, probs := css.ParseDeclarationsWithGuard(style, opts.Budget)
 			for _, prob := range probs {
 				out.Errorf(diag.CSSSyntax, doc.Pos(n), n.Path(), "%s", prob.Message)
 			}

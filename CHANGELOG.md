@@ -17,6 +17,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Malformed GPOS feature list.** A `FeatureList` offset outside a font's GPOS
   table now disables that font's kerning instead of reading outside the table or
   panicking; the font stays usable.
+- **Malformed CSS escapes.** A style attribute or stylesheet that ends with a
+  lone `\` now reports `css/syntax` instead of hanging, and declaration parsing is
+  charged to the work budget like stylesheet parsing.
 
 ## [2.0.0] - 2026-11-25
 

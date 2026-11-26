@@ -126,6 +126,15 @@ var charText = func() [256]string {
 	return t
 }()
 
+// syntaxError reports input the tokenizer cannot advance over. It is not a work
+// failure: the parse stops with a css/syntax problem at Offset.
+type syntaxError struct {
+	Offset int
+	Msg    string
+}
+
+func (e *syntaxError) Error() string { return e.Msg }
+
 // Tokenize splits CSS source into tokens.
 func Tokenize(src []byte) []Token {
 	toks, _ := TokenizeWithGuard(src, nil)
@@ -269,6 +278,16 @@ func (l *lexer) next() (Token, error) {
 			}
 			tok = Token{Kind: kind, Text: charText[c], Offset: i}
 			i++
+		}
+		if i == l.i {
+			// A scanner that consumed nothing would make the token loop forever.
+			// A lone backslash at the end of the input is the known case; stop
+			// with a syntax error instead of emitting the same token again.
+			msg := "the tokenizer made no progress"
+			if c == '\\' {
+				msg = "a trailing backslash is not a valid escape"
+			}
+			return Token{}, &syntaxError{Offset: l.base + i, Msg: msg}
 		}
 		tok.Offset += l.base
 		l.i = i
