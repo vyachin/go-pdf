@@ -153,8 +153,9 @@ func convertCFF(data []byte, tables map[string][]byte, guard *budget.Guard) ([]b
 	}
 	// The copied tables stay valid because the glyph numbering is preserved:
 	// cmap and GPOS answer with the same glyph ids, hmtx with the same advances,
-	// and post with the same names.
-	for _, tag := range []string{"cmap", "GPOS", "name", "OS/2", "post"} {
+	// post with the same names, and GDEF with the same mark classes and
+	// filtering sets, which IgnoreMarks and UseMarkFilteringSet read.
+	for _, tag := range []string{"cmap", "GPOS", "GDEF", "name", "OS/2", "post"} {
 		if t, ok := tables[tag]; ok {
 			out = append(out, outTable{tag: tag, data: append([]byte(nil), t...)})
 		}

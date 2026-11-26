@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Font table defects.** A GPOS `ScriptList` that names only a non-ordinary
+  script now enables no lookup instead of every lookup, so a pair declared under
+  Arabic cannot kern Latin text. Crossing the glyph-coverage cap is
+  `resource/limit` instead of silently dropping the remaining lookups. A
+  composite component id at or beyond `numGlyphs` is refused by the outline
+  reader and the subsetter instead of leaving a dangling reference. A truncated
+  simple or composite glyph is an error naming the glyph instead of an empty or
+  partial outline. Converting CFF to TrueType copies `GDEF`, so mark classes and
+  `IgnoreMarks` behaviour survive.
 - **Empty inline anchors.** An inline element with an `id` and no content now
   keeps a zero-content inline box and a zero-height carrier line, so its id lands
   in the anchor map on the page it occupies instead of making a `target-counter`
