@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -471,20 +472,33 @@ func colorName(red bool) string {
 }
 
 // TestDefaultLimitsMatchesConversion guards the exported defaults: they are the
-// values a zero Limits applies, and the conversion rejects a larger input.
+// values a zero Limits applies, and the conversion rejects a larger input. The
+// comparison is reflective, so a new limit is compared instead of being missed
+// by a hand-written field chain.
 func TestDefaultLimitsMatchesConversion(t *testing.T) {
-	d := pdfgen.DefaultLimits()
-	want := engine.DefaultLimits()
-	if d.MaxInputBytes != want.MaxInputBytes || d.MaxStylesheetBytes != want.MaxStylesheetBytes ||
-		d.MaxPages != want.MaxPages || d.MaxImagePixels != want.MaxImagePixels ||
-		d.MaxImageBytes != want.MaxImageBytes || d.MaxRasterPixels != want.MaxRasterPixels ||
-		d.MaxFontBytes != want.MaxFontBytes || d.MaxTotalImageBytes != want.MaxTotalImageBytes ||
-		d.MaxTotalImagePixels != want.MaxTotalImagePixels || d.MaxTotalFontBytes != want.MaxTotalFontBytes ||
-		d.MaxDOMDepth != want.MaxDOMDepth || d.MaxTableCells != want.MaxTableCells ||
-		d.MaxOperations != want.MaxOperations {
-		t.Fatalf("defaults = %+v, engine says %+v", d, want)
+	defaults := pdfgen.DefaultLimits()
+	d := reflect.ValueOf(defaults)
+	want := reflect.ValueOf(engine.DefaultLimits())
+	if d.NumField() != want.NumField() {
+		t.Fatalf("DefaultLimits has %d fields, the engine default has %d", d.NumField(), want.NumField())
 	}
-	res, err := pdfgen.Convert(context.Background(), make([]byte, d.MaxInputBytes+1), pdfgen.Options{})
+	for i := 0; i < d.NumField(); i++ {
+		name := d.Type().Field(i).Name
+		other := want.FieldByName(name)
+		if !other.IsValid() {
+			t.Fatalf("DefaultLimits().%s has no engine counterpart", name)
+		}
+		if got, expected := d.Field(i).Interface(), other.Interface(); !reflect.DeepEqual(got, expected) {
+			t.Fatalf("DefaultLimits().%s = %v, the engine default is %v", name, got, expected)
+		}
+	}
+	for i := 0; i < want.NumField(); i++ {
+		name := want.Type().Field(i).Name
+		if !d.FieldByName(name).IsValid() {
+			t.Fatalf("the engine default %s is missing from pdfgen's DefaultLimits()", name)
+		}
+	}
+	res, err := pdfgen.Convert(context.Background(), make([]byte, defaults.MaxInputBytes+1), pdfgen.Options{})
 	if err == nil || len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != "resource/limit" {
 		t.Fatalf("an oversized input was not rejected: err=%v diags=%v", err, res.Diagnostics)
 	}

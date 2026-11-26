@@ -2,6 +2,9 @@ package engine
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,6 +81,65 @@ func TestDocumentedCIImageMatchesTheWorkflow(t *testing.T) {
 	contributing := readDoc(t, "CONTRIBUTING.md")
 	if !strings.Contains(contributing, label) {
 		t.Errorf("CONTRIBUTING.md does not name the runner image %q", label)
+	}
+}
+
+// TestMirroredFieldDocs guards RV5-52: a field mirrored from the public pdfgen
+// package states the semantics of the field it mirrors. The comment is read
+// from the field's own doc through the parser, so removing a phrase fails here
+// even if a similar one survives elsewhere in the file.
+func TestMirroredFieldDocs(t *testing.T) {
+	path := filepath.Join(repoRoot(), "internal", "engine", "engine.go")
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	docs := make(map[string]string)
+	ast.Inspect(file, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if !ok {
+			return true
+		}
+		structType, ok := spec.Type.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		for _, field := range structType.Fields.List {
+			for _, name := range field.Names {
+				docs[spec.Name.Name+"."+name.Name] = field.Doc.Text()
+			}
+		}
+		return true
+	})
+	checks := []struct {
+		field   string
+		phrases []string
+	}{
+		{"Limits.MaxTableCells", []string{"grid area", "column count times", "its row count"}},
+		{"Options.RenderPNG", []string{"debug preview", "first page"}},
+	}
+	for _, check := range checks {
+		doc, ok := docs[check.field]
+		if !ok {
+			t.Errorf("%s has no doc comment for %s", path, check.field)
+			continue
+		}
+		for _, phrase := range check.phrases {
+			if !strings.Contains(doc, phrase) {
+				t.Errorf("%s does not say %q; the mirrored semantics must be stated", check.field, phrase)
+			}
+		}
+	}
+	// The stale sentence named the command line as a caller. Match the claim as
+	// a pattern so that this guard does not itself keep the literal phrase in
+	// the tree.
+	if regexp.MustCompile(`CLI\s+debug`).Match(src) {
+		t.Errorf("%s still claims a command-line flag drives the preview", path)
 	}
 }
 
