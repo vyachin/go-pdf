@@ -15,7 +15,7 @@ func TestNestedAtRuleLimitReachesValidation(t *testing.T) {
 	depth := css.MaxAtRuleNesting + 1
 	src := "<style>" + strings.Repeat("@media { ", depth) + "p { color: #000 }" +
 		strings.Repeat(" }", depth) + "</style><p>x</p>"
-	diags := Validate(parseDoc(t, src), Options{})
+	diags := validateDoc(t, parseDoc(t, src), Options{})
 	if !hasDiagCode(diags, "resource/limit") {
 		t.Fatalf("deep nesting was not reported as resource/limit: %v", diags.Lines())
 	}

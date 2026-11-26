@@ -8,7 +8,6 @@ import (
 
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
-	"github.com/vyachin/go-pdf/internal/html"
 )
 
 // TestProfileDocMatchesParser guards RV2-25: docs/profile.md promised
@@ -119,7 +118,7 @@ func TestDocumentedGeneratedContentValidates(t *testing.T) {
 	@page { @bottom-center { content: "Page " counter(page) " of " counter(pages) } }
 	</style><p><a class="toc" href="#x">x</a></p>`
 	doc := parseDoc(t, accepted)
-	if diags := validateDoc(t, doc); diags.HasErrors() {
+	if diags := validateDoc(t, doc, Options{}); diags.HasErrors() {
 		t.Fatalf("the documented generated content does not validate: %v", diags.Lines())
 	}
 	// The document says a page counter inside a::after and a target-counter in
@@ -128,20 +127,11 @@ func TestDocumentedGeneratedContentValidates(t *testing.T) {
 		`<style>a::after { content: counter(page) }</style><p><a href="#x">x</a></p>`,
 		`<style>@page { @top-center { content: target-counter(attr(href), page) } }</style><p><a href="#x">x</a></p>`,
 	} {
-		diags := validateDoc(t, parseDoc(t, src))
+		diags := validateDoc(t, parseDoc(t, src), Options{})
 		if !diags.HasErrors() {
 			t.Fatalf("a rejected form was accepted: %s", src)
 		}
 	}
-}
-
-// validateDoc runs profile validation on a parsed document.
-func validateDoc(t *testing.T, doc *html.Document) diag.List {
-	t.Helper()
-	sheets, sheetDiags := CollectStylesheets(doc, Options{})
-	out := ValidateSheets(doc, Options{}, sheets, sheetDiags)
-	out.Sort()
-	return out
 }
 
 // TestProfileTablesMatchTheCode guards RV5-47: docs/profile.md claims to be the

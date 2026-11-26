@@ -8,6 +8,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/layout"
 	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 var (
@@ -23,10 +24,8 @@ func dump(t *testing.T, src string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := profile.Options{}
-	diags := profile.Validate(doc, opts)
-	sheets, sheetDiags := profile.CollectStylesheets(doc, opts)
-	diags = append(diags, sheetDiags...)
+	sheets, sheetDiags := stylesheet.Collect(doc, stylesheet.Options{})
+	diags := profile.ValidateSheets(doc, profile.Options{}, sheets, sheetDiags)
 	if diags.HasErrors() {
 		t.Fatalf("validation failed: %v", diags.Lines())
 	}

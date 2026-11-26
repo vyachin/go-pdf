@@ -36,7 +36,7 @@ func TestValidatePositionQuadratic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	multiDiags := Validate(multiDoc, Options{Budget: multiGuard})
+	multiDiags := validateDoc(t, multiDoc, Options{Budget: multiGuard})
 	if len(multiDiags) != count {
 		t.Fatalf("multiline diagnostics = %d, want %d", len(multiDiags), count)
 	}
@@ -56,7 +56,7 @@ func TestValidatePositionQuadratic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oneDiags := Validate(oneDoc, Options{Budget: oneGuard})
+	oneDiags := validateDoc(t, oneDoc, Options{Budget: oneGuard})
 	if err := oneGuard.Err(); err != nil {
 		t.Fatalf("one-line validation did not fit the multiline budget: %v", err)
 	}

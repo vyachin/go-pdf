@@ -9,7 +9,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
-	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 // nestedAvoid builds depth nested break-inside: avoid blocks, each with its own
@@ -36,7 +36,7 @@ func (h *harness) runBounded(src string, guard *budget.Guard) (uint64, diag.List
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	sheets, _ := stylesheet.Collect(doc, stylesheet.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ctx := h.ctx
 	ctx.Cascade = cascade

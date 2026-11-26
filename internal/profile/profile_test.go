@@ -2,7 +2,6 @@ package profile
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,11 +12,7 @@ import (
 
 func validate(t *testing.T, src string) diag.List {
 	t.Helper()
-	doc, err := html.Parse([]byte(src), "doc.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Validate(doc, Options{})
+	return validateDoc(t, parseDoc(t, src), Options{})
 }
 
 func TestValidDocumentHasNoDiagnostics(t *testing.T) {
@@ -285,7 +280,7 @@ func TestScriptIsIgnoredWithWarning(t *testing.T) {
 	if len(l) != 1 || l[0].Code != "html/ignored-script" || l[0].Severity != diag.Warning {
 		t.Fatalf("diagnostics = %v", l.Lines())
 	}
-	strict := Validate(parseDoc(t, `<script>console.log("x")</script><p>x</p>`), Options{Strict: true})
+	strict := validateDoc(t, parseDoc(t, `<script>console.log("x")</script><p>x</p>`), Options{Strict: true})
 	if !strict.HasErrors() {
 		t.Fatalf("strict mode must turn the warning into an error: %v", strict.Lines())
 	}
@@ -323,15 +318,4 @@ func TestGeneratorsAreRestrictedToTheirContext(t *testing.T) {
 func validateSheetDiags(t *testing.T, doc *html.Document, sheet *css.Stylesheet) diag.List {
 	t.Helper()
 	return ValidateSheets(doc, Options{}, []*css.Stylesheet{sheet}, nil)
-}
-
-// TestCollectStylesheetsReportsABadRoot guards the standalone path: a profile
-// called without a conversion registry opens its own root and reports the
-// directory it cannot open instead of reading without a boundary.
-func TestCollectStylesheetsReportsABadRoot(t *testing.T) {
-	doc := parseDoc(t, `<link rel="stylesheet" href="a.css"><p>x</p>`)
-	_, diags := CollectStylesheets(doc, Options{BaseDir: filepath.Join(t.TempDir(), "missing")})
-	if len(diags) != 1 || diags[0].Code != "options/asset-root" {
-		t.Fatalf("diagnostics = %v, want one options/asset-root", diags.Lines())
-	}
 }

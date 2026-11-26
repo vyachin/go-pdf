@@ -12,7 +12,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
-	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 )
 
 func pageText(doc *Document, number int) string {
@@ -469,7 +469,7 @@ func TestPaginationIterationCapIsAnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	sheets, _ := stylesheet.Collect(doc, stylesheet.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ctx := h.ctx
 	ctx.Cascade = cascade
@@ -1169,7 +1169,7 @@ func layoutWithTargets(t *testing.T, h *harness, src string, size css.PageSize, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	sheets, _ := stylesheet.Collect(doc, stylesheet.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx

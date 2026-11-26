@@ -1,14 +1,28 @@
-// Package profile validates an HTML document against the CSS profile and
-// exposes the profile as documentation.
+// Package profile validates parsed documents and stylesheets against the CSS
+// profile and exposes the profile as documentation.
+//
+// Validation reads no asset and opens no file: the loading and decoding stage
+// lives in internal/stylesheet, and this package only decides whether a rule,
+// declaration, attribute or @font-face descriptor belongs to the profile.
 package profile
 
 import (
 	"strings"
 
+	"github.com/vyachin/go-pdf/internal/budget"
 	"github.com/vyachin/go-pdf/internal/css"
 	"github.com/vyachin/go-pdf/internal/diag"
 	"github.com/vyachin/go-pdf/internal/html"
 )
+
+// Options controls validation.
+type Options struct {
+	// Strict turns profile warnings into errors.
+	Strict bool
+	// Budget records validation work and reports cancellation.
+	// Nil means unlimited work and no cancellation.
+	Budget *budget.Guard
+}
 
 // toDiag converts a stylesheet position into a diagnostic position.
 func toDiag(p css.Position) diag.Position {
@@ -33,13 +47,6 @@ func declPos(d css.Declaration) diag.Position {
 
 var fontFaceProperties = map[string]bool{
 	"font-family": true, "src": true, "font-weight": true, "font-style": true,
-}
-
-// Validate collects the document stylesheets and checks them and the document
-// against the profile.
-func Validate(doc *html.Document, opts Options) diag.List {
-	sheets, sheetDiags := CollectStylesheets(doc, opts)
-	return ValidateSheets(doc, opts, sheets, sheetDiags)
 }
 
 // ValidateSheets checks a document against the profile using stylesheets that

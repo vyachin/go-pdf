@@ -18,6 +18,7 @@ import (
 	"github.com/vyachin/go-pdf/internal/font"
 	"github.com/vyachin/go-pdf/internal/html"
 	"github.com/vyachin/go-pdf/internal/profile"
+	"github.com/vyachin/go-pdf/internal/stylesheet"
 	"github.com/vyachin/go-pdf/internal/text"
 )
 
@@ -112,7 +113,7 @@ func (h *harness) runRaw(src string, size css.PageSize, margin [4]int32) (*Docum
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	sheets, _ := stylesheet.Collect(doc, stylesheet.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
@@ -129,11 +130,10 @@ func (h *harness) runWithSize(src string, size css.PageSize, margin [4]int32) *D
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	diags := profile.Validate(doc, profile.Options{})
-	if diags.HasErrors() {
+	sheets, sheetDiags := stylesheet.Collect(doc, stylesheet.Options{})
+	if diags := profile.ValidateSheets(doc, profile.Options{}, sheets, sheetDiags); diags.HasErrors() {
 		h.t.Fatalf("validation failed: %v", diags.Lines())
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ps := ParsePageStyle(sheets, size, margin)
 	ctx := h.ctx
@@ -155,7 +155,7 @@ func (h *harness) buildTree(src string) *Box {
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	sheets, _ := profile.CollectStylesheets(doc, profile.Options{})
+	sheets, _ := stylesheet.Collect(doc, stylesheet.Options{})
 	cascade := css.NewCascadeForDocument(css.DefaultStylesheet(), sheets...)
 	ctx := h.ctx
 	ctx.Cascade = cascade
@@ -326,7 +326,8 @@ func TestUnsupportedValueIsAValidationError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diags := profile.Validate(doc, profile.Options{})
+	sheets, sheetDiags := stylesheet.Collect(doc, stylesheet.Options{})
+	diags := profile.ValidateSheets(doc, profile.Options{}, sheets, sheetDiags)
 	if !diags.HasErrors() {
 		t.Fatal("expected a validation error")
 	}

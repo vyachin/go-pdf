@@ -15,21 +15,25 @@ documentation is the README; nothing here is required reading to use the package
  internal/css       tokenizer, parser, selectors, cascade
      |
      v
- internal/profile   allow-list, validation, diagnostics
-     |
-     v
- internal/engine    orchestration: prepare, layout, write; one work guard
+ internal/stylesheet   load, decode, @charset, cascade order
      |        \
      |         +-> internal/assets   confined reads, identity, accounting
      v
- internal/layout    box tree -> lines -> fragments -> pages
+ internal/profile      allow-list and validation only; no asset or file reads
+     |
+     v
+ internal/engine       orchestration: prepare, layout, write; one work guard
+     |        \
+     |         +-> internal/assets   confined reads, identity, accounting
+     v
+ internal/layout       box tree -> lines -> fragments -> pages
      |        \
      |         +-> internal/backend/raster   debug raster (tests only)
      v
- internal/text      shaping, line breaking, metrics
+ internal/text         shaping, line breaking, metrics
      |
      v
- internal/pdf       PDF writer, fonts, ToUnicode
+ internal/pdf          PDF writer, fonts, ToUnicode
 ```
 
 `pdfgen` is the only public package; every `internal/...` package is an
@@ -43,7 +47,17 @@ Who owns what:
   the single `budget.Guard` every stage charges, runs layout, and hands the
   layout's drawing operations to the writer. It creates the `internal/assets`
   registry and closes it on every exit, so a cancelled or failed conversion
-  releases every file handle.
+  releases every file handle. It calls `internal/stylesheet` for collection and
+  `internal/profile` for validation, in that order.
+- `internal/profile` validates only: it decides whether an element, attribute,
+  declaration or `@font-face` descriptor belongs to the closed profile and
+  raises the diagnostics. It opens no file and imports no asset or filesystem
+  package; `imports_test.go` fails if one is added back.
+- `internal/stylesheet` owns stylesheet loading: it walks the document in
+  cascade order, reads every linked sheet through the asset registry, decodes
+  it with the document's encoding and consumes a leading `@charset` rule
+  without moving a later offset. The registry is the only path resolver; the
+  loader maps its typed failures to the existing `css/link-*` diagnostics.
 - `internal/assets` owns resource access: the confined readers (`internal/fsx`
   roots), the identity of an asset (kind, canonical file or content digest, and
   decoding inputs), the conversion's admission counters, and typed failures.
