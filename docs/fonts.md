@@ -19,6 +19,17 @@ For an integrator this means: the service that embeds the engine decides for its
 3. `Options.FallbackFonts` — an ordered list of explicit paths. The first file that loads becomes the family, together with the conventional bold and italic files next to its regular face (`Family-Bold.ttf`, `Family-Italic.ttf`, `DejaVuSans-Bold.ttf`). A file that does not exist or cannot be parsed is skipped and the next entry is tried. One that crosses a documented bound — `MaxFontBytes`, `MaxTotalFontBytes` or the parser's own limit — ends the conversion with `resource/limit` instead of quietly moving on to another family, and a cancelled context returns its cause.
 4. The `font/unavailable` error — if nothing is found.
 
+A relative `@font-face` source resolves against `Options.FontDir`, then
+`Options.BaseDir`, then the directory of `Options.File`, then the process working
+directory. That root confines the read: a `..` path or a symlink that leaves it
+fails with `font/unavailable` and no PDF. An absolute source is accepted only
+inside a configured root, and with no configured root it is rejected. A caller
+whose trusted layout names absolute paths opts in per conversion with
+`Options.AllowAbsoluteAssets`, which reads them as written; the field does not
+apply to a configured root, to `Options.Source`, or to the explicit fallback
+below. `Options.File` itself stays the name a diagnostic reports — only its
+directory selects the default root.
+
 The first three steps use caller-selected bytes, so they keep the output
 deterministic. The engine reads **no installed host font on its own**: a
 document that declares no usable family and passes no fallback fails with

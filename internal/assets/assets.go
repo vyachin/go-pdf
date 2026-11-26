@@ -66,6 +66,23 @@ func (e *Error) Error() string {
 // Unwrap returns the cause.
 func (e *Error) Unwrap() error { return e.Err }
 
+// Absolute is the policy a Request applies to an absolute reference.
+type Absolute int
+
+const (
+	// ConfineAbsolute accepts an absolute reference only when it lies inside
+	// Dir. It is the zero value, so a request that names a configured root
+	// keeps the boundary its caller asked for.
+	ConfineAbsolute Absolute = iota
+	// RejectAbsolute rejects every absolute reference because Dir is only a
+	// default root — the document directory or the working directory — and the
+	// caller never configured a boundary for an operating-system path.
+	RejectAbsolute
+	// AllowAbsolute reads an absolute reference as written, outside Dir. It is
+	// the caller's explicit opt-in.
+	AllowAbsolute
+)
+
 // Request is one reference the conversion asks for.
 type Request struct {
 	// Kind is the resource kind.
@@ -76,6 +93,10 @@ type Request struct {
 	// filesystem an empty Dir means no boundary (the working directory), like
 	// fsx.Open(""); on a source it means the source root.
 	Dir string
+	// Absolute is the policy for an absolute reference. A relative reference
+	// always resolves against Dir, whatever the policy. The zero value confines
+	// an absolute reference to Dir.
+	Absolute Absolute
 	// Explicit marks a caller-selected path: it is read as an operating-system
 	// path, outside the document roots, because the caller named the file
 	// itself. On a source the path is read from the source root instead and is
@@ -302,7 +323,7 @@ func (r *Registry) Read(req Request) (*Record, error) {
 	if r != nil && r.source != nil {
 		return r.readSource(req)
 	}
-	path, canonical, explicit, err := r.locate(req)
+	path, canonical, direct, err := r.locate(req)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +338,7 @@ func (r *Registry) Read(req Request) (*Record, error) {
 	if !leader {
 		return awaitRead(call, hook)
 	}
-	rec, err = r.readHost(req, key, path, canonical, explicit)
+	rec, err = r.readHost(req, key, path, canonical, direct)
 	r.finishRead(key, call, rec, err)
 	if err != nil {
 		return nil, err
@@ -327,8 +348,8 @@ func (r *Registry) Read(req Request) (*Record, error) {
 }
 
 // readHost performs the leader half of Read on the host filesystem.
-func (r *Registry) readHost(req Request, key, path, canonical string, explicit bool) (*Record, error) {
-	size, err := r.size(req, canonical, path, explicit)
+func (r *Registry) readHost(req Request, key, path, canonical string, direct bool) (*Record, error) {
+	size, err := r.size(req, canonical, path, direct)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +368,7 @@ func (r *Registry) readHost(req Request, key, path, canonical string, explicit b
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
 	}
 	r.beforeRead()
-	bytes, err := r.readBytes(req, canonical, explicit)
+	bytes, err := r.readBytes(req, canonical, direct)
 	if err != nil {
 		r.refund(req.Kind, size)
 		return nil, &Error{Kind: req.Kind, Reference: req.Reference, Err: err}
@@ -555,9 +576,11 @@ func (req Request) KeyFor(path, canonical string) string {
 	return string(req.Kind) + "|" + identity
 }
 
-// locate resolves a request to its path, canonical identity and whether it is a
-// caller-selected path that must not be resolved as a URL.
-func (r *Registry) locate(req Request) (path, canonical string, explicit bool, err error) {
+// locate resolves a request to its path, canonical identity and whether it is
+// read directly from the host filesystem, outside any root. A direct read is a
+// caller-selected path or an absolute reference the caller opted into; every
+// other reference passes through the confined reader.
+func (r *Registry) locate(req Request) (path, canonical string, direct bool, err error) {
 	if req.Explicit {
 		path = req.Reference
 		if path == "" {
@@ -582,6 +605,24 @@ func (r *Registry) locate(req Request) (path, canonical string, explicit bool, e
 	}
 	if ref.Data {
 		return "", "", false, &Error{Kind: req.Kind, Reference: req.Reference, Err: errors.New("a data: URI is read with AdmitData")}
+	}
+	// An absolute reference is an operating-system path: a default root was not
+	// chosen by the caller, so it confines only relative references.
+	if filepath.IsAbs(ref.Path) {
+		switch req.Absolute {
+		case RejectAbsolute:
+			return "", "", false, &Error{Kind: req.Kind, Reference: req.Reference, Path: ref.Path,
+				Err: fmt.Errorf("%w: an absolute reference needs a configured asset root or Options.AllowAbsoluteAssets", fsx.ErrOutsideRoot)}
+		case AllowAbsolute:
+			// The caller opted in: the file is read as written, and its
+			// resolved form is the identity, exactly like a caller-selected
+			// path.
+			canonical, absErr := filepath.EvalSymlinks(ref.Path)
+			if absErr != nil {
+				canonical = filepath.Clean(ref.Path)
+			}
+			return ref.Path, canonical, true, nil
+		}
 	}
 	// The reference is relative to the root it was written against, so the root
 	// resolves it; joining the configured directory here would apply the
@@ -609,8 +650,8 @@ func (r *Registry) locate(req Request) (path, canonical string, explicit bool, e
 // size returns the size of one asset without reading it. A non-regular file is
 // refused here, before a reservation is made, so the adapter reports the
 // resource's load diagnostic instead of a size or a read failure.
-func (r *Registry) size(req Request, canonical, path string, explicit bool) (int64, error) {
-	if explicit {
+func (r *Registry) size(req Request, canonical, path string, direct bool) (int64, error) {
+	if direct {
 		info, err := os.Stat(canonical)
 		if err != nil {
 			return 0, &Error{Kind: req.Kind, Reference: req.Reference, Path: path, Err: err}
@@ -631,12 +672,12 @@ func (r *Registry) size(req Request, canonical, path string, explicit bool) (int
 	return size, nil
 }
 
-// readBytes reads one asset: through the root handle for a document reference,
-// from the file system for a caller-selected path. Both readers apply the
-// regular-file gate, so an explicit FallbackFont naming a FIFO cannot block
-// either.
-func (r *Registry) readBytes(req Request, canonical string, explicit bool) ([]byte, error) {
-	if explicit {
+// readBytes reads one asset: through the root handle for a confined document
+// reference, from the file system when the path is read as written. Both
+// readers apply the regular-file gate, so an explicit FallbackFont or an
+// opted-in absolute reference naming a FIFO cannot block either.
+func (r *Registry) readBytes(req Request, canonical string, direct bool) ([]byte, error) {
+	if direct {
 		data, err := fsx.ReadFileLimit(canonical, req.MaxBytes)
 		if errors.Is(err, fsx.ErrTooLarge) {
 			return nil, fmt.Errorf("%w: %v", ErrTooLarge, err)

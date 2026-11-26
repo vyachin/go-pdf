@@ -421,14 +421,16 @@ func workingDirectoryNames(t *testing.T) []string {
 }
 
 // TestDefaultOptions pins the documented defaults: the zero Options value is a
-// complete request for a profile document that declares its font.
+// complete request for a profile document that declares its font beside it, in
+// the process working directory the zero value uses as the root.
 func TestDefaultOptions(t *testing.T) {
 	font, err := filepath.Abs(testFontPath(t))
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Chdir(filepath.Dir(font))
 	doc := `<html><head><style>
-  @font-face { font-family: "Bundled"; src: url(` + font + `) }
+  @font-face { font-family: "Bundled"; src: url(` + filepath.Base(font) + `) }
   body { font-family: "Bundled"; font-size: 12pt }
 </style></head><body><p>Значения по умолчанию.</p></body></html>`
 
@@ -444,6 +446,37 @@ func TestDefaultOptions(t *testing.T) {
 		if !strings.Contains(pdf, want) {
 			t.Fatalf("the default-options PDF does not contain %q", want)
 		}
+	}
+}
+
+// TestZeroOptionsReadsAdjacentAssets covers the default root end to end: the
+// zero Options value converts a document whose image and font sit in the working
+// directory, which is the root an empty File selects.
+func TestZeroOptionsReadsAdjacentAssets(t *testing.T) {
+	font, err := os.ReadFile(testFontPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logo, err := os.ReadFile(filepath.Join("..", "testdata", "fixtures", "logo.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "body.ttf"), font, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "logo.png"), logo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	src := `<style>@font-face { font-family: "Body"; src: url(body.ttf) }
+body { font-family: "Body" }</style><p>Adjacent assets</p><img src="logo.png">`
+	res, err := pdfgen.Convert(context.Background(), []byte(src), pdfgen.Options{})
+	if err != nil {
+		t.Fatalf("the zero Options conversion failed: %v\n%s", err, strings.Join(res.Diagnostics.Lines(), "\n"))
+	}
+	if !bytes.Contains(res.PDF, []byte("/Subtype /Image")) {
+		t.Fatal("the adjacent image was not embedded")
 	}
 }
 

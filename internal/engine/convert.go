@@ -46,6 +46,10 @@ type prepared struct {
 	// assets is the conversion's asset registry. Preparation opens it, layout
 	// reads through it and the entry point closes it on every exit.
 	assets *assets.Registry
+	// roots is the host-filesystem confinement plan: the directory each kind
+	// resolves against and the policy for an absolute reference. It is zero
+	// for a source conversion, which resolves inside the source instead.
+	roots assetRoots
 }
 
 // aggregatePosition names the document for a failure that has no single source
@@ -161,12 +165,24 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		}
 		return nil, diags, err
 	}
+	// A document reference resolves against the derived default root when no
+	// kind root is configured: the document directory, then the working
+	// directory. A source resolves inside itself instead and keeps its own
+	// relative namespace.
+	var roots assetRoots
+	if opts.Source == nil {
+		roots = resolveAssetRoots(opts)
+	}
 	sheetOpts := stylesheet.Options{
 		BaseDir:                 opts.BaseDir,
 		Budget:                  guard,
 		MaxStylesheetBytes:      limits.MaxStylesheetBytes,
 		MaxTotalStylesheetBytes: limits.MaxTotalStylesheetBytes,
 		Assets:                  reg,
+	}
+	if opts.Source == nil {
+		sheetOpts.BaseDir = roots.base
+		sheetOpts.Absolute = roots.baseAbsolute
 	}
 	profileOpts := profile.Options{
 		Strict: opts.Strict,
@@ -261,6 +277,7 @@ func prepareDocument(ctx context.Context, src []byte, opts Options, guard *budge
 		subject:   subject,
 		keywords:  keywords,
 		assets:    reg,
+		roots:     roots,
 	}, diags, nil
 }
 
@@ -313,8 +330,15 @@ func budgetFailure(guard *budget.Guard, diags *diag.List) (bool, error) {
 func layoutDocument(ctx context.Context, p *prepared, opts Options, diags *diag.List) (*layout.Document, error) {
 	limits := opts.Limits.resolved()
 	doc, cascade, pageSize, margin, pageStyle, registry := p.doc, p.cascade, p.pageSize, p.margin, p.pageStyle, p.fonts
+	// Images use the same derived root as stylesheets. A source conversion
+	// keeps BaseDir as a directory inside the source.
+	imageBaseDir, imageAbsolute := opts.BaseDir, assets.ConfineAbsolute
+	if opts.Source == nil {
+		imageBaseDir, imageAbsolute = p.roots.base, p.roots.baseAbsolute
+	}
 	images := &imageLoader{
-		baseDir:        opts.BaseDir,
+		baseDir:        imageBaseDir,
+		absolute:       imageAbsolute,
 		source:         opts.Source,
 		maxPixels:      limits.MaxImagePixels,
 		maxBytes:       limits.MaxImageBytes,

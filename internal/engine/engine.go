@@ -22,15 +22,28 @@ type Options struct {
 	PageSize string
 	// Margin is the fallback page margin, for example "20mm".
 	Margin string
-	// FontDir is the directory used to resolve relative @font-face paths.
+	// FontDir is the directory used to resolve relative @font-face paths and
+	// to confine them. When it is empty, BaseDir is used instead. An absolute
+	// src must lie inside the configured root. A configured directory that
+	// cannot be opened is reported as options/asset-root before any font is
+	// read.
 	FontDir string
-	// BaseDir is the directory used to resolve relative image paths.
+	// BaseDir is the directory used to resolve relative image and stylesheet
+	// paths and to confine them. Reads are confined to that directory: a path
+	// or symlink that leaves it is rejected with a diagnostic.
 	BaseDir string
+	// AllowAbsoluteAssets admits an absolute image, stylesheet or @font-face
+	// reference that has no configured root. It has no effect when BaseDir or
+	// FontDir is set, because such a root already decides containment, and no
+	// effect on FallbackFont/FallbackFonts or on a source.
+	AllowAbsoluteAssets bool
 	// Source, when non-nil, is a caller-supplied file system that replaces the
 	// host filesystem for the conversion: every image, stylesheet and font is
 	// read through it. BaseDir and FontDir are then directories inside it and
-	// default to its root, and FallbackFont is a path inside it. A nil Source
-	// keeps the host filesystem behaviour unchanged.
+	// default to its root, and FallbackFont is a path inside it. A source path
+	// is relative and must stay inside the source, so AllowAbsoluteAssets does
+	// not apply to it. A nil Source keeps the host filesystem behaviour
+	// unchanged.
 	Source fs.FS
 	// Date replaces the PDF creation date. The zero value selects a fixed
 	// constant so that repeated runs stay byte identical.
@@ -42,7 +55,10 @@ type Options struct {
 	// raster is bounded by Limits.MaxRasterPixels. A rasterizer or PNG encoder
 	// failure is reported as an error and leaves Result.PNG nil.
 	RenderPNG bool
-	// File is the path used in diagnostics. When empty a placeholder is used.
+	// File is the document name used in diagnostics and, when no asset root is
+	// configured, the source of the default asset root: its directory is used
+	// only for that, so a label such as "<stdin>" keeps the working directory
+	// as the root. When File is empty a placeholder is used.
 	File string
 	// FallbackFont is a TrueType font used for families that are not declared
 	// with @font-face. When empty and FallbackFonts is empty, a family that

@@ -283,11 +283,13 @@ func TestMetadata(t *testing.T) {
 
 func TestFontFaceIsUsed(t *testing.T) {
 	fontPath := testFontPath(t)
+	// The font sits in its configured root: an absolute src outside the root is
+	// rejected, so the document names the file relative to FontDir.
 	src := `<style>
-		@font-face { font-family: "Company"; src: url("` + fontPath + `") }
+		@font-face { font-family: "Company"; src: url("` + filepath.Base(fontPath) + `") }
 		body { font-family: "Company" }
 	</style><p>Проверка</p>`
-	res, err := Convert(context.Background(), []byte(src), Options{File: "f.html"})
+	res, err := Convert(context.Background(), []byte(src), Options{FontDir: filepath.Dir(fontPath), File: "f.html"})
 	if err != nil {
 		t.Fatal(err)
 	}

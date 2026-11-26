@@ -31,6 +31,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING — asset references are confined by default.** A relative image or
+  stylesheet reference resolves against `BaseDir`, then the directory of
+  `Options.File`, then the process working directory; a relative `@font-face`
+  source resolves against `FontDir`, then `BaseDir`, then the same fallbacks.
+  Every relative reference is confined to its root, so a `..` path or a symlink
+  that leaves it fails with `img/load`, `css/link-path` or `font/unavailable`
+  and produces no PDF. An absolute reference is accepted only inside a
+  configured root: with no `BaseDir`/`FontDir`, a path such as `/etc/hosts` is
+  no longer read as an image, stylesheet or font, and an absolute `@font-face`
+  source is confined to `FontDir`. A relative reference under an absolute
+  `Options.File` now resolves against the document's directory instead of the
+  process working directory. Migration: set `BaseDir`/`FontDir` to the
+  directory that holds the assets, or set the new
+  `Options.AllowAbsoluteAssets` to keep reading an absolute reference as
+  written. The field is additive and defaults to false; it does not change
+  `FallbackFont`/`FallbackFonts`, which are caller-selected paths and stay read
+  as written, nor `Options.Source`, whose paths are relative by definition.
 - **Style attribute declaration list.** A `style` attribute is now parsed as a
   declaration list that ends only at the end of the attribute. A `{` or `}` in
   it is `css/syntax` and an at-rule is `css/unsupported-at-rule`, instead of the
