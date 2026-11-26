@@ -43,9 +43,11 @@ func Scale(v, size, unitsPerEm int32) int32 {
 // from a document is never acceptable.
 //
 // A combining mark that normalisation leaves as a separate code point is
-// positioned with the font's GPOS mark attachment: the mark's anchor is placed
-// on the anchor of the preceding base or mark glyph. A font without a usable
-// mark lookup for it is an error, so the mark is never drawn at the pen.
+// positioned with the font's GPOS mark attachment, inside the cluster of the
+// glyph it follows: it is placed on the current base's anchor, or mark-to-mark
+// on the previous mark of the same cluster, and the resolved position is
+// checked to stay over that base. A font without a usable anchor for it is an
+// error, so the mark is never drawn at the pen.
 func Shape(f *font.Font, size int32, s string) (Run, error) {
 	return ShapeWithOptions(f, size, s, ShapeOptions{})
 }
@@ -69,9 +71,11 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 	}
 	runes := []rune(Normalize(s))
 	run := Run{Glyphs: make([]Glyph, 0, len(runes))}
-	// Only three states are ever needed: the previous glyph for kerning, and
-	// the reference base and mark for attachment. Keeping one entry per rune
-	// doubled the per-rune memory of shaping.
+	// Only three states are ever needed: the previous glyph for kerning, the
+	// current cluster's base, and the last mark attached to it. Keeping one
+	// entry per rune doubled the per-rune memory of shaping. The mark is part
+	// of the cluster, not a second reference that outlives the base: a non-mark
+	// glyph clears it, so a mark never reads an anchor from an earlier cluster.
 	type glyphState struct {
 		gid  uint16
 		pen  int64 // pen before the glyph, font units
@@ -79,10 +83,12 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 		offX int64 // attached mark offset, font units
 		offY int64
 	}
-	var prev, baseState, markState glyphState
-	var hasPrev, hasBase, hasMark bool
-	lastBase := -1
-	var lastBaseRune rune
+	var prev, base, clusterMark glyphState
+	var hasPrev, hasBase, hasClusterMark bool
+	var baseRune rune
+	// An attached mark may sit outside its base's advance box by up to this
+	// much; see markOverhangLimit.
+	overhang := int64(f.UnitsPerEm()) * markOverhangLimit / 1000
 	for i, r := range runes {
 		gid, ok := f.GlyphIndex(r)
 		if !ok && r == '\u00a0' {
@@ -106,38 +112,42 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 		var offX, offY int64
 		if mark {
 			attached := false
-			if hasMark {
-				// MarkMark: the previous mark is the reference, so a second
-				// accent stacks on the first rather than on the base.
-				if dx, dy, kind, ok := f.MarkAttachment(gid, markState.gid); ok && kind == 6 {
-					offX = markState.pen + markState.offX + int64(dx) - pen
-					offY = markState.offY + int64(dy)
+			if hasClusterMark {
+				// MarkMark: only a mark of the current cluster can be the
+				// reference, so a second accent stacks on the first of the
+				// same cluster rather than on an older one.
+				if dx, dy, kind, ok := f.MarkAttachment(gid, clusterMark.gid); ok && kind == markMarkLookup {
+					offX = clusterMark.pen + clusterMark.offX + int64(dx) - pen
+					offY = clusterMark.offY + int64(dy)
 					attached = true
 				}
 			}
 			if !attached && hasBase {
-				// MarkBase or MarkLig: the reference is the base glyph's pen.
-				if dx, dy, kind, ok := f.MarkAttachment(gid, baseState.gid); ok && kind != 6 {
-					offX = baseState.pen + int64(dx) - pen
+				// MarkBase or MarkLig: the reference is the current cluster's
+				// base, never a mark left over from an earlier cluster.
+				if dx, dy, kind, ok := f.MarkAttachment(gid, base.gid); ok && kind != markMarkLookup {
+					offX = base.pen + int64(dx) - pen
 					offY = int64(dy)
 					attached = true
 				}
 			}
-			if !attached {
-				base := rune(0)
-				if lastBase >= 0 {
-					base = lastBaseRune
-				}
-				return Run{}, &MissingMarkError{Mark: r, Base: base, Family: f.Family()}
+			if !attached || !markPositionOK(pen+offX, base.pen, base.adv, pen+adv, overhang) {
+				// A font can return an anchor that would paint the mark away
+				// from its base, and a run can start with a mark that has no
+				// base at all. Both are the missing-mark diagnostic: drawing
+				// the mark at the pen would put the accent on another letter.
+				return Run{}, &MissingMarkError{Mark: r, Base: baseRune, Family: f.Family()}
 			}
 		}
 		st := glyphState{gid: gid, pen: pen, adv: adv, offX: offX, offY: offY}
 		if mark {
-			markState, hasMark = st, true
+			clusterMark, hasClusterMark = st, true
 		} else {
-			baseState, hasBase = st, true
-			lastBase = i
-			lastBaseRune = r
+			base, hasBase = st, true
+			baseRune = r
+			// A new base starts a new cluster: any mark attached before it is
+			// no longer a valid mark-to-mark reference.
+			clusterMark, hasClusterMark = glyphState{}, false
 		}
 		prev, hasPrev = st, true
 		run.Glyphs = append(run.Glyphs, Glyph{
@@ -150,6 +160,31 @@ func ShapeWithOptions(f *font.Font, size int32, s string, opts ShapeOptions) (Ru
 	}
 	run.Width = AdvanceWidth(run.Glyphs)
 	return run, nil
+}
+
+// markMarkLookup is the GPOS lookup kind font.MarkAttachment reports for a
+// mark-to-mark anchor. A base anchor (MarkBase or MarkLig) is any other kind.
+const markMarkLookup = 6
+
+// markOverhangLimit is how far, in thousandths of an em, an attached mark's pen
+// may sit outside its base's advance box and still count as over it. Fonts put
+// mark anchors over the ink of the base rather than over its advance box, so
+// the pen legitimately leaves the box for an overhanging accent: Arial draws
+// U+0323 on U+0285 with the pen 615 units past a 455-unit box at 2048 units per
+// em (300 thousandths), and Times New Roman is close behind. Half an em covers
+// those faces; a mark whose anchor belongs to another cluster or leaves the run
+// is still refused. A later reader can widen this with a font that needs more.
+const markOverhangLimit = 500
+
+// markPositionOK reports whether a mark painted at markPen, in font units,
+// stays over its base's advance box, which starts at basePen and is baseAdv
+// wide, and inside the shaped run up to runEnd. overhang is the tolerance in
+// font units described by markOverhangLimit.
+func markPositionOK(markPen, basePen, baseAdv, runEnd, overhang int64) bool {
+	if markPen < basePen-overhang || markPen > basePen+baseAdv+overhang {
+		return false
+	}
+	return markPen >= -overhang && markPen <= runEnd+overhang
 }
 
 // scaleFontUnits converts a font-unit offset to millipoints, clamping an
