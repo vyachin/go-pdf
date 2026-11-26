@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Table headers across pages"/>
+  <page width="240pt" height="140pt" margin-top="12pt" margin-right="12pt" margin-bottom="12pt" margin-left="12pt"/>
+  <html display="block">
+    <body display="block">
+      <table border-collapse="collapse" display="table" font-size="10pt" line-height="12pt" width="100%">
+        <thead display="block">
+          <tr display="table-row">
+            <th background-color="#d0e8f0" border="0.5pt solid #304050" display="table-cell" font-weight="700" padding="3pt">Item</th>
+            <th background-color="#d0e8f0" border="0.5pt solid #304050" display="table-cell" font-weight="700" padding="3pt">Amount</th>
+          </tr>
+        </thead>
+        <tbody display="block">
+          <tr display="table-row">
+            <td border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-01</td>
+            <td border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">10</td>
+          </tr>
+          <tr class="shade" display="table-row">
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-02</td>
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">20</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-03</td>
+            <td border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">30</td>
+          </tr>
+          <tr class="shade" display="table-row">
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-04</td>
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">40</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-05</td>
+            <td border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">50</td>
+          </tr>
+          <tr class="shade" display="table-row">
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-06</td>
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">60</td>
+          </tr>
+          <tr display="table-row">
+            <td border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-07</td>
+            <td border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">70</td>
+          </tr>
+          <tr class="shade" display="table-row">
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" display="table-cell" padding="3pt">ROW-08</td>
+            <td background-color="#f0f0f0" border="0.5pt solid #304050" class="amount" display="table-cell" padding="3pt" text-align="right">80</td>
+          </tr>
+        </tbody>
+        <tfoot display="block">
+          <tr display="table-row">
+            <td background-color="#e0f0d0" border="0.5pt solid #304050" display="table-cell" font-weight="700" padding="3pt">TOTAL</td>
+            <td background-color="#e0f0d0" border="0.5pt solid #304050" class="amount" display="table-cell" font-weight="700" padding="3pt" text-align="right">360</td>
+          </tr>
+        </tfoot>
+      </table>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

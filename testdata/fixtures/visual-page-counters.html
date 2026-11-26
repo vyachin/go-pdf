@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Page and target counters</title>
+  <style>
+    @page {
+      size: 280pt 180pt; margin: 24pt;
+      @top-left { content: "REPORT" }
+      @bottom-center { content: "Page " counter(page) " of " counter(pages) }
+    }
+    body { font-size: 10pt; line-height: 1.3 }
+    h1, h2 { font-size: 14pt; margin: 0 0 8pt 0 }
+    h2 { break-before: page }
+    p { margin: 0 0 6pt 0 }
+    a { color: #205080 }
+    a.toc::after { content: " ... " target-counter(attr(href), page) }
+  </style>
+</head>
+<body>
+  <h1>CONTENTS</h1>
+  <p><a class="toc" href="#alpha">Alpha</a></p>
+  <p><a class="toc" href="#beta">Beta</a></p>
+  <h2 id="alpha">ALPHA</h2>
+  <p>First section.</p>
+  <h2 id="beta">BETA</h2>
+  <p>Second section.</p>
+</body>
+</html>

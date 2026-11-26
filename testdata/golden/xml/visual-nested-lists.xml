@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Nested lists and numbering"/>
+  <page width="280pt" height="260pt" margin-top="18pt" margin-right="18pt" margin-bottom="18pt" margin-left="18pt"/>
+  <html display="block">
+    <body display="block" font-size="10pt" line-height="1.3">
+      <ol class="decimal" display="block" list-style-type="decimal" margin-bottom="6pt" padding-left="24pt">
+        <li display="list-item" margin-bottom="4pt">Outer eight<ol class="decimal" display="block" margin-bottom="6pt" padding-left="24pt"><li display="list-item" margin-bottom="4pt">Inner three</li><li display="list-item" margin-bottom="4pt">Inner four</li></ol></li>
+        <li display="list-item" margin-bottom="4pt">Outer nine wraps onto another line with enough words to check marker alignment.</li>
+        <li display="list-item" margin-bottom="4pt">Outer ten</li>
+      </ol>
+      <ul class="disc" display="block" margin-bottom="6pt" padding-left="24pt">
+        <li display="list-item" margin-bottom="4pt">Bullet one</li>
+        <li display="list-item" margin-bottom="4pt">Bullet two</li>
+      </ul>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

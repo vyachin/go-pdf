@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Page and target counters"/>
+  <page width="280pt" height="180pt" margin-top="24pt" margin-right="24pt" margin-bottom="24pt" margin-left="24pt"/>
+  <margin-box name="bottom-center" content="&quot;Page &quot; | counter(page) | &quot; of &quot; | counter(pages)"/>
+  <margin-box name="top-left" content="&quot;REPORT&quot;"/>
+  <html display="block">
+    <body display="block" font-size="10pt" line-height="1.3">
+      <h1 display="block" font-size="14pt" font-weight="700" margin-bottom="8pt">CONTENTS</h1>
+      <p display="block" margin-bottom="6pt">
+        <a after-content="&quot; ... &quot; | target-counter(attr(href), page)" class="toc" color="#205080">Alpha</a>
+      </p>
+      <p display="block" margin-bottom="6pt">
+        <a after-content="&quot; ... &quot; | target-counter(attr(href), page)" class="toc" color="#205080">Beta</a>
+      </p>
+      <h2 break-before="page" display="block" font-size="14pt" font-weight="700" id="alpha" margin-bottom="8pt">ALPHA</h2>
+      <p display="block" margin-bottom="6pt">First section.</p>
+      <h2 break-before="page" display="block" font-size="14pt" font-weight="700" id="beta" margin-bottom="8pt">BETA</h2>
+      <p display="block" margin-bottom="6pt">Second section.</p>
+    </body>
+  </html>
+  <diagnostics/>
+</document>

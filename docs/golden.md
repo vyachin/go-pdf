@@ -114,6 +114,26 @@ fixture ever runs it.
 4. Review the new golden: it is the contract, so a mistake committed now is
    frozen. Remove a fixture and both its goldens together.
 
+The focused visual regression fixtures also include:
+
+- `visual-inline-flow`: an inline image with HTML dimension hints, mixed font
+  sizes, inherited decorations, a nonbreaking space, a forced break,
+  preformatted whitespace and hidden content.
+- `visual-nested-lists`: nested ordered lists with separate starting numbers,
+  a wrapped item, a two-digit marker and an unordered list.
+- `visual-table-pagination`: eight rows across two pages with a repeated
+  header, alternating backgrounds, right-aligned amounts and a final total.
+- `visual-page-counters`: three pages with running margin boxes and a table of
+  contents whose target counters point to the later sections.
+
+`TestVisualFixtureContracts` checks these four documents without a rasterizer:
+conversion must report no diagnostics, every content marker must occur exactly
+once, hidden text must be absent, and page counts, repeated table headers and
+margin counters must be correct. Complete text for each page is also compared
+with `testdata/golden/visual-*.txt`, separated by `--- page ---`. Regenerate that
+layer with `go test ./internal/engine -run TestVisualFixtureContracts -update`;
+updates are refused when the content assertions fail.
+
 ## Reviewing a change
 
 - A document snapshot diff is the review: the changed line names the element and
@@ -135,13 +155,15 @@ expected names, so a rename that drops one from the selection fails there instea
 of passing with an empty run. The label floats: the job follows
 the image GitHub serves, so when that image rolls the renderer changes and the
 render goldens are regenerated in the change that accepts the new rasters. In addition, a dedicated
-`Golden snapshots` step runs the three tests explicitly with `-count=1 -v` and
+`Golden snapshots` step runs both layers, the profile coverage check and
+`TestVisualFixtureContracts` explicitly with `-count=1 -v` and
 fails when any of them is skipped:
 
 ```
 if grep -q -- '--- SKIP' golden.log; then exit 1; fi
 grep -q -- '--- PASS: TestDocumentSnapshots ' golden.log
 grep -q -- '--- PASS: TestRenderSnapshots ' golden.log
+grep -q -- '--- PASS: TestVisualFixtureContracts ' golden.log
 ```
 
 The suite already contains the tests, but a suite can be green because a test

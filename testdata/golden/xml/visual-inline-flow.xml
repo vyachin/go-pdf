@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document version="1">
+  <meta title="Inline flow and decorations"/>
+  <page width="280pt" height="240pt" margin-top="18pt" margin-right="18pt" margin-bottom="18pt" margin-left="18pt"/>
+  <html display="block">
+    <body color="#18324a" display="block" font-size="10pt" line-height="1.4">
+      <p display="block" margin-bottom="8pt">Before <img height="15pt" vertical-align="middle" width="15pt"/> <span class="badge" color="#246080" font-size="14pt" font-weight="700">READY</span> after.</p>
+      <p display="block" margin-bottom="8pt"><span class="underline" color="#006060" text-decoration="underline">Underlined <strong font-weight="700">bold</strong></span> and <span class="strike" color="#903030" text-decoration="line-through">removed</span>.</p>
+      <p display="block" margin-bottom="8pt">A nonbreaking pair: 10 000. A<br/>forced line break.</p>
+      <p background-color="#eeeeee" class="pre" display="block" margin-bottom="8pt" padding="4pt" white-space="pre">  first line
+    second line</p>
+      <div display="block">SECRET</div>
+    </body>
+  </html>
+  <diagnostics/>
+</document>
